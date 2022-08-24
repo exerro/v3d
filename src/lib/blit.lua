@@ -20,16 +20,23 @@ for i = 0, 15 do
 	colour_lookup[i + 1] = i < 10 and ("0"):byte() + i or ("a"):byte() + i - 10
 end
 
-local function blit_idx(texture_data, texture_width, texture_height, term, fallback_table)
+local function blit_idx(texture_data, texture_width, texture_height, term, fallback_table, dirty_texture)
 	local base_index = 1
 	local base_index_delta = texture_width * 3
 	local y = 1
+	local dirty_index = 1
+	
+	local rowBg = {}
+	local rowFg = {}
+	local rowCh = {}
+
+	dirty_texture = dirty_texture or {}
 
 	for ty = 1, texture_height, SUBPIXEL_HEIGHT do
-		local rowBg = {}
-		local rowFg = {}
-		local rowCh = {}
 		local rowIdx = 1
+		local row_dirty = false
+		local row_dirty_first_index = 0
+		local row_dirty_last_index = 0
 
 		for txd = 0, texture_width - 1, SUBPIXEL_WIDTH do
 			local px_index = base_index + txd
@@ -42,7 +49,6 @@ local function blit_idx(texture_data, texture_width, texture_height, term, fallb
 			local c4 = texture_data[px_index2]
 			local c5 = texture_data[px_index2 + 1]
 			local colours = { c0, c1, c2, c3, c4, c5 }
-
 			local totals = { [c0] = 1 }
 			local max_count0, max_count0_colour = 1, c0
 			local max_count1, max_count1_colour = 0, max_count0_colour + 1
@@ -76,7 +82,8 @@ local function blit_idx(texture_data, texture_width, texture_height, term, fallb
 
 				if c ~= bg_colour and c ~= fg_colour then
 					local ftl = fallback_table[c]
-					for j = 1, #ftl do
+					colours[i] = bg_colour
+					for j = 1, 4 do -- check the first 4 fallback colours
 						if ftl[j] == bg_colour or ftl[j] == fg_colour then
 							colours[i] = ftl[j]
 							break
@@ -95,29 +102,64 @@ local function blit_idx(texture_data, texture_width, texture_height, term, fallb
 				end
 			end
 
-			rowBg[rowIdx] = colour_lookup[bg_colour + 1]
-			rowFg[rowIdx] = colour_lookup[fg_colour + 1]
-			rowCh[rowIdx] = subpixel_n
+			local bg = colour_lookup[bg_colour + 1]
+			local fg = colour_lookup[fg_colour + 1]
+
+			local this_dirty = dirty_texture == nil or dirty_texture[dirty_index] ~= bg or dirty_texture[dirty_index + 1] ~= fg or dirty_texture[dirty_index + 2] ~= subpixel_n
+
+			if not row_dirty and this_dirty then
+				row_dirty = true
+				row_dirty_first_index = txd
+			end
+
+			if this_dirty then
+				row_dirty_last_index = txd
+			end
+
+			if row_dirty then
+				rowBg[rowIdx] = bg
+				rowFg[rowIdx] = fg
+				rowCh[rowIdx] = subpixel_n
+				if dirty_texture then
+					dirty_texture[dirty_index] = bg
+					dirty_texture[dirty_index + 1] = fg
+					dirty_texture[dirty_index + 2] = subpixel_n
+				end
+			end
+
 			rowIdx = rowIdx + 1
+			dirty_index = dirty_index + 3
 		end
 
-		term.setCursorPos(1, y)
-		term.blit(string_char(table_unpack(rowCh)), string_char(table_unpack(rowFg)), string_char(table_unpack(rowBg)))
+		if row_dirty then
+			local i0 = row_dirty_first_index / SUBPIXEL_WIDTH + 1
+			local i1 = row_dirty_last_index  / SUBPIXEL_WIDTH + 1
+			local chs = string_char(table_unpack(rowCh, i0, i1))
+			local fgs = string_char(table_unpack(rowFg, i0, i1))
+			local bgs = string_char(table_unpack(rowBg, i0, i1))
+
+			term.setCursorPos(i0, y)
+			-- term.blit((" "):rep(#chs), fgs, ("a"):rep(#bgs))
+			term.blit(chs, fgs, bgs)
+		end
 
 		base_index = base_index + base_index_delta
 		y = y + 1
 	end
 end
 
-return function(texture, term, fallback_table)
+return function(texture, term, fallback_table, dirty_texture)
 	assert(type(texture) == "table" and texture.__type == libtexture.__type, "Expected Texture")
 	assert(type(term) == "table", "Expected table term")
 	assert(type(fallback_table) == "table" and fallback_table.__type == libfallbackTable.__type, "Expected FallbackTable")
+	assert(dirty_texture == nil or type(dirty_texture) == "table" and dirty_texture.__type == libtexture.__type, "Expected dirty_texture texture")
 	assert(texture.width % SUBPIXEL_WIDTH == 0, "Texture width is not a multiple of " .. SUBPIXEL_WIDTH)
 	assert(texture.height % SUBPIXEL_HEIGHT == 0, "Texture height is not a multiple of " .. SUBPIXEL_HEIGHT)
+	assert(dirty_texture == nil or texture.width == SUBPIXEL_WIDTH * dirty_texture.width, "Texture width is not proportional to dirty texture width")
+	assert(dirty_texture == nil or texture.height == SUBPIXEL_HEIGHT * dirty_texture.height, "Texture height is not proportional to dirty texture height")
 
 	if texture.format == TextureFormat.Idx1 then
-		return blit_idx(texture, texture.width, texture.height, term, fallback_table)
+		return blit_idx(texture, texture.width, texture.height, term, fallback_table, dirty_texture)
 	elseif texture.format == TextureFormat.Col1 then
 		local data = {}
 
@@ -125,7 +167,7 @@ return function(texture, term, fallback_table)
 			data[i] = math_floor(math_log(texture[i], 2))
 		end
 
-		return blit_idx(data, texture.width, texture.height, term, fallback_table)
+		return blit_idx(data, texture.width, texture.height, term, fallback_table, dirty_texture)
 	else
 		error("Unsupported texture format " .. tostring(texture.format))
 	end

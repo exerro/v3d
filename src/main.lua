@@ -3,8 +3,10 @@ local ccgl3d = require "lib.ccgl3d"
 
 print("Using CCGL3D v" .. ccgl3d.version)
 
+local w, h = term.getSize()
 local camera = ccgl3d.camera.createPerspective(30)
-local texture = ccgl3d.texture.createSubpixel(ccgl3d.TextureFormat.Col1, 102, 38)
+local dirty_texture = ccgl3d.texture.create(ccgl3d.TextureFormat.BFC1, w, h)
+local texture = ccgl3d.texture.createSubpixel(ccgl3d.TextureFormat.Col1, w, h)
 local viewport = ccgl3d.viewport.create(texture)
 local fallback_table = ccgl3d.fallback_table.create(term)
 local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
@@ -12,7 +14,7 @@ local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
 	-0.5, 0.5, 0.5,
 	-0.5, 0.5, -0.5,
 	-0.5, -0.5, -0.5,
-	colours.pink,
+	colours.lightBlue,
 	-0.5, 0.5, 0.5,
 	-0.5, -0.5, -0.5,
 	-0.5, -0.5, 0.5,
@@ -25,7 +27,7 @@ local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
 	0.5, 0.5, 0.5,
 	0.5, -0.5, 0.5,
 	0.5, -0.5, -0.5,
-	colours.orange,
+	colours.red,
 	-- front
 	-0.5, 0.5, 0.5,
 	-0.5, -0.5, 0.5,
@@ -34,7 +36,7 @@ local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
 	-0.5, 0.5, 0.5,
 	0.5, -0.5, 0.5,
 	0.5, 0.5, 0.5,
-	colours.cyan,
+	colours.blue,
 	-- back
 	-0.5, 0.5, -0.5,
 	0.5, -0.5, -0.5,
@@ -43,7 +45,7 @@ local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
 	-0.5, 0.5, -0.5,
 	0.5, 0.5, -0.5,
 	0.5, -0.5, -0.5,
-	colours.brown,
+	colours.yellow,
 	-- top
 	0.5, 0.5, -0.5,
 	-0.5, 0.5, -0.5,
@@ -52,26 +54,26 @@ local buffer = ccgl3d.buffer.create(ccgl3d.BufferFormat.Pos3Col1) {
 	0.5, 0.5, -0.5,
 	-0.5, 0.5, 0.5,
 	0.5, 0.5, 0.5,
-	colours.lime,
+	colours.green,
 	-- bottom
 	0.5, -0.5, -0.5,
 	-0.5, -0.5, 0.5,
 	-0.5, -0.5, -0.5,
-	colours.purple,
+	colours.magenta,
 	0.5, -0.5, -0.5,
 	0.5, -0.5, 0.5,
 	-0.5, -0.5, 0.5,
 	colours.magenta,
 }
 
-local bc = #buffer
-for i = 1, bc do
-	for n = 1, 9 do
-		buffer[bc * n + i] = buffer[i]
-	end
-end
+-- local bc = #buffer
+-- for i = 1, bc do
+-- 	for n = 1, 9 do
+-- 		buffer[bc * n + i] = buffer[i]
+-- 	end
+-- end
 
-buffer.size = #buffer
+-- buffer.size = #buffer
 
 -- error(#buffer / 10)
 
@@ -82,19 +84,29 @@ while true do
 	local ft0 = os.clock()
 	local t = ft0 - t0
 	ccgl3d.render.clear(texture)
-	ccgl3d.render.draw_triangles(buffer, texture, camera, viewport, {
-		model_transform = ccgl3d.transform
-			:translate_to(0, 0, -2)
-			:rotate_x_to(t)
-			:rotate_z_to(math.sin(t))
-			:rotate_y_to(t * 2),
-		-- model_transform = ccgl3d.transform:translate_to((i / count * 2) - 1, 0, -1),
-		-- view_transform = ccgl3d.transform:translate_to(-1, 0, 0),
-		cull_back_face = true,
-	})
+
+	for z = -8, 0 do
+		for y = -2, 2, 0.5 do
+			for x = -2, 2, 0.5 do
+				ccgl3d.render.draw_triangles(buffer, texture, camera, viewport, {
+					model_transform = ccgl3d.transform
+						:translate_to(x, y, z - 2)
+						:rotate_x_to(t + x * 2)
+						:rotate_z_to(math.sin(t + y * 2))
+						:rotate_y_to(t * 2 + z * 2)
+						:scale_to(0.25, 0.25, 0.25),
+					-- model_transform = ccgl3d.transform:translate_to((i / count * 2) - 1, 0, -1),
+					-- view_transform = ccgl3d.transform:translate_to(-1, 0, 0),
+					cull_back_face = true,
+				})
+			end
+		end
+	end
 
 	local rt = os.clock() - ft0
 
+	-- term.setBackgroundColour(colours.black)
+	-- term.clear()
 	ccgl3d.blit(texture, term, fallback_table)
 
 	local dt = os.clock() - ft0

@@ -19,19 +19,29 @@ function texture.create(format, width, height)
 		size = width * height,
 		width = width,
 		height = height,
-		pixel_size = 1,
+		pixel_size = 1, -- updated later
 	}
 
+	local pixel_data
+
 	if format == TextureFormat.Idx1 then
-		tx.pixel_size = 1
-	elseif format == TextureFormat.Rgb1 then
-		tx.pixel_size = 3
+		pixel_data = { 15 }
+	elseif format == TextureFormat.Col1 then
+		pixel_data = { 2^15 }
+	elseif format == TextureFormat.RGB1 then
+		pixel_data = { 0, 0, 0 }
 	elseif format == TextureFormat.Dpt1 then
-		tx.pixel_size = 1
+		pixel_data = { math.huge }
+	elseif format == TextureFormat.BFC1 then
+		pixel_data = { -1, -1, "" }
+	else
+		error("Unknown format '" .. tostring(format) .. "'", 2)
 	end
 
+	tx.pixel_size = #pixel_data
+
 	for i = 1, width * height * tx.pixel_size do
-		tx[i] = 0
+		tx[i] = pixel_data[(i - 1) % tx.pixel_size + 1]
 	end
 
 	return tx
