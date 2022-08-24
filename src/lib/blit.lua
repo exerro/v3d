@@ -164,7 +164,7 @@ return function(texture, term, fallback_table, dirty_texture)
 		local data = {}
 
 		for i = 1, texture.size do
-			data[i] = math_floor(math_log(texture[i], 2))
+			data[i] = math_floor(math_log(texture[i], 2) + 0.5)
 		end
 
 		return blit_idx(data, texture.width, texture.height, term, fallback_table, dirty_texture)

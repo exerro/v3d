@@ -83,22 +83,26 @@ local count = 200
 while true do
 	local ft0 = os.clock()
 	local t = ft0 - t0
+	local model_draws = 0
 	ccgl3d.render.clear(texture)
 
-	for z = -8, 0 do
-		for y = -2, 2, 0.5 do
+	for z = -1, 0 do
+		for y = -1, 1, 0.5 do
 			for x = -2, 2, 0.5 do
 				ccgl3d.render.draw_triangles(buffer, texture, camera, viewport, {
 					model_transform = ccgl3d.transform
-						:translate_to(x, y, z - 2)
+						-- :translate_to(x, y, z - 2)
+						:translate_to(0, 0, -2)
 						:rotate_x_to(t + x * 2)
 						:rotate_z_to(math.sin(t + y * 2))
 						:rotate_y_to(t * 2 + z * 2)
-						:scale_to(0.25, 0.25, 0.25),
+						:scale_to(0.75, 0.75, 0.75),
+						-- :scale_to(0.25, 0.25, 0.25),
 					-- model_transform = ccgl3d.transform:translate_to((i / count * 2) - 1, 0, -1),
 					-- view_transform = ccgl3d.transform:translate_to(-1, 0, 0),
-					cull_back_face = true,
+					-- cull_back_face = true,
 				})
+				model_draws = model_draws + 1
 			end
 		end
 	end
@@ -107,7 +111,8 @@ while true do
 
 	-- term.setBackgroundColour(colours.black)
 	-- term.clear()
-	ccgl3d.blit(texture, term, fallback_table)
+	-- ccgl3d.blit(texture, term, fallback_table)
+	ccgl3d.blit(texture, term, fallback_table, dirty_texture)
 
 	local dt = os.clock() - ft0
 	local bt = dt - rt
@@ -120,6 +125,10 @@ while true do
 	term.write("blit:  " .. math.floor(bt * 1000 + 0.5) .. "ms (" .. math.floor(1/bt) .. "fps)")
 	term.setCursorPos(1, 3)
 	term.write("draw:  " .. math.floor(rt * 1000 + 0.5) .. "ms (" .. math.floor(1/rt) .. "fps)")
+	term.setCursorPos(1, 4)
+	term.write("load:  " .. model_draws .. " models, " .. buffer.size / 10 * model_draws .. " triangles")
+	term.setCursorPos(1, 5)
+	term.write("size:  (" .. w .. ", " .. h .. ") terminal, (" .. texture.width .. ", " .. texture.height .. ") texture")
 
 	local e = tostring {}
 	sleep(0.05)
