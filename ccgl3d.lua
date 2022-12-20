@@ -316,10 +316,14 @@ local function rasterize_flat_triangle(
 	xmin, xmax,
 	colour)
 	-- p*x, p*y are pixel coordinates
-	local y0i = math.max(0, math.min(math.floor(y0 + 0.5), fb_height - 1))
-	local y1i = math.max(0, math.min(math.floor(y1 + 0.5), fb_height - 1))
-	local y0Error = (y0i - math.floor(y0 + 0.5)) / (y1 - y0)
-	local y1Error = (math.floor(y1 + 0.5) - y1i) / (y1 - y0)
+	local math_min, math_max, math_floor = math.min, math.max, math.floor
+	local y0r = math_floor(y0 + 0.5)
+	local y1r = math_floor(y1 + 0.5)
+	local y0i = math_max(0, math_min(y0r, fb_height - 1))
+	local y1i = math_max(0, math_min(y1r, fb_height - 1))
+	local yd = y1 - y0
+	local y0Error = (y0i - y0r) / yd
+	local y1Error = (y1r - y1i) / yd
 
 	lx = lx + (lxt - lx) * y0Error
 	rx = rx + (rxt - rx) * y0Error
@@ -331,8 +335,8 @@ local function rasterize_flat_triangle(
 
 	for y = y0i, y1i do
 		local yi = y * fb_width + 1
-		local lxi = math.max(xmin, math.min(xmax, math.floor(lx + 0.5)))
-		local rxi = math.max(xmin, math.min(xmax, math.floor(rx + 0.5)))
+		local lxi = math_max(xmin, math_min(xmax, math_floor(lx + 0.5)))
+		local rxi = math_max(xmin, math_min(xmax, math_floor(rx + 0.5)))
 		for x = lxi, rxi do
 			fb_front[yi + x] = colour
 		end
@@ -351,6 +355,8 @@ local function rasterize_triangle(
 	p1x, p1y,
 	p2x, p2y,
 	colour)
+	local math_min, math_max, math_floor = math.min, math.max, math.floor
+
 	-- p*x, p*y are normalised -1 to 1 in a box centred on the centre of the
 	-- screen whose height corresponds to the screen height
 	if p0y > p1y then
@@ -390,14 +396,14 @@ local function rasterize_triangle(
 	end
 
 	if p0y ~= p1y then
-		local xmin = math.max(0, math.floor(math.min(lx, p0x) + 0.5))
-		local xmax = math.min(fb_width - 1, math.floor(math.max(rx, p0x) + 0.5))
+		local xmin = math_max(0, math_floor(math_min(lx, p0x) + 0.5))
+		local xmax = math_min(fb_width - 1, math_floor(math_max(rx, p0x) + 0.5))
 		rasterize_flat_triangle(fb_front, fb_width, fb_height, p1y, p0y, lx, p0x, rx, p0x, xmin, xmax, colour)
 	end
 
 	if p1y ~= p2y then
-		local xmin = math.max(0, math.floor(math.min(lx, p2x) + 0.5))
-		local xmax = math.min(fb_width - 1, math.floor(math.max(rx, p2x) + 0.5))
+		local xmin = math_max(0, math_floor(math_min(lx, p2x) + 0.5))
+		local xmax = math_min(fb_width - 1, math_floor(math_max(rx, p2x) + 0.5))
 		rasterize_flat_triangle(fb_front, fb_width, fb_height, p2y, p1y, p2x, lx, p2x, rx, xmin, xmax, colour)
 	end
 end
@@ -412,6 +418,7 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 	local pyd = (fb.height - 1) / 2
 	local pxs = pyd
 	local pys = -pyd
+	local fb_front, fb_width, fb_height = fb.front, fb.width, fb.height
 
 	aspect_ratio = aspect_ratio or fb.width / fb.height
 
@@ -486,7 +493,7 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 			local p0d = -1 / p0z
 			local p1d = -1 / p1z
 			local p2d = -1 / p2z
-			rasterize_triangle(fb.front, fb.width, fb.height, pxd, pyd, pxs, pys, p0x * p0d, p0y * p0d, p1x * p1d, p1y * p1d, p2x * p2d, p2y * p2d, colour)
+			rasterize_triangle(fb_front, fb_width, fb_height, pxd, pyd, pxs, pys, p0x * p0d, p0y * p0d, p1x * p1d, p1y * p1d, p2x * p2d, p2y * p2d, colour)
 		end
 	end
 end

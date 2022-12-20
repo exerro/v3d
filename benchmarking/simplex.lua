@@ -503,7 +503,7 @@ function simplex.FractalSum(func, iter, ...)
         for elem in ipairs({...}) do
             table.insert(scaled, elem*s)
         end
-        ret = ret + (i/power)*(func(unpack(scaled)))
+        ret = ret + (i/power)*(func(table.unpack(scaled)))
     end
     return ret
 end
@@ -518,7 +518,7 @@ function simplex.FractalSumAbs(func, iter, ...)
         for elem in ipairs({...}) do
             table.insert(scaled, elem*s)
         end
-        ret = ret + (i/power)*(math.abs(func(unpack(scaled))))
+        ret = ret + (i/power)*(math.abs(func(table.unpack(scaled))))
     end
     return ret
 end
@@ -533,7 +533,7 @@ function simplex.Turbulence(func, direction, iter, ...)
         for elem in ipairs({...}) do
             table.insert(scaled, elem*s)
         end
-        ret = ret + (i/power)*(math.abs(func(unpack(scaled))))
+        ret = ret + (i/power)*(math.abs(func(table.unpack(scaled))))
     end
     local args = {...}
     local dir_component = args[direction+1]

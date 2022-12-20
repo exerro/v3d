@@ -47,8 +47,7 @@ end
 local function benchmark(
 	chart, library, model, screen_size, triangles,
 	clear_fn, draw_fn, present_fn,
-	warmup_iterations, min_iterations, min_duration
-)
+	warmup_iterations, min_iterations, min_duration)
 	local clock = os.clock
 
 	for _ = 1, warmup_iterations do
@@ -89,7 +88,7 @@ local function benchmark(
 end
 
 --- @returns Shape
-function flat_model_to_shape(t)
+local function flat_model_to_shape(t)
 	local r = { triangles = #t / 10 }
 
 	for i = 1, #t, 10 do
