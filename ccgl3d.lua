@@ -8,12 +8,101 @@
 local CH_SPACE = string.byte ' '
 local CH_0 = string.byte '0'
 local CH_A = string.byte 'a'
-local ch_lookup = {}
-local string_char = string.char
-local table_unpack = table.unpack
+local BT_SUBPIXEL_NOISEY = string.char(149)
+local ch_lookup_byte = {}
+local ch_lookup_char = {}
+local ch_lookup_subpixel = {}
+local subpixel_code_ch_lookup = {}
+local subpixel_code_fg_lookup = {}
+local subpixel_code_bg_lookup = {}
 
 for i = 0, 15 do
-	ch_lookup[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
+	ch_lookup_byte[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
+	ch_lookup_char[2 ^ i] = string.char(ch_lookup_byte[2 ^ i])
+end
+
+local function subpixel_byte_value(v0, v1, v2, v3, v4, v5)
+	local b0 = v0 == v5 and 0 or 1
+	local b1 = v1 == v5 and 0 or 1
+	local b2 = v2 == v5 and 0 or 1
+	local b3 = v3 == v5 and 0 or 1
+	local b4 = v4 == v5 and 0 or 1
+
+	return 128 + b0 + b1 * 2 + b2 * 4 + b3 * 8 + b4 * 16
+end
+
+local function subpixel_char_value(v0, v1, v2, v3, v4, v5)
+	return string.char(subpixel_byte_value(v0, v1, v2, v3, v4, v5))
+end
+
+local function eval_subpixel_lookups(ci0, ci1, ci2, ci3, ci4, ci5, subpixel_code)
+	local colour_count = { [ci0] = 1 }
+	local unique_colour_values = { ci0 }
+	local unique_colours = 1
+
+	for _, c in ipairs { ci1, ci2, ci3, ci4, ci5 } do
+		if colour_count[c] then
+			colour_count[c] = colour_count[c] + 1
+		else
+			colour_count[c] = 1
+			unique_colours = unique_colours + 1
+			unique_colour_values[unique_colours] = c
+		end
+	end
+
+	table.sort(unique_colour_values, function(a, b)
+		return colour_count[a] > colour_count[b]
+	end)
+
+	if unique_colours == 1 then -- these should never be used!
+		subpixel_code_ch_lookup[subpixel_code] = false
+		subpixel_code_fg_lookup[subpixel_code] = false
+		subpixel_code_bg_lookup[subpixel_code] = false
+		return
+	end
+
+	local colour_indices = { ci0, ci1, ci2, ci3, ci4, ci5 }
+	local modal1_colour_index = unique_colour_values[1]
+	local modal2_colour_index = unique_colour_values[2]
+	local modal1_index = 0
+	local modal2_index = 0
+
+	for i = 1, 6 do
+		if colour_indices[i] == modal1_colour_index then
+			modal1_index = i
+		end
+		if colour_indices[i] == modal2_colour_index then
+			modal2_index = i
+		end
+	end
+
+	-- spatially map pixels!
+	ci0 = (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or ci2
+	ci1 = (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or ci3
+	ci2 = (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or ci4
+	ci3 = (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or ci5
+	ci4 = (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or ci2
+	ci5 = (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or ci3
+
+	subpixel_code_ch_lookup[subpixel_code] = subpixel_char_value(ci0, ci1, ci2, ci3, ci4, ci5)
+	subpixel_code_fg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal2_index or modal1_index
+	subpixel_code_bg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal1_index or modal2_index
+end
+
+local subpixel_code = 0
+for c5 = 0, 3 do
+	for c4 = 0, 3 do
+		for c3 = 0, 3 do
+			for c2 = 0, 3 do
+				for c1 = 0, 3 do
+					for c0 = 0, 3 do
+						eval_subpixel_lookups(c0, c1, c2, c3, c4, c5, subpixel_code)
+						subpixel_code = subpixel_code + 1
+					end
+				end
+			end
+		end
+	end
 end
 
 --- @class ccFramebuffer
@@ -57,42 +146,6 @@ local function clear_framebuffer(fb, colour)
 	end
 end
 
-local function create_proximity_list(term)
-	local rgbLookup = {}
-	local distances = {}
-
-	for i = 0, 15 do
-		rgbLookup[2 ^ i] = { term.getPaletteColour(2 ^ i) }
-		distances[2 ^ i] = {}
-	end
-
-	for i = 0, 15 do
-		local i0 = 2 ^ i
-		local rgb0 = rgbLookup[i0]
-		for j = i + 1, 15 do
-			local i1 = 2 ^ j
-			local rgb1 = rgbLookup[i1]
-			local dr = rgb1[1] - rgb0[1]
-			local dg = rgb1[2] - rgb0[2]
-			local db = rgb1[3] - rgb0[3]
-			local distance = dr * dr + dg * dg + db * db
-			table.insert(distances[i0], { i1, distance })
-			table.insert(distances[i1], { i0, distance })
-		end
-	end
-	
-	for i = 0, 15 do
-		local t = distances[2 ^ i]
-		table.sort(t, function(a, b) return a[2] < b[2] end)
-		
-		for i = 1, #t do
-			t[i] = t[i][1]
-		end
-	end
-
-	return distances
-end
-
 --- Render a framebuffer to the screen, swapping its buffers, and handling
 --- subpixel conversion
 --- @param fb ccFramebuffer
@@ -106,113 +159,84 @@ local function present_framebuffer(fb, term, dx, dy)
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
 
-	local front, back = fb.front, fb.back
-	fb.front, fb.back = back, front -- swap buffers
+	local fb_front, fb_width = fb.front, fb.width
+	fb.front, fb.back = fb.back, fb_front -- swap buffers
 
 	local xBlit = 1 + dx
 	local yBlit = 1 + dy
 
-	local palette_proximity_list -- lateinit
+	local string_char = string.char
+	local table_unpack = table.unpack
+	local table_concat = table.concat
+	local term_blit = term.blit
+	local term_setCursorPos = term.setCursorPos
 
-	-- TODO: optimise this
 	for y = 0, fb.height - 1, SUBPIXEL_HEIGHT do
 		local ch_t = {}
 		local fg_t = {}
 		local bg_t = {}
 		local ix = 1
 
-		for x = 1, fb.width, SUBPIXEL_WIDTH do
-			local i0 = y * fb.width + x
-			local i1, i2 = i0 + fb.width, i0 + fb.width * 2
-			local c00, c10 = front[i0], front[i0 + 1]
-			local c01, c11 = front[i1], front[i1 + 1]
-			local c02, c12 = front[i2], front[i2 + 1]
-			local votes = { [c00] = 1 }
-			local max1c, max1n = c00, 1
-			local max2c, max2n = nil, 0
-			local colours = { c00, c10, c01, c11, c02, c12 }
-			local start = 2
+		for x = 1, fb_width, SUBPIXEL_WIDTH do
+			local i0 = y * fb_width + x
+			local i1 = i0 + fb_width
+			local i2 = i1 + fb_width
+			local c00, c10 = fb_front[i0], fb_front[i0 + 1]
+			local c01, c11 = fb_front[i1], fb_front[i1 + 1]
+			local c02, c12 = fb_front[i2], fb_front[i2 + 1]
 
-			for i = start, 6 do
-				local c = colours[i]
-				if c ~= max1c then
-					max2c = c
-					max2n = 1
-					votes[c] = 1
-					start = 3
-					break
-				end
+			local unique_colour_lookup = { [c00] = 0 }
+			local unique_colours = 1
+
+			if not unique_colour_lookup[c01] then
+				unique_colour_lookup[c01] = unique_colours
+				unique_colours = unique_colours + 1
+			end
+			if not unique_colour_lookup[c02] then
+				unique_colour_lookup[c02] = unique_colours
+				unique_colours = unique_colours + 1
+			end
+			if not unique_colour_lookup[c10] then
+				unique_colour_lookup[c10] = unique_colours
+				unique_colours = unique_colours + 1
+			end
+			if not unique_colour_lookup[c11] then
+				unique_colour_lookup[c11] = unique_colours
+				unique_colours = unique_colours + 1
+			end
+			if not unique_colour_lookup[c12] then
+				unique_colour_lookup[c12] = unique_colours
+				unique_colours = unique_colours + 1
 			end
 
-			if max2n == 0 then
-				ch_t[ix] = CH_SPACE
-				fg_t[ix] = CH_0
-				bg_t[ix] = ch_lookup[max1c]
+			if unique_colours == 1 then
+				ch_t[ix] = ' '
+				fg_t[ix] = '0'
+				bg_t[ix] = ch_lookup_char[c00]
+			elseif unique_colours > 4 then -- so random that we're gonna just give up lol
+				ch_t[ix] = BT_SUBPIXEL_NOISEY
+				fg_t[ix] = ch_lookup_char[c01]
+				bg_t[ix] = ch_lookup_char[c00]
 			else
-				for i = start, 6 do
-					local c = colours[i]
-					local cVotes = (votes[c] or 0) + 1
-					votes[c] = cVotes
-					if c == max1c then
-						max1n = cVotes
-					elseif c == max2c then
-						max2n = cVotes
-						if max2n > max1n then
-							max1c, max1n, max2c, max2n = max2c, max2n, max1c, max1n
-						end
-					elseif cVotes > max1n then
-						max1c, max1n, max2c, max2n = c, cVotes, max1c, max1n
-					elseif cVotes > max2n then
-						max2c, max2n = c, cVotes
-					end
+				local subpixel_code = 0
+				local colours = { c00, c10, c01, c11, c02, c12 }
+
+				for i = 6, 1, -1 do
+					subpixel_code = subpixel_code * 4
+					subpixel_code = subpixel_code + unique_colour_lookup[colours[i]] -- guaranteed to be 0 .. 3 inclusive!
 				end
 
-				if max1n + max2n < 6 then
-					-- TODO: switch to spatial proximity
-					palette_proximity_list = palette_proximity_list or create_proximity_list(term)
-
-					for i = 1, 6 do
-						local c = colours[i]
-						if c ~= max1c and c ~= max2c then
-							local p = palette_proximity_list[c]
-							for j = 1, #p do
-								local pp = p[j]
-								if pp == max1c then
-									colours[i] = max1c
-									break
-								elseif pp == max2c then
-									colours[i] = max2c
-									break
-								end
-							end
-						end
-					end
-				end
-
-				-- max1c will be foreground colour
-				-- subpixels require 6th colour to be background colour
-				if colours[6] == max1c then
-					max1c, max2c = max2c, max1c
-				end
-
-				local subpixel_value = 0
-				for i = 5, 1, -1 do
-					subpixel_value = subpixel_value * 2
-					if colours[i] == max1c then
-						subpixel_value = subpixel_value + 1
-					end
-				end
-
-				ch_t[ix] = 128 + subpixel_value
-				fg_t[ix] = ch_lookup[max1c]
-				bg_t[ix] = ch_lookup[max2c]
+				ch_t[ix] = subpixel_code_ch_lookup[subpixel_code]
+				fg_t[ix] = ch_lookup_char[colours[subpixel_code_fg_lookup[subpixel_code]]]
+				bg_t[ix] = ch_lookup_char[colours[subpixel_code_bg_lookup[subpixel_code]]]
 			end
 
 			ix = ix + 1
 		end
 
-		term.setCursorPos(xBlit, yBlit)
-		term.blit(string_char(table_unpack(ch_t)), string_char(table_unpack(fg_t)), string_char(table_unpack(bg_t)))
+		term_setCursorPos(xBlit, yBlit)
+		-- term_blit(string_char(table_unpack(ch_t)), string_char(table_unpack(fg_t)), string_char(table_unpack(bg_t)))
+		term_blit(table_concat(ch_t), table_concat(fg_t), table_concat(bg_t))
 		yBlit = yBlit + 1
 	end
 end

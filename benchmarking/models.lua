@@ -94,7 +94,7 @@ table.insert(models, {
 		local xs = 5 / resolution
 		local zs = 5 / resolution
 		local ns = 1 / 3
-		local z0 = -5
+		local z0 = 6
 
 		for x = -resolution, resolution - 1 do
 			for z = -resolution, resolution - 1 do
