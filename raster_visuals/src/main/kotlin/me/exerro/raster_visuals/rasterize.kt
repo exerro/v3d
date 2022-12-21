@@ -143,7 +143,7 @@ fun rasterizeTriangle(
         val columnMax = min(SCREEN_WIDTH - 1f, ceil(bottomRightX - 0.5f) - 1)
 
         for (x in columnMin.toInt() .. columnMax.toInt()) {
-            setPixel(x, y, c1)
+            setPixel(x, y, c2)
         }
 
         bottomLeftX += bottomLeftGradient
