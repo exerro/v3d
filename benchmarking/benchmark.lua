@@ -3,43 +3,40 @@ local screen_sizes = require 'screen_sizes'
 local libraries = require 'libraries'
 local models = require 'models'
 local chartlib = require 'chart'
+local profiles = require 'profiles'
 
 --------------------------------------------------------------------------------
 
 local args = { ... }
 
 -- TODO: use these
-local specific_benchmark = nil
-local show_results = false
-local test_only = false
+local present_buffers = false
+local profile
 
-while true do
-	if args[1] == '-b' then
-		specific_benchmark = table.remove(args, 2)
+while args[1] do
+	if args[1] == 'd' then
+		present_buffers = true
 		table.remove(args, 1)
-	elseif args[1] == 'd' then
-		show_results = true
-		table.remove(args, 1)
-	elseif args[1] == '-t' then
-		test_only = true
-		table.remove(args, 1)
+	elseif profile then
+		return error("Unexpected arguments: " .. table.concat(args))
 	else
-		break
+		profile = table.remove(args, 1)
 	end
 end
 
-if args[1] then
-	return error("Unexpected arguments: " .. table.concat(args))
-end
-
-if specific_benchmark then
-	print("Running benchmark: " .. specific_benchmark)
+if profile == 'profiles' then
+	for k in pairs(profiles) do
+		print(k)
+	end
+	return
+elseif profile then
+	print("Running profile " .. profile)
 else
-	print("Running all benchmarks")
+	return error('Expected profile')
 end
 
-if show_results then
-	print("Showing results")
+if present_buffers then
+	print("Presenting buffers")
 end
 
 --------------------------------------------------------------------------------
@@ -111,135 +108,80 @@ end
 
 --------------------------------------------------------------------------------
 
-if test_only then
-	local w, h = term.getSize()
-	h = h - 1
-	for mi = 1, #models do
-		for li = 1, #libraries do
-			local model = models[mi]
-			local lib = libraries[li]
-			local model_parameters = {}
+local chart = chartlib.new()
 
-			for i = 1, #model.parameters do
-				model_parameters[i] = model.parameters[i].default
-			end
+local this_profile = profiles[profile] or error("Unknown profile '" .. profile .. "'")
 
-			local model_data = model.create_model(table.unpack(model_parameters))
-			local shape
-
-			if model.format == 'flat' then
-				shape = flat_model_to_shape(model_data)
-			else
-				error("Unimplemented model format '" .. model.format .. "'")
-			end
-
-			local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, w, h)
-
-			clear_fn()
-			draw_fn()
-			present_fn()
-			print ''
-			write('Model: ' .. model.name .. '  ::  Library: ' .. lib.name)
-			
-			if mi ~= #models or li ~= #libraries then
-				os.pullEvent 'mouse_click'
-			end
-		end
+local included_models = models
+if this_profile.include_models then
+	included_models = {}
+	for i = 1, #this_profile.include_models do
+		included_models[i] = models[this_profile.include_models[i]]
 	end
-
-	return
 end
 
---------------------------------------------------------------------------------
-
-local chart = chartlib.new()
-local warmup_iterations = 50
-local min_iterations = 100
-local min_duration = 1
+local included_libraries = libraries
+if this_profile.include_libraries then
+	included_libraries = {}
+	for i = 1, #this_profile.include_libraries do
+		included_libraries[i] = libraries[this_profile.include_libraries[i]]
+	end
+end
 
 for si = 1, #screen_sizes do
-	for mi = 1, #models do
-		for li = 1, #libraries do
-			local screen_size = screen_sizes[si]
-			local model = models[mi]
-			local lib = libraries[li]
-			local model_parameters = {}
+	local screen_size = screen_sizes[si]
+	local ok = true
 
-			for i = 1, #model.parameters do
-				model_parameters[i] = model.parameters[i].default
+	if this_profile.min_width and screen_size.width < this_profile.min_width then ok = false end
+	if this_profile.max_width and screen_size.width > this_profile.max_width then ok = false end
+	if this_profile.min_height and screen_size.height < this_profile.min_height then ok = false end
+	if this_profile.max_height and screen_size.height > this_profile.max_height then ok = false end
+	if this_profile.min_pixels and screen_size.width * screen_size.height < this_profile.min_pixels then ok = false end
+	if this_profile.max_pixels and screen_size.width * screen_size.height > this_profile.max_pixels then ok = false end
+
+	if ok then
+		for _, model in ipairs(included_models) do
+			for _, lib in ipairs(included_libraries) do
+				local model_parameters = {}
+
+				for i = 1, #model.parameters do
+					model_parameters[i] = model.parameters[i].default
+				end
+
+				local model_data = model.create_model(table.unpack(model_parameters))
+				local shape
+
+				if model.format == 'flat' then
+					shape = flat_model_to_shape(model_data)
+				else
+					error("Unimplemented model format '" .. model.format .. "'")
+				end
+
+				local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
+
+				benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
+					this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration)
+
+				if this_profile.post_run then
+					this_profile.post_run()
+				end
 			end
-
-			local model_data = model.create_model(table.unpack(model_parameters))
-			local shape
-
-			if model.format == 'flat' then
-				shape = flat_model_to_shape(model_data)
-			else
-				error("Unimplemented model format '" .. model.format .. "'")
-			end
-
-			local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
-
-			benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn, warmup_iterations, min_iterations, min_duration)
 		end
 	end
+end
+
+local chart_options = this_profile.get_charts()
+
+if #chart_options == 0 then
+	return
 end
 
 term.setCursorPos(1, 1)
 term.clear()
 
-for li = 1, #libraries do
-	if li ~= 1 then
+for i, options in ipairs(chart_options) do
+	if i ~= 1 then
 		print(("="):rep(term.getSize()))
 	end
-	print(chartlib.to_string(chart, {
-		title = libraries[li].name,
-		filter_values = {
-			library = libraries[li],
-		},
-		aggregate = function(...)
-			local t = { ... }
-			local n = #t
-			local r = { iterations = n, draw_time = 0, present_time = 0, total_time = 0, fps = 0 }
-
-			for i = 1, n do
-				r.draw_time = r.draw_time + t[i].draw_time / n
-				r.present_time = r.present_time + t[i].present_time / n
-			end
-
-			r.total_time = r.draw_time + r.present_time
-			r.fps = 1 / r.total_time
-
-			return r
-		end,
-		column_key = 'model',
-		column_key_writer = function (model, dp)
-			return model.name .. ' (' .. dp.triangles .. ')'
-		end,
-		column_key_sorter = function(a, b)
-			return a.triangles < b.triangles
-		end,
-		row_key = 'screen_size',
-		row_key_writer = function (screen_size)
-			return screen_size.name .. ' (' .. screen_size.width .. 'x' .. screen_size.height .. ')'
-		end,
-		row_key_sorter = function(a, b)
-			return a.fps < b.fps
-		end,
-		value_keys = { 'fps', 'draw_time', 'present_time', 'ratio' },
-		value_format = '%4dfps (%5dus %5dus %s)',
-		value_writers = {
-			draw_time = function(t)
-				return t * 1000000
-			end,
-			present_time = function(t)
-				return t * 1000000
-			end,
-			ratio = function(_, dp)
-				local dpd = dp.draw_time / dp.total_time
-				dpd = math.floor(dpd * 100 + 0.5)
-				return string.format('%2d:%2d', dpd, 100 - dpd)
-			end,
-		},
-	}))
+	print(chartlib.to_string(chart, options))
 end

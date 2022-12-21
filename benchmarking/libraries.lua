@@ -1,5 +1,6 @@
 
 --- @class Library
+--- @field id string
 --- @field name string
 --- @field library any
 --- @field setup_fn fun(library: any, shape: Shape, width: integer, height: integer): ClearFn, DrawFn, PresentFn
@@ -22,7 +23,7 @@
 --- @alias DrawFn fun()
 --- @alias PresentFn fun()
 
---- @type { [integer]: Library }
+--- @type { [integer]: Library, [string]: Library }
 local libraries = {}
 
 local oldPath = package.path
@@ -33,12 +34,15 @@ local function try_load_library(name, library, setup_fn)
 	if not ok then
 		print('Failed to load ' .. library)
 	end
-
-	table.insert(libraries, {
+	local l = {
+		id = library,
 		name = name,
 		library = lib,
 		setup_fn = setup_fn,
-	})
+	}
+
+	table.insert(libraries, l)
+	libraries[l.id] = l
 end
 
 --------------------------------------------------------------------------------

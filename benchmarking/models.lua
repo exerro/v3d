@@ -1,7 +1,7 @@
 
 local simplex = require 'simplex'
 
---- @type { [integer]: Model }
+--- @type { [integer]: Model, [string]: Model }
 local models = {}
 
 local cube_polygons -- defined at bottom of file
@@ -144,5 +144,11 @@ cube_polygons = {
 	 1, -0.5,  0,  1, -0.5,  1,  0, -0.5,  0, colours.purple,
 	 1, -0.5,  1,  0, -0.5,  1,  0, -0.5,  0, colours.magenta,
 }
+
+--------------------------------------------------------------------------------
+
+for i = 1, #models do
+	models[models[i].id] = models[i]
+end
 
 return models

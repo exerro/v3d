@@ -12,6 +12,7 @@ local screen_sizes = {
 	{ name = 'Turtle',  width =  39, height =  13 },
 	{ name = 'Pocket',  width =  26, height =  20 },
 	{ name = 'Normal',  width =  51, height =  19 },
+	{ name = 'Large',   width = 100, height =  50 },
 	{ name = 'Monitor', width = 162, height =  80 },
 	{ name = '540p',    width = 260, height = 120 }, -- divide by (2, 3) to account for subpixels
 	{ name = 'Native',  width =   w, height =   h },

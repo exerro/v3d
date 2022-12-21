@@ -2,7 +2,7 @@
 --- @class Chart
 --- @field datapoints { [integer]: ChartDatapoint }
 
---- @class ChartDatapoint: table
+--- @alias ChartDatapoint { [any]: any }
 
 --- @class ChartOptions
 --- @field title string | nil
@@ -17,7 +17,7 @@
 --- @field row_sorter (fun(a: ChartDatapoint, b: ChartDatapoint): boolean) | nil
 --- @field value_keys { [integer]: string }
 --- @field value_format string
---- @field value_writers { [string]: fun(datapoint_value: any, datapoint: ChartDatapoint): string } | nil
+--- @field value_writers { [string]: fun(datapoint_value: any, datapoint: ChartDatapoint): any } | nil
 
 --- @class chart_lib
 local chart = {}
@@ -95,7 +95,7 @@ function chart.to_string(chart, options)
 		end)
 
 		for i = 1, #rowAgg do
-			rows[i] = rowAgg.values
+			rows[i] = rowAgg[i].values
 		end
 	end
 
@@ -117,23 +117,23 @@ function chart.to_string(chart, options)
 	if options.column_sorter then
 		local columnAgg = {}
 
-		for i = 1, #columns do
-			columnAgg[i] = { aggregate = aggregate_many(columns[i]), values = columns[i] }
+		for j = 1, #columns do
+			columnAgg[j] = { aggregate = aggregate_many(columns[j]), values = columns[j] }
 		end
 
 		table.sort(columnAgg, function(a, b)
 			return options.column_sorter(a.aggregate, b.aggregate)
 		end)
 
-		for i = 1, #columnAgg do
-			columns[i] = columnAgg.values
+		for j = 1, #columnAgg do
+			columns[j] = columnAgg[j].values
 		end
 	end
-	
+
 	column_index_lookup = {}
 
-	for i = 1, #columns do
-		column_index_lookup[columns[i][1][options.column_key]] = i
+	for j = 1, #columns do
+		column_index_lookup[columns[j][1][options.column_key]] = j
 	end
 
 	local cells = {}
@@ -179,9 +179,9 @@ function chart.to_string(chart, options)
 	local column_labels = {}
 	local row_labels = {}
 
-	for i = 1, #columns do
-		local column_value = columns[i][1]
-		column_labels[i] = options.column_key_writer and options.column_key_writer(column_value[options.column_key], column_value) or tostring(column_value[options.column_key])
+	for j = 1, #columns do
+		local column_value = columns[j][1]
+		column_labels[j] = options.column_key_writer and options.column_key_writer(column_value[options.column_key], column_value) or tostring(column_value[options.column_key])
 	end
 
 	for i = 1, #rows do

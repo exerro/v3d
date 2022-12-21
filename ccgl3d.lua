@@ -335,8 +335,8 @@ local function rasterize_flat_triangle(
 	local math_min, math_max, math_floor = math.min, math.max, math.floor
 	local y0r = math_floor(y0 + 0.5)
 	local y1r = math_floor(y1 + 0.5)
-	local y0i = math_max(0, math_min(y0r, fb_height - 1))
-	local y1i = math_max(0, math_min(y1r, fb_height - 1))
+	local y0i = math_max(0, y0r)
+	local y1i = math_min(fb_height - 1, y1r)
 	local yd = y1 - y0
 	local y0Error = (y0i - y0r) / yd
 	local y1Error = (y1r - y1i) / yd
@@ -351,8 +351,8 @@ local function rasterize_flat_triangle(
 
 	for y = y0i, y1i do
 		local yi = y * fb_width + 1
-		local lxi = math_max(xmin, math_min(xmax, math_floor(lx + 0.5)))
-		local rxi = math_max(xmin, math_min(xmax, math_floor(rx + 0.5)))
+		local lxi = math_max(xmin, math_floor(lx + 0.5))
+		local rxi = math_min(xmax, math_floor(rx + 0.5))
 		for x = lxi, rxi do
 			fb_front[yi + x] = colour
 		end
@@ -365,35 +365,26 @@ end
 local function rasterize_triangle(
 	fb_front,
 	fb_width, fb_height,
-	pxd, pyd,
-	pxs, pys,
 	p0x, p0y,
 	p1x, p1y,
 	p2x, p2y,
 	colour)
 	local math_min, math_max, math_floor = math.min, math.max, math.floor
 
-	-- p*x, p*y are normalised -1 to 1 in a box centred on the centre of the
-	-- screen whose height corresponds to the screen height
-	if p0y > p1y then
+	-- p*x and p*y are screen coordinates (1 .. size)
+	if p0y < p1y then
 		p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y
 	end
 
-	if p1y > p2y then
+	if p1y < p2y then
 		p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y
 	end
 
-	if p0y > p1y then
+	if p0y < p1y then
 		p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y
 	end
 
-	-- p0, p1, p2 are in height order top -> bottom
-
-	-- convert to screen coordinates
-	p0x, p0y = pxd + p0x * pxs, pyd + p0y * pys
-	p1x, p1y = pxd + p1x * pxs, pyd + p1y * pys
-	p2x, p2y = pxd + p2x * pxs, pyd + p2y * pys
-	-- note, p0, p1, p2 are now height order bottom -> top
+	-- p0, p1, p2 are in height order bottom -> top
 
 	if p0y == p2y then
 		return -- skip early if we have a perfectly flat triangle
@@ -447,6 +438,9 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 	local scale_y = 1 / math.tan(camera.fov)
 	local scale_x = scale_y * aspect_ratio
 
+	scale_x = scale_x * pxs
+	scale_y = scale_y * pys
+
 	local fxx = cosY*cosZ+sinX*sinY*sinZ
 	local fxy = cosX*sinZ
 	local fxz = -sinY*cosZ + sinX*cosY*sinZ
@@ -496,20 +490,17 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 		p2y = fyx * p2x + fyy * p2y + fyz * p2z
 		p2z = fzx * p2x + fzy * p2y + fzz * p2z
 
-		p0x = p0x * scale_x
-		p0y = p0y * scale_y
-		p1x = p1x * scale_x
-		p1y = p1y * scale_y
-		p2x = p2x * scale_x
-		p2y = p2y * scale_y
-
 		-- TODO: backface culling
 
 		if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-			local p0d = -1 / p0z
-			local p1d = -1 / p1z
-			local p2d = -1 / p2z
-			rasterize_triangle(fb_front, fb_width, fb_height, pxd, pyd, pxs, pys, p0x * p0d, p0y * p0d, p1x * p1d, p1y * p1d, p2x * p2d, p2y * p2d, colour)
+			p0x = pxd - p0x * scale_x / p0z
+			p0y = pyd - p0y * scale_y / p0z
+			p1x = pxd - p1x * scale_x / p1z
+			p1y = pyd - p1y * scale_y / p1z
+			p2x = pxd - p2x * scale_x / p2z
+			p2y = pyd - p2y * scale_y / p2z
+
+			rasterize_triangle(fb_front, fb_width, fb_height, p0x, p0y, p1x, p1y, p2x, p2y, colour)
 		end
 	end
 end
