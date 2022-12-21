@@ -44,7 +44,7 @@ table.insert(models, {
 	name = 'Box',
 	format = 'flat',
 	parameters = {
-		{ name = 'count', default = 16, options = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 } }
+		{ name = 'count', default = 16, options = { 1, 2, 4, 8, 16, 32, 64, 128 } }
 	},
 	create_model = function(count)
 		local data = {}

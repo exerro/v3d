@@ -323,95 +323,109 @@ end
 --------------------------------------------------------------------------------
 
 --- @private
-local function rasterize_flat_triangle(
-	fb_front,
-	fb_width, fb_height,
-	y0, y1,
-	lx, lxt,
-	rx, rxt,
-	xmin, xmax,
-	colour)
-	-- p*x, p*y are pixel coordinates
-	local math_min, math_max, math_floor = math.min, math.max, math.floor
-	local y0r = math_floor(y0 + 0.5)
-	local y1r = math_floor(y1 + 0.5)
-	local y0i = math_max(0, y0r)
-	local y1i = math_min(fb_height - 1, y1r)
-	local yd = y1 - y0
-	local y0Error = (y0i - y0r) / yd
-	local y1Error = (y1r - y1i) / yd
-
-	lx = lx + (lxt - lx) * y0Error
-	rx = rx + (rxt - rx) * y0Error
-	lxt = lxt - (lxt - lx) * y1Error
-	rxt = rxt - (rxt - rx) * y1Error
-
-	local ldd = (lxt - lx) / (y1i - y0i)
-	local rdd = (rxt - rx) / (y1i - y0i)
-
-	for y = y0i, y1i do
-		local yi = y * fb_width + 1
-		local lxi = math_max(xmin, math_floor(lx + 0.5))
-		local rxi = math_min(xmax, math_floor(rx + 0.5))
-		for x = lxi, rxi do
-			fb_front[yi + x] = colour
-		end
-		lx = lx + ldd
-		rx = rx + rdd
-	end
-end
-
---- @private
 local function rasterize_triangle(
 	fb_front,
-	fb_width, fb_height,
+	fb_width, fb_height_m1,
 	p0x, p0y,
 	p1x, p1y,
 	p2x, p2y,
 	colour)
-	local math_min, math_max, math_floor = math.min, math.max, math.floor
+	local math_ceil = math.ceil
+	local math_floor = math.floor
+	local fb_width_m1 = fb_width - 1
 
-	-- p*x and p*y are screen coordinates (1 .. size)
-	if p0y < p1y then
-		p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y
+	-- see: https://github.com/exerro/ccgl3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+	-- there's an explanation of the algorithm there
+	-- this code has been heavily microoptimised so won't perfectly resemble that
+
+	if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end
+	if p1y > p2y then p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y end
+	if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end
+	if p0y == p2y then return end -- skip early if we have a perfectly flat triangle
+
+	local f = (p1y - p0y) / (p2y - p0y)
+	local pMx = p0x * (1 - f) + p2x * f
+
+	if pMx > p1x then
+		pMx, p1x = p1x, pMx
 	end
 
-	if p1y < p2y then
-		p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y
+	local rowTopMin = math_floor(p0y + 0.5)
+	local rowBottomMin = math_floor(p1y + 0.5)
+	local rowTopMax = rowBottomMin - 1
+	local rowBottomMax = math_ceil(p2y - 0.5)
+
+	if rowTopMin < 0 then rowTopMin = 0 end
+	if rowBottomMin < 0 then rowBottomMin = 0 end
+	if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
+	if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
+
+	if rowTopMin <= rowTopMax then
+		local topDeltaY = p1y - p0y
+		local topLeftGradient = (pMx - p0x) / topDeltaY
+		local topRightGradient = (p1x - p0x) / topDeltaY
+
+		local topProjection = rowTopMin + 0.5 - p0y
+		local topLeftX = p0x + topLeftGradient * topProjection - 0.5
+		local topRightX = p0x + topRightGradient * topProjection - 1.5
+
+		for baseIndex = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1, fb_width do
+			local columnMin = math_ceil(topLeftX)
+			local columnMax = math_ceil(topRightX)
+
+			if columnMin < 0 then
+				topLeftX = 0
+				topLeftGradient = 0
+				columnMin = topLeftX
+			end
+
+			if columnMax > fb_width_m1 then
+				topRightX = fb_width_m1
+				topRightGradient = 0
+				columnMax = topRightX
+			end
+
+			for x = columnMin, columnMax do
+				fb_front[baseIndex + x] = colour
+			end
+
+			topLeftX = topLeftX + topLeftGradient
+			topRightX = topRightX + topRightGradient
+		end
 	end
 
-	if p0y < p1y then
-		p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y
-	end
+	if rowBottomMin <= rowBottomMax then
+		local bottomDeltaY = p2y - p1y
+		local bottomLeftGradient = (p2x - pMx) / bottomDeltaY
+		local bottomRightGradient = (p2x - p1x) / bottomDeltaY
 
-	-- p0, p1, p2 are in height order bottom -> top
+		local bottomProjection = rowBottomMin + 0.5 - p1y
+		local bottomLeftX = pMx + bottomLeftGradient * bottomProjection - 0.5
+		local bottomRightX = p1x + bottomRightGradient * bottomProjection - 1.5
 
-	if p0y == p2y then
-		return -- skip early if we have a perfectly flat triangle
-	end
+		for baseIndex = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1, fb_width do
+			local columnMin = math_ceil(bottomLeftX)
+			local columnMax = math_ceil(bottomRightX)
 
-	local midpointX = p0x + (p2x - p0x) * (p1y - p0y) / (p2y - p0y)
+			if columnMin < 0 then
+				bottomLeftX = 0
+				bottomLeftGradient = 0
+				columnMin = bottomLeftX
+			end
 
-	if midpointX == p1x then
-		return -- skip early if we have a perfectly flat triangle
-	end
+			if columnMax > fb_width_m1 then
+				bottomRightX = fb_width_m1
+				bottomRightGradient = 0
+				columnMax = bottomRightX
+			end
 
-	local lx, rx = midpointX, p1x
+			for x = columnMin, columnMax do
+				fb_front[baseIndex + x] = colour
+			end
 
-	if rx < lx then
-		lx, rx = rx, lx
-	end
-
-	if p0y ~= p1y then
-		local xmin = math_max(0, math_floor(math_min(lx, p0x) + 0.5))
-		local xmax = math_min(fb_width - 1, math_floor(math_max(rx, p0x) + 0.5))
-		rasterize_flat_triangle(fb_front, fb_width, fb_height, p1y, p0y, lx, p0x, rx, p0x, xmin, xmax, colour)
-	end
-
-	if p1y ~= p2y then
-		local xmin = math_max(0, math_floor(math_min(lx, p2x) + 0.5))
-		local xmax = math_min(fb_width - 1, math_floor(math_max(rx, p2x) + 0.5))
-		rasterize_flat_triangle(fb_front, fb_width, fb_height, p2y, p1y, p2x, lx, p2x, rx, xmin, xmax, colour)
+			bottomLeftX = bottomLeftX + bottomLeftGradient
+			bottomRightX = bottomRightX + bottomRightGradient
+		end
 	end
 end
 
@@ -426,6 +440,7 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 	local pxs = pyd
 	local pys = -pyd
 	local fb_front, fb_width, fb_height = fb.front, fb.width, fb.height
+	local fb_height_m1 = fb.height - 1
 
 	aspect_ratio = aspect_ratio or fb.width / fb.height
 
@@ -500,7 +515,7 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 			p2x = pxd - p2x * scale_x / p2z
 			p2y = pyd - p2y * scale_y / p2z
 
-			rasterize_triangle(fb_front, fb_width, fb_height, p0x, p0y, p1x, p1y, p2x, p2y, colour)
+			rasterize_triangle(fb_front, fb_width, fb_height_m1, p0x, p0y, p1x, p1y, p2x, p2y, colour)
 		end
 	end
 end
@@ -516,6 +531,5 @@ return {
 	add_triangle = add_triangle,
 	rotate_geometry_z = rotate_geometry_z,
 	create_perspective_camera = create_perspective_camera,
-	rasterize_triangle = rasterize_triangle,
 	render_geometry = render_geometry,
 }

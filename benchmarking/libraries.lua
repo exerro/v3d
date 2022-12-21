@@ -55,7 +55,7 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
 	local ccgl3d_render = ccgl3d.render_geometry
 	local aspect = 1
 
-	camera.fov = 0.6
+	camera.fov = math.pi / 4
 	camera.xRotation = 0.3
 	camera.z = 15
 	camera.y = 3

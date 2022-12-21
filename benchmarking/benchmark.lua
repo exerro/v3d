@@ -44,13 +44,15 @@ end
 local function benchmark(
 	chart, library, model, screen_size, triangles,
 	clear_fn, draw_fn, present_fn,
-	warmup_iterations, min_iterations, min_duration)
+	warmup_iterations, min_iterations, min_duration, suppress_present)
 	local clock = os.clock
 
-	for _ = 1, warmup_iterations do
+	for i = 1, warmup_iterations do
 		clear_fn()
 		draw_fn()
-		present_fn()
+		if not suppress_present or i == 1 then
+			present_fn()
+		end
 	end
 
 	local iterations = 0
@@ -62,7 +64,9 @@ local function benchmark(
 		draw_fn()
 		local td = clock() - t0d
 		local t0p = clock()
-		present_fn()
+		if not suppress_present then
+			present_fn()
+		end
 		local tp = clock() - t0p
 		iterations = iterations + 1
 		chartlib.add_data(chart, {
@@ -77,7 +81,7 @@ local function benchmark(
 			total_time = td + tp,
 			fps = 1 / (td + tp),
 		})
-		if clock() - ty > 0.5 then
+		if clock() - ty > 0.2 then
 			os.queueEvent 'benchmark_yield'
 			os.pullEvent 'benchmark_yield'
 			ty = clock()
@@ -180,7 +184,7 @@ for si = 1, #screen_sizes do
 						local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
 
 						benchmarks_iterations = benchmarks_iterations + benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
-							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration)
+							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration, this_profile.suppress_present)
 						benchmarks_run = benchmarks_run + 1
 
 						os.queueEvent 'benchmark_yield'
