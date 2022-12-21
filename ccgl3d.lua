@@ -8,17 +8,14 @@
 local CH_SPACE = string.byte ' '
 local CH_0 = string.byte '0'
 local CH_A = string.byte 'a'
-local BT_SUBPIXEL_NOISEY = string.char(149)
-local ch_lookup_byte = {}
-local ch_lookup_char = {}
-local ch_lookup_subpixel = {}
+local CH_SUBPIXEL_NOISEY = 149
+local colour_lookup_byte = {}
 local subpixel_code_ch_lookup = {}
 local subpixel_code_fg_lookup = {}
 local subpixel_code_bg_lookup = {}
 
 for i = 0, 15 do
-	ch_lookup_byte[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
-	ch_lookup_char[2 ^ i] = string.char(ch_lookup_byte[2 ^ i])
+	colour_lookup_byte[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
 end
 
 local function subpixel_byte_value(v0, v1, v2, v3, v4, v5)
@@ -29,10 +26,6 @@ local function subpixel_byte_value(v0, v1, v2, v3, v4, v5)
 	local b4 = v4 == v5 and 0 or 1
 
 	return 128 + b0 + b1 * 2 + b2 * 4 + b3 * 8 + b4 * 16
-end
-
-local function subpixel_char_value(v0, v1, v2, v3, v4, v5)
-	return string.char(subpixel_byte_value(v0, v1, v2, v3, v4, v5))
 end
 
 local function eval_subpixel_lookups(ci0, ci1, ci2, ci3, ci4, ci5, subpixel_code)
@@ -83,8 +76,7 @@ local function eval_subpixel_lookups(ci0, ci1, ci2, ci3, ci4, ci5, subpixel_code
 	ci3 = (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or ci5
 	ci4 = (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or ci2
 	ci5 = (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or ci3
-
-	subpixel_code_ch_lookup[subpixel_code] = subpixel_char_value(ci0, ci1, ci2, ci3, ci4, ci5)
+	subpixel_code_ch_lookup[subpixel_code] = subpixel_byte_value(ci0, ci1, ci2, ci3, ci4, ci5)
 	subpixel_code_fg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal2_index or modal1_index
 	subpixel_code_bg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal1_index or modal2_index
 end
@@ -163,22 +155,20 @@ local function present_framebuffer(fb, term, dx, dy)
 	fb.front, fb.back = fb.back, fb_front -- swap buffers
 
 	local xBlit = 1 + dx
-	local yBlit = 1 + dy
 
 	local string_char = string.char
 	local table_unpack = table.unpack
-	local table_concat = table.concat
 	local term_blit = term.blit
 	local term_setCursorPos = term.setCursorPos
 
-	for y = 0, fb.height - 1, SUBPIXEL_HEIGHT do
+	local i0 = 1
+
+	for yBlit = 1 + dy, fb.height / SUBPIXEL_HEIGHT + dy do
 		local ch_t = {}
 		local fg_t = {}
 		local bg_t = {}
-		local ix = 1
 
-		for x = 1, fb_width, SUBPIXEL_WIDTH do
-			local i0 = y * fb_width + x
+		for ix = 1, fb_width / SUBPIXEL_WIDTH do
 			local i1 = i0 + fb_width
 			local i2 = i1 + fb_width
 			local c00, c10 = fb_front[i0], fb_front[i0 + 1]
@@ -188,7 +178,7 @@ local function present_framebuffer(fb, term, dx, dy)
 			local unique_colour_lookup = { [c00] = 0 }
 			local unique_colours = 1
 
-			if not unique_colour_lookup[c01] then
+			if c01 ~= c00 then
 				unique_colour_lookup[c01] = unique_colours
 				unique_colours = unique_colours + 1
 			end
@@ -210,34 +200,36 @@ local function present_framebuffer(fb, term, dx, dy)
 			end
 
 			if unique_colours == 1 then
-				ch_t[ix] = ' '
-				fg_t[ix] = '0'
-				bg_t[ix] = ch_lookup_char[c00]
+				ch_t[ix] = CH_SPACE
+				fg_t[ix] = colour_lookup_byte[1]
+				bg_t[ix] = colour_lookup_byte[c00]
 			elseif unique_colours > 4 then -- so random that we're gonna just give up lol
-				ch_t[ix] = BT_SUBPIXEL_NOISEY
-				fg_t[ix] = ch_lookup_char[c01]
-				bg_t[ix] = ch_lookup_char[c00]
+				ch_t[ix] = CH_SUBPIXEL_NOISEY
+				fg_t[ix] = colour_lookup_byte[c01]
+				bg_t[ix] = colour_lookup_byte[c00]
 			else
 				local subpixel_code = 0
 				local colours = { c00, c10, c01, c11, c02, c12 }
 
-				for i = 6, 1, -1 do
-					subpixel_code = subpixel_code * 4
-					subpixel_code = subpixel_code + unique_colour_lookup[colours[i]] -- guaranteed to be 0 .. 3 inclusive!
-				end
+				subpixel_code = subpixel_code
+				              + unique_colour_lookup[c12] * 1024
+				              + unique_colour_lookup[c02] * 256
+				              + unique_colour_lookup[c11] * 64
+				              + unique_colour_lookup[c01] * 16
+				              + unique_colour_lookup[c10] * 4
+				              + unique_colour_lookup[c00]
 
 				ch_t[ix] = subpixel_code_ch_lookup[subpixel_code]
-				fg_t[ix] = ch_lookup_char[colours[subpixel_code_fg_lookup[subpixel_code]]]
-				bg_t[ix] = ch_lookup_char[colours[subpixel_code_bg_lookup[subpixel_code]]]
+				fg_t[ix] = colour_lookup_byte[colours[subpixel_code_fg_lookup[subpixel_code]]]
+				bg_t[ix] = colour_lookup_byte[colours[subpixel_code_bg_lookup[subpixel_code]]]
 			end
 
-			ix = ix + 1
+			i0 = i0 + SUBPIXEL_WIDTH
 		end
 
 		term_setCursorPos(xBlit, yBlit)
-		-- term_blit(string_char(table_unpack(ch_t)), string_char(table_unpack(fg_t)), string_char(table_unpack(bg_t)))
-		term_blit(table_concat(ch_t), table_concat(fg_t), table_concat(bg_t))
-		yBlit = yBlit + 1
+		term_blit(string_char(table_unpack(ch_t)), string_char(table_unpack(fg_t)), string_char(table_unpack(bg_t)))
+		i0 = i0 + fb_width * 2
 	end
 end
 

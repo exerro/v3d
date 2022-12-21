@@ -153,9 +153,9 @@ end
 --------------------------------------------------------------------------------
 
 local chart = chartlib.new()
-local warmup_iterations = 30
-local min_iterations = 10
-local min_duration = 0.5
+local warmup_iterations = 50
+local min_iterations = 100
+local min_duration = 1
 
 for si = 1, #screen_sizes do
 	for mi = 1, #models do

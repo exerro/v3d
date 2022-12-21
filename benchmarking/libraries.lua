@@ -63,7 +63,7 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
 
 	local function clear_fn()
 		ccgl3d.clear_framebuffer(fb, 1)
-		ccgl3d.rotate_geometry_z(geom, 0.01)
+		-- ccgl3d.rotate_geometry_z(geom, 0.01)
 	end
 
 	local function draw_fn()
