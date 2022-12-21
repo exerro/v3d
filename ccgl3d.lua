@@ -432,7 +432,7 @@ end
 --- @param fb ccFramebuffer
 --- @param geometry ccGeometry
 --- @param camera ccCamera
-local function render_geometry(fb, geometry, camera, aspect_ratio)
+local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces)
 	local DATA_PER_TRIANGLE = 10
 	local clipping_plane = -0.0001
 	local pxd = (fb.width - 1) / 2
@@ -443,6 +443,7 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 	local fb_height_m1 = fb.height - 1
 
 	aspect_ratio = aspect_ratio or fb.width / fb.height
+	cull_back_faces = cull_back_faces or 0
 
 	local sinX = math.sin(-camera.xRotation)
 	local sinY = math.sin(-camera.yRotation)
@@ -493,29 +494,46 @@ local function render_geometry(fb, geometry, camera, aspect_ratio)
 		p2y = p2y + fdy
 		p2z = p2z + fdz
 
-		p0x = fxx * p0x + fxy * p0y + fxz * p0z
-		p0y = fyx * p0x + fyy * p0y + fyz * p0z
-		p0z = fzx * p0x + fzy * p0y + fzz * p0z
+		local cull_face = false
 
-		p1x = fxx * p1x + fxy * p1y + fxz * p1z
-		p1y = fyx * p1x + fyy * p1y + fyz * p1z
-		p1z = fzx * p1x + fzy * p1y + fzz * p1z
+		if cull_back_faces ~= 0 then
+			local d1x = p1x - p0x
+			local d1y = p1y - p0y
+			local d1z = p1z - p0z
+			local d2x = p2x - p0x
+			local d2y = p2y - p0y
+			local d2z = p2z - p0z
+			local cx = d1y*d2z - d1z*d2y
+			local cy = d1z*d2x - d1x*d2z
+			local cz = d1x*d2y - d1y*d2x
+			local d = cx * p0x + cy * p0y + cz * p0z
+			cull_face = d * cull_back_faces > 0
+		end
 
-		p2x = fxx * p2x + fxy * p2y + fxz * p2z
-		p2y = fyx * p2x + fyy * p2y + fyz * p2z
-		p2z = fzx * p2x + fzy * p2y + fzz * p2z
+		if not cull_face then
+			p0x = fxx * p0x + fxy * p0y + fxz * p0z
+			p0y = fyx * p0x + fyy * p0y + fyz * p0z
+			p0z = fzx * p0x + fzy * p0y + fzz * p0z
 
-		-- TODO: backface culling
+			p1x = fxx * p1x + fxy * p1y + fxz * p1z
+			p1y = fyx * p1x + fyy * p1y + fyz * p1z
+			p1z = fzx * p1x + fzy * p1y + fzz * p1z
 
-		if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-			p0x = pxd - p0x * scale_x / p0z
-			p0y = pyd - p0y * scale_y / p0z
-			p1x = pxd - p1x * scale_x / p1z
-			p1y = pyd - p1y * scale_y / p1z
-			p2x = pxd - p2x * scale_x / p2z
-			p2y = pyd - p2y * scale_y / p2z
+			p2x = fxx * p2x + fxy * p2y + fxz * p2z
+			p2y = fyx * p2x + fyy * p2y + fyz * p2z
+			p2z = fzx * p2x + fzy * p2y + fzz * p2z
 
-			rasterize_triangle(fb_front, fb_width, fb_height_m1, p0x, p0y, p1x, p1y, p2x, p2y, colour)
+			-- TODO: make this split polygons
+			if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
+				p0x = pxd - p0x * scale_x / p0z
+				p0y = pyd - p0y * scale_y / p0z
+				p1x = pxd - p1x * scale_x / p1z
+				p1y = pyd - p1y * scale_y / p1z
+				p2x = pxd - p2x * scale_x / p2z
+				p2y = pyd - p2y * scale_y / p2z
+
+				rasterize_triangle(fb_front, fb_width, fb_height_m1, p0x, p0y, p1x, p1y, p2x, p2y, colour)
+			end
 		end
 	end
 end

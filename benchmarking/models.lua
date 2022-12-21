@@ -49,13 +49,13 @@ table.insert(models, {
 	create_model = function(count)
 		local data = {}
 
-		local x = -5
-		local dx = -x * 2 / count
+		local z = -11
+		local dz = -z * 2 / count
 
 		for _ = 1, count do
-			local z = -11
-			local dz = -z * 2 / count
-
+			local x = -5
+			local dx = -x * 2 / count
+	
 			for _ = 1, count do
 				for i = 1, #cube_polygons, 10 do
 					table.insert(data, cube_polygons[i + 0] * dx + x)
@@ -70,10 +70,10 @@ table.insert(models, {
 					table.insert(data, cube_polygons[i + 9])
 				end
 
-				z = z + dz
+				x = x + dx
 			end
 
-			x = x + dx
+			z = z + dz
 		end
 
 		return data
@@ -96,8 +96,8 @@ table.insert(models, {
 		local ns = 1 / 3
 		local z0 = 6
 
-		for x = -resolution, resolution - 1 do
-			for z = -resolution, resolution - 1 do
+		for z = -resolution, resolution - 1 do
+			for x = -resolution, resolution - 1 do
 				local h00 = simplex.Noise2D((x + 0) * ns * xs, (z + 0) * ns * zs)
 				local h01 = simplex.Noise2D((x + 0) * ns * xs, (z + 1) * ns * zs)
 				local h10 = simplex.Noise2D((x + 1) * ns * xs, (z + 0) * ns * zs)

@@ -91,8 +91,8 @@ profiles.ccgl_test = {
 	min_duration = 0,
 	include_libraries = { 'ccgl3d' },
 	include_models = { 'box' },
-	min_pixels = 51*19,
-	max_pixels = 51*19,
+	min_pixels = 100*50,
+	max_pixels = 100*50,
 	get_charts = function() return {} end,
 }
 

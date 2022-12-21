@@ -55,7 +55,7 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
 	local ccgl3d_render = ccgl3d.render_geometry
 	local aspect = 1
 
-	camera.fov = math.pi / 4
+	camera.fov = 0.75
 	camera.xRotation = 0.3
 	camera.z = 15
 	camera.y = 3
@@ -71,7 +71,7 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
 	end
 
 	local function draw_fn()
-		ccgl3d_render(fb, geom, camera, aspect)
+		ccgl3d_render(fb, geom, camera, aspect, 1)
 	end
 
 	local function present_fn()
@@ -110,7 +110,6 @@ try_load_library('Pine3D', 'Pine3D', function(Pine3D, model_data, width, height)
 			r.y1 = polygon.y0
 			r.z1 = polygon.x0
 			r.c = polygon.colour
-			r.forceRender = true
 			fullModel[#fullModel+1] = r
 		end
 
