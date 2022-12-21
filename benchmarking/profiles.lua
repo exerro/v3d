@@ -86,16 +86,16 @@ profiles.quick_compare = {
 
 profiles.fps_full = {
 	warmup_iterations = 50,
-	min_iterations = 50,
+	min_iterations = 30,
 	min_duration = 0.5,
 	include_libraries = nil,
 	include_models = nil,
 	model_parameters = {
 		box = {
-			count = { 4, 16, 32, 128 }
+			count = { 4, 16, 64 }
 		},
 		noise = {
-			resolution = { 4, 16, 32 }
+			resolution = { 4, 16, 64 }
 		},
 	},
 	get_charts = function()

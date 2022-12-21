@@ -204,11 +204,16 @@ end
 term.setCursorPos(1, 1)
 term.clear()
 
+local h = assert(io.open('benchmark_results.txt', 'w'))
+
 for i, options in ipairs(chart_options) do
 	local dark = true
 	local first = true
-	for line in chartlib.to_string(chart, options):gmatch("[^\n]+") do
+	local cs = chartlib.to_string(chart, options)
+	h:write(cs)
+	for line in cs:gmatch("[^\n]+") do
 		if first and i ~= 1 then
+			h:write(("-"):rep(#line))
 			print(("-"):rep(#line))
 		end
 		local row_label, rest = line:match "^([^|]*)(|?.*)$"
@@ -223,6 +228,8 @@ for i, options in ipairs(chart_options) do
 	term.setTextColour(colours.white)
 	term.setBackgroundColour(colours.black)
 end
+
+h:close()
 
 local elapsed_seconds = os.clock() - benchmark_start
 local elapsed_minutes = math.floor(elapsed_seconds / 60)
