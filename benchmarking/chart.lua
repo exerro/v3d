@@ -8,7 +8,7 @@
 --- @field title string | nil
 --- @field filter (fun(datapoint: ChartDatapoint): boolean) | nil
 --- @field filter_values ChartDatapoint | nil
---- @field aggregate fun(a: ChartDatapoint, ...: ChartDatapoint): ChartDatapoint
+--- @field aggregate fun(values: { [integer]: ChartDatapoint }): ChartDatapoint
 --- @field column_key string
 --- @field column_key_writer (fun(key_value: any, datapoint: ChartDatapoint): string) | nil
 --- @field column_sorter (fun(a: ChartDatapoint, b: ChartDatapoint): boolean) | nil
@@ -43,7 +43,7 @@ function chart.to_string(chart, options)
 		if #values == 1 then
 			return values[1]
 		end
-		return options.aggregate(table.unpack(values))
+		return options.aggregate(values)
 	end
 
 	for i = 1, #chart.datapoints do

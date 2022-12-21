@@ -5,6 +5,7 @@
 --- @field min_duration integer
 --- @field include_libraries { [integer]: string } | nil
 --- @field include_models { [integer]: string } | nil
+--- @field model_parameters { [string]: { [string]: { [integer]: any } } } | nil
 --- @field min_width integer | nil
 --- @field max_width integer | nil
 --- @field min_height integer | nil
@@ -22,8 +23,7 @@ local profiles = {}
 --- @param t ChartOptions
 --- @return ChartOptions
 local function default_options(t)
-	t.aggregate = t.aggregate or function(...)
-		local t = { ... }
+	t.aggregate = t.aggregate or function(t)
 		local n = #t
 		local r = { iterations = n, draw_time = 0, present_time = 0, total_time = 0, fps = 0 }
 
@@ -38,10 +38,7 @@ local function default_options(t)
 
 		return r
 	end
-	t.column_key = t.column_key or 'model'
-	t.column_key_writer = t.column_key_writer or function (model, dp)
-		return model.name .. ' (' .. dp.triangles .. ')'
-	end
+	t.column_key = t.column_key or 'model_triangles'
 	t.column_sorter = t.column_sorter or function(a, b)
 		return a.triangles < b.triangles
 	end
@@ -76,13 +73,8 @@ profiles.quick_compare = {
 				filter = function(dp)
 					return dp.library.name == library_name
 				end,
-				value_keys = { 'fps', 'total_time' },
-				value_format = '%3dfps (%5dus)',
-				value_writers = {
-					total_time = function(t)
-						return t * 1000000
-					end,
-				},
+				value_keys = { 'fps' },
+				value_format = '%3d fps',
 			})
 		end
 
@@ -94,10 +86,18 @@ profiles.quick_compare = {
 
 profiles.fps_full = {
 	warmup_iterations = 50,
-	min_iterations = 100,
-	min_duration = 0.8,
+	min_iterations = 50,
+	min_duration = 0.5,
 	include_libraries = nil,
 	include_models = nil,
+	model_parameters = {
+		box = {
+			count = { 4, 16, 32, 128 }
+		},
+		noise = {
+			resolution = { 4, 16, 32 }
+		},
+	},
 	get_charts = function()
 		local options = {}
 
@@ -108,18 +108,18 @@ profiles.fps_full = {
 					return dp.library.name == library_name
 				end,
 				value_keys = { 'fps', 'draw_time', 'present_time', 'ratio' },
-				value_format = '%4dfps (%5dus %5dus %s)',
+				value_format = '%4d fps (%2.1fms %2.1fms %s)',
 				value_writers = {
 					draw_time = function(t)
-						return t * 1000000
+						return t * 1000
 					end,
 					present_time = function(t)
-						return t * 1000000
+						return t * 1000
 					end,
 					ratio = function(_, dp)
 						local dpd = dp.draw_time / dp.total_time
 						dpd = math.floor(dpd * 100 + 0.5)
-						return string.format('%2d:%2d', dpd, 100 - dpd)
+						return string.format('%2d%%', dpd)
 					end,
 				},
 			})
@@ -143,18 +143,18 @@ profiles.fps_fast = {
 		return { default_options {
 			title = "CCGL3D Quick FPS",
 			value_keys = { 'fps', 'draw_time', 'present_time', 'ratio' },
-			value_format = '%4dfps (%5dus %5dus %s)',
+			value_format = '%4d fps (%2.1fms %2.1fms %s)',
 			value_writers = {
 				draw_time = function(t)
-					return t * 1000000
+					return t * 1000
 				end,
 				present_time = function(t)
-					return t * 1000000
+					return t * 1000
 				end,
 				ratio = function(_, dp)
 					local dpd = dp.draw_time / dp.total_time
 					dpd = math.floor(dpd * 100 + 0.5)
-					return string.format('%2d:%2d', dpd, 100 - dpd)
+					return string.format('%2d%%', dpd)
 				end,
 			},
 		} }

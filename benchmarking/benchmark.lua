@@ -69,6 +69,7 @@ local function benchmark(
 			library = library,
 			model = model,
 			screen_size = screen_size,
+			model_triangles = model.name .. " (" .. triangles .. ")",
 			triangles = triangles,
 			iteration = iterations,
 			draw_time = td,
@@ -82,6 +83,8 @@ local function benchmark(
 			ty = clock()
 		end
 	until iterations >= min_iterations and clock() - t0 >= min_duration
+
+	return iterations
 end
 
 --- @returns Shape
@@ -107,6 +110,10 @@ local function flat_model_to_shape(t)
 end
 
 --------------------------------------------------------------------------------
+
+local benchmark_start = os.clock()
+local benchmarks_run = 0
+local benchmarks_iterations = 0
 
 local chart = chartlib.new()
 
@@ -141,29 +148,47 @@ for si = 1, #screen_sizes do
 
 	if ok then
 		for _, model in ipairs(included_models) do
-			for _, lib in ipairs(included_libraries) do
-				local model_parameters = {}
+			local parameter_map = (this_profile.model_parameters or {})[model.id] or {}
 
-				for i = 1, #model.parameters do
-					model_parameters[i] = model.parameters[i].default
-				end
+			-- all this parameter stuff is bs but fuck it idc
+			for i = 1, #model.parameters do
+				parameter_map[model.parameters[i]] = parameter_map[model.parameters[i]] or { model.parameters[i].default }
+			end
 
-				local model_data = model.create_model(table.unpack(model_parameters))
-				local shape
+			for parameter_name, parameter_values in pairs(parameter_map) do
+				for _, parameter_value in ipairs(parameter_values) do
+					local model_parameters = {}
 
-				if model.format == 'flat' then
-					shape = flat_model_to_shape(model_data)
-				else
-					error("Unimplemented model format '" .. model.format .. "'")
-				end
+					for i = 1, #model.parameters do
+						if model.parameters[i].name == parameter_name then
+							model_parameters[i] = parameter_value
+						else
+							model_parameters[i] = model.parameters[i].default
+						end
+					end
 
-				local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
+					local model_data = model.create_model(table.unpack(model_parameters))
+					local shape
 
-				benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
-					this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration)
+					if model.format == 'flat' then
+						shape = flat_model_to_shape(model_data)
+					else
+						error("Unimplemented model format '" .. model.format .. "'")
+					end
 
-				if this_profile.post_run then
-					this_profile.post_run()
+					for _, lib in ipairs(included_libraries) do
+						local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
+
+						benchmarks_iterations = benchmarks_iterations + benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
+							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration)
+						benchmarks_run = benchmarks_run + 1
+
+						os.queueEvent 'benchmark_yield'
+						os.pullEvent 'benchmark_yield'
+						if this_profile.post_run then
+							this_profile.post_run()
+						end
+					end
 				end
 			end
 		end
@@ -180,8 +205,29 @@ term.setCursorPos(1, 1)
 term.clear()
 
 for i, options in ipairs(chart_options) do
-	if i ~= 1 then
-		print(("="):rep(term.getSize()))
+	local dark = true
+	local first = true
+	for line in chartlib.to_string(chart, options):gmatch("[^\n]+") do
+		if first and i ~= 1 then
+			print(("-"):rep(#line))
+		end
+		local row_label, rest = line:match "^([^|]*)(|?.*)$"
+		term.setBackgroundColour(dark and colours.black or colours.grey)
+		term.setTextColour(colours.white)
+		write(row_label)
+		if not first then term.setTextColour(colours.lightGrey) end
+		print(rest)
+		dark = not dark
+		first = false
 	end
-	print(chartlib.to_string(chart, options))
+	term.setTextColour(colours.white)
+	term.setBackgroundColour(colours.black)
 end
+
+local elapsed_seconds = os.clock() - benchmark_start
+local elapsed_minutes = math.floor(elapsed_seconds / 60)
+elapsed_seconds = math.floor(elapsed_seconds % 60 + 0.5)
+
+print()
+print(string.format("Elapsed time: %dm %ds", elapsed_minutes, elapsed_seconds))
+print(string.format("Ran %d benchmarks with %d total iterations", benchmarks_run, benchmarks_iterations))
