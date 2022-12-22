@@ -101,7 +101,6 @@ end
 --- @field width integer
 --- @field height integer
 --- @field front table
---- @field back table TODO: remove this
 --- @field depth { [integer]: number } Stores 1/Z for every pixel drawn (if enabled)
 
 --- @param fb ccFramebuffer
@@ -124,7 +123,6 @@ local function create_framebuffer(width, height)
 	fb.width = width
 	fb.height = height
 	fb.front = {}
-	fb.back = {}
 	fb.depth = {}
 
 	clear_framebuffer(fb, 0)
@@ -153,7 +151,6 @@ local function present_framebuffer(fb, term, dx, dy)
 	local SUBPIXEL_HEIGHT = 3
 
 	local fb_front, fb_width = fb.front, fb.width
-	fb.front, fb.back = fb.back, fb_front -- swap buffers
 
 	local xBlit = 1 + dx
 
@@ -163,13 +160,14 @@ local function present_framebuffer(fb, term, dx, dy)
 	local term_setCursorPos = term.setCursorPos
 
 	local i0 = 1
+	local ch_t = {}
+	local fg_t = {}
+	local bg_t = {}
+
+	local ixMax = fb_width / SUBPIXEL_WIDTH
 
 	for yBlit = 1 + dy, fb.height / SUBPIXEL_HEIGHT + dy do
-		local ch_t = {}
-		local fg_t = {}
-		local bg_t = {}
-
-		for ix = 1, fb_width / SUBPIXEL_WIDTH do
+		for ix = 1, ixMax do
 			local i1 = i0 + fb_width
 			local i2 = i1 + fb_width
 			local c00, c10 = fb_front[i0], fb_front[i0 + 1]
@@ -209,16 +207,13 @@ local function present_framebuffer(fb, term, dx, dy)
 				fg_t[ix] = colour_lookup_byte[c01]
 				bg_t[ix] = colour_lookup_byte[c00]
 			else
-				local subpixel_code = 0
 				local colours = { c00, c10, c01, c11, c02, c12 }
-
-				subpixel_code = subpixel_code
-				              + unique_colour_lookup[c12] * 1024
-				              + unique_colour_lookup[c02] * 256
-				              + unique_colour_lookup[c11] * 64
-				              + unique_colour_lookup[c01] * 16
-				              + unique_colour_lookup[c10] * 4
-				              + unique_colour_lookup[c00]
+				local subpixel_code = unique_colour_lookup[c12] * 1024
+				                    + unique_colour_lookup[c02] * 256
+				                    + unique_colour_lookup[c11] * 64
+				                    + unique_colour_lookup[c01] * 16
+				                    + unique_colour_lookup[c10] * 4
+				                    + unique_colour_lookup[c00]
 
 				ch_t[ix] = subpixel_code_ch_lookup[subpixel_code]
 				fg_t[ix] = colour_lookup_byte[colours[subpixel_code_fg_lookup[subpixel_code]]]
@@ -415,8 +410,8 @@ local function rasterize_triangle_nodepth(
 			local columnMin = math_ceil(topLeftX)
 			local columnMax = math_ceil(topRightX)
 
-			if columnMin < 0 then columnMin = topLeftX end
-			if columnMax > fb_width_m1 then columnMax = topRightX end
+			if columnMin < 0 then columnMin = 0 end
+			if columnMax > fb_width_m1 then columnMax = fb_width_m1 end
 
 			for x = columnMin, columnMax do
 				fb_front[baseIndex + x] = colour
@@ -440,8 +435,8 @@ local function rasterize_triangle_nodepth(
 			local columnMin = math_ceil(bottomLeftX)
 			local columnMax = math_ceil(bottomRightX)
 
-			if columnMin < 0 then columnMin = bottomLeftX end
-			if columnMax > fb_width_m1 then columnMax = bottomRightX end
+			if columnMin < 0 then columnMin = 0 end
+			if columnMax > fb_width_m1 then columnMax = fb_width_m1 end
 
 			for x = columnMin, columnMax do
 				fb_front[baseIndex + x] = colour
@@ -513,8 +508,8 @@ local function rasterize_triangle_depth(
 			local rowDeltaW = (topRightW - topLeftW) / rowTotalDeltaX
 			local rowLeftW = topLeftW + (columnMinX - topLeftX) * rowDeltaW
 
-			if columnMinX < 0 then columnMinX = topLeftX end
-			if columnMaxX > fb_width_m1 then columnMaxX = topRightX end
+			if columnMinX < 0 then columnMinX = 0 end
+			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
 
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x
@@ -554,8 +549,8 @@ local function rasterize_triangle_depth(
 			local rowDeltaW = (bottomRightW - bottomLeftW) / rowTotalDeltaX
 			local rowLeftW = bottomLeftW + (columnMinX - bottomLeftX) * rowDeltaW
 
-			if columnMinX < 0 then columnMinX = bottomLeftX end
-			if columnMaxX > fb_width_m1 then columnMaxX = bottomRightX end
+			if columnMinX < 0 then columnMinX = 0 end
+			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
 
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x

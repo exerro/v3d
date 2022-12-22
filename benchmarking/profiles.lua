@@ -64,6 +64,7 @@ profiles.ccgl_test = {
 	include_models = { 'box' },
 	min_pixels = 100*50,
 	max_pixels = 100*50,
+	-- flags = { depth_test = true, depth_present = true },
 	flags = { depth_test = true },
 	get_charts = function() return {} end,
 	post_run = function() os.pullEvent 'mouse_click' end,
