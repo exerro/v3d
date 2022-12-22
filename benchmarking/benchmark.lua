@@ -9,6 +9,12 @@ local profiles = require 'profiles'
 
 local args = { ... }
 
+local palette = {}
+
+for i = 0, 15 do
+	palette[i + 1] = { term.getPaletteColour(2 ^ i) }
+end
+
 -- TODO: use these
 local present_buffers = false
 local profile
@@ -181,11 +187,13 @@ for si = 1, #screen_sizes do
 					end
 
 					for _, lib in ipairs(included_libraries) do
-						local clear_fn, draw_fn, present_fn = lib.setup_fn(lib.library, shape, screen_size.width, screen_size.height)
+						local clear_fn, draw_fn, present_fn = lib.setup_fn(
+							lib.library, shape, screen_size.width, screen_size.height, this_profile.flags or {})
 
-						benchmarks_iterations = benchmarks_iterations + benchmark(chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
-							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration, this_profile.suppress_present)
 						benchmarks_run = benchmarks_run + 1
+						benchmarks_iterations = benchmarks_iterations + benchmark(
+							chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
+							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration, this_profile.suppress_present)
 
 						os.queueEvent 'benchmark_yield'
 						os.pullEvent 'benchmark_yield'
@@ -200,6 +208,10 @@ for si = 1, #screen_sizes do
 end
 
 local chart_options = this_profile.get_charts()
+
+for i = 0, 15 do
+	term.setPaletteColour(2 ^ i, table.unpack(palette[i + 1]))
+end
 
 if #chart_options == 0 then
 	return

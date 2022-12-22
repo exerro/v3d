@@ -3,7 +3,7 @@
 --- @field id string
 --- @field name string
 --- @field library any
---- @field setup_fn fun(library: any, shape: Shape, width: integer, height: integer): ClearFn, DrawFn, PresentFn
+--- @field setup_fn fun(library: any, shape: Shape, width: integer, height: integer, flags: table): ClearFn, DrawFn, PresentFn
 
 --- @alias Shape { triangles: integer, [integer]: ShapeTriangle }
 
@@ -47,18 +47,30 @@ end
 
 --------------------------------------------------------------------------------
 
-try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
+local SETTING_CAMERA_X = 6
+local SETTING_CAMERA_Y = 4
+local SETTING_CAMERA_Z = 12
+local SETTING_CAMERA_H_FOV = math.pi / 4
+local SETTING_CAMERA_X_ROTATION = math.pi / 6
+local SETTING_CAMERA_Y_ROTATION = math.pi / 6
+
+--------------------------------------------------------------------------------
+
+try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height, flags)
 	local fb = ccgl3d.create_framebuffer_subpixel(width, height)
 	local geom = ccgl3d.create_geometry()
 	local camera = ccgl3d.create_perspective_camera()
-	local ccgl3d_present = ccgl3d.present_framebuffer
+	local ccgl3d_present = flags.depth_present and ccgl3d.present_framebuffer_depth or ccgl3d.present_framebuffer
 	local ccgl3d_render = ccgl3d.render_geometry
-	local aspect = 1
+	local aspect = fb.width / fb.height
+	local render_aspect = 1
 
-	camera.fov = 0.75
-	camera.xRotation = 0.3
-	camera.z = 15
-	camera.y = 3
+	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
+	camera.xRotation = SETTING_CAMERA_X_ROTATION
+	camera.yRotation = SETTING_CAMERA_Y_ROTATION
+	camera.x = SETTING_CAMERA_X
+	camera.y = SETTING_CAMERA_Y
+	camera.z = SETTING_CAMERA_Z
 
 	for i = 1, model_data.triangles do
 		local t = model_data[i]
@@ -71,11 +83,11 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height)
 	end
 
 	local function draw_fn()
-		ccgl3d_render(fb, geom, camera, aspect, 1)
+		ccgl3d_render(fb, geom, camera, render_aspect, flags.backface_culling or 1, flags.depth_test)
 	end
 
 	local function present_fn()
-		ccgl3d_present(fb, term, 0, 0)
+		ccgl3d_present(fb, term, 0, 0, true)
 	end
 
 	return clear_fn, draw_fn, present_fn
@@ -88,12 +100,13 @@ try_load_library('Pine3D', 'Pine3D', function(Pine3D, model_data, width, height)
 
 		frame = Pine3D.newFrame(1, 1, width, height)
 		frame:setBackgroundColor(1)
-		frame:setFoV(100)
+		frame:setFoV(SETTING_CAMERA_H_FOV * 180 / math.pi * 2)
 
-		frame.camera[1] = -15
-		frame.camera[2] = 3
-		frame.camera[3] = 0
-		frame.camera[6] = -0.3
+		frame.camera[6] = -SETTING_CAMERA_X_ROTATION
+		frame.camera[5] = -SETTING_CAMERA_Y_ROTATION
+		frame.camera[3] = SETTING_CAMERA_X
+		frame.camera[2] = SETTING_CAMERA_Y
+		frame.camera[1] = -SETTING_CAMERA_Z
 
 		local fullModel = {}
 

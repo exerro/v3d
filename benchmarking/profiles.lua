@@ -14,6 +14,7 @@
 --- @field max_pixels integer | nil
 --- @field post_run function | nil
 --- @field suppress_present boolean | nil
+--- @field flags table | nil
 --- @field get_charts fun(): { [integer]: ChartOptions }
 
 --- @type { [integer]: Profile }
@@ -55,36 +56,6 @@ end
 
 --------------------------------------------------------------------------------
 
-profiles.quick_compare = {
-	warmup_iterations = 30,
-	min_iterations = 80,
-	min_duration = 0.6,
-	include_libraries = nil,
-	include_models = nil,
-	min_width = 20,
-	min_height = 10,
-	max_width = 200,
-	max_height = 80,
-	get_charts = function()
-		local options = {}
-
-		for _, library_name in ipairs { 'CCGL3D', 'Pine3D' } do
-			table.insert(options, default_options {
-				title = library_name,
-				filter = function(dp)
-					return dp.library.name == library_name
-				end,
-				value_keys = { 'fps' },
-				value_format = '%3d fps',
-			})
-		end
-
-		return options
-	end
-}
-
---------------------------------------------------------------------------------
-
 profiles.ccgl_test = {
 	warmup_iterations = 0,
 	min_iterations = 1,
@@ -93,7 +64,57 @@ profiles.ccgl_test = {
 	include_models = { 'box' },
 	min_pixels = 100*50,
 	max_pixels = 100*50,
+	flags = { depth_test = true },
 	get_charts = function() return {} end,
+	post_run = function() os.pullEvent 'mouse_click' end,
+}
+
+--------------------------------------------------------------------------------
+
+profiles.p3d_test = {
+	warmup_iterations = 0,
+	min_iterations = 1,
+	min_duration = 0,
+	include_libraries = { 'Pine3D' },
+	include_models = { 'box' },
+	min_pixels = 100*50,
+	max_pixels = 100*50,
+	flags = { depth_test = true },
+	get_charts = function() return {} end,
+	post_run = function() os.pullEvent 'mouse_click' end,
+}
+
+--------------------------------------------------------------------------------
+
+profiles.ccgl_fps_fast = {
+	warmup_iterations = 20,
+	min_iterations = 50,
+	min_duration = 0.5,
+	include_libraries = { 'ccgl3d' },
+	include_models = nil,
+	min_pixels = 10,
+	max_pixels = 5000,
+	flags = { depth_test = true },
+	get_charts = function()
+		return { default_options {
+			title = "CCGL3D Quick FPS",
+			value_keys = { 'fps', 'draw_time', 'present_time', 'ratio' },
+			value_format = '%4d fps (%2.1fms %2.1fms %s)',
+			value_writers = {
+				draw_time = function(t)
+					return t * 1000
+				end,
+				present_time = function(t)
+					return t * 1000
+				end,
+				ratio = function(_, dp)
+					local dpd = dp.draw_time / dp.total_time
+					dpd = math.floor(dpd * 100 + 0.5)
+					return string.format('%2d%%', dpd)
+				end,
+			},
+		} }
+	end
 }
 
 --------------------------------------------------------------------------------
@@ -114,6 +135,7 @@ profiles.ccgl = {
 	},
 	min_pixels = 51,
 	max_pixels = 13000,
+	flags = { depth_test = true },
 	get_charts = function()
 		return { default_options {
 			title = "CCGL3D Benchmark",
@@ -138,7 +160,82 @@ profiles.ccgl = {
 
 --------------------------------------------------------------------------------
 
-profiles.fps_full = {
+profiles.quick_compare = {
+	warmup_iterations = 30,
+	min_iterations = 80,
+	min_duration = 0.6,
+	include_libraries = nil,
+	include_models = nil,
+	min_width = 20,
+	min_height = 10,
+	max_width = 200,
+	max_height = 80,
+	flags = { depth_test = true },
+	get_charts = function()
+		local options = {}
+
+		for _, library_name in ipairs { 'CCGL3D', 'Pine3D' } do
+			table.insert(options, default_options {
+				title = library_name,
+				filter = function(dp)
+					return dp.library.name == library_name
+				end,
+				value_keys = { 'fps' },
+				value_format = '%3d fps',
+			})
+		end
+
+		return options
+	end
+}
+
+--------------------------------------------------------------------------------
+
+profiles.complete_render = {
+	warmup_iterations = 50,
+	min_iterations = 30,
+	min_duration = 0.5,
+	include_libraries = nil,
+	include_models = nil,
+	model_parameters = {
+		box = {
+			count = { 4, 32 }
+		},
+		noise = {
+			resolution = { 4, 32 }
+		},
+	},
+	suppress_present = true,
+	flags = { depth_test = true },
+	get_charts = function()
+		local options = {}
+
+		for _, library_name in ipairs { 'CCGL3D', 'Pine3D' } do
+			table.insert(options, default_options {
+				title = library_name,
+				filter = function(dp)
+					return dp.library.name == library_name
+				end,
+				value_keys = { 'fps', 'draw_time' },
+				value_format = '%4d fps (%2.02fms)',
+				value_writers = {
+					fps = function(_, dp)
+						return 1 / dp.draw_time
+					end,
+					draw_time = function(t)
+						return t * 1000
+					end,
+				},
+			})
+		end
+
+		return options
+	end,
+}
+
+--------------------------------------------------------------------------------
+
+profiles.complete_all = {
 	warmup_iterations = 50,
 	min_iterations = 30,
 	min_duration = 0.5,
@@ -152,6 +249,7 @@ profiles.fps_full = {
 			resolution = { 4, 16, 32 }
 		},
 	},
+	flags = { depth_test = true },
 	get_charts = function()
 		local options = {}
 
@@ -180,82 +278,7 @@ profiles.fps_full = {
 		end
 
 		return options
-	end
-}
-
---------------------------------------------------------------------------------
-
-profiles.render_full = {
-	warmup_iterations = 50,
-	min_iterations = 30,
-	min_duration = 0.5,
-	include_libraries = nil,
-	include_models = nil,
-	model_parameters = {
-		box = {
-			count = { 4, 32 }
-		},
-		noise = {
-			resolution = { 4, 32 }
-		},
-	},
-	suppress_present = true,
-	get_charts = function()
-		local options = {}
-
-		for _, library_name in ipairs { 'CCGL3D', 'Pine3D' } do
-			table.insert(options, default_options {
-				title = library_name,
-				filter = function(dp)
-					return dp.library.name == library_name
-				end,
-				value_keys = { 'fps', 'draw_time' },
-				value_format = '%4d fps (%2.02fms)',
-				value_writers = {
-					fps = function(_, dp)
-						return 1 / dp.draw_time
-					end,
-					draw_time = function(t)
-						return t * 1000
-					end,
-				},
-			})
-		end
-
-		return options
-	end
-}
-
---------------------------------------------------------------------------------
-
-profiles.fps_fast = {
-	warmup_iterations = 20,
-	min_iterations = 50,
-	min_duration = 0.5,
-	include_libraries = { 'ccgl3d' },
-	include_models = nil,
-	min_pixels = 10,
-	max_pixels = 5000,
-	get_charts = function()
-		return { default_options {
-			title = "CCGL3D Quick FPS",
-			value_keys = { 'fps', 'draw_time', 'present_time', 'ratio' },
-			value_format = '%4d fps (%2.1fms %2.1fms %s)',
-			value_writers = {
-				draw_time = function(t)
-					return t * 1000
-				end,
-				present_time = function(t)
-					return t * 1000
-				end,
-				ratio = function(_, dp)
-					local dpd = dp.draw_time / dp.total_time
-					dpd = math.floor(dpd * 100 + 0.5)
-					return string.format('%2d%%', dpd)
-				end,
-			},
-		} }
-	end
+	end,
 }
 
 --------------------------------------------------------------------------------

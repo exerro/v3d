@@ -101,7 +101,19 @@ end
 --- @field width integer
 --- @field height integer
 --- @field front table
---- @field back table
+--- @field back table TODO: remove this
+--- @field depth { [integer]: number } Stores 1/Z for every pixel drawn (if enabled)
+
+--- @param fb ccFramebuffer
+--- @param colour integer
+local function clear_framebuffer(fb, colour)
+	local fb_front = fb.front
+	local fb_depth = fb.depth
+	for i = 1, fb.width * fb.height do
+		fb_front[i] = colour
+		fb_depth[i] = 0
+	end
+end
 
 --- @param width integer
 --- @param height integer
@@ -113,11 +125,9 @@ local function create_framebuffer(width, height)
 	fb.height = height
 	fb.front = {}
 	fb.back = {}
+	fb.depth = {}
 
-	for i = 1, width * height do
-		fb.front[i] = 1
-		fb.back[i] = 1
-	end
+	clear_framebuffer(fb, 0)
 
 	return fb
 end
@@ -127,15 +137,6 @@ end
 --- @return ccFramebuffer
 local function create_framebuffer_subpixel(width, height)
 	return create_framebuffer(width * 2, height * 3) -- multiply by subpixel dimensions
-end
-
---- @param fb ccFramebuffer
---- @param colour integer
-local function clear_framebuffer(fb, colour)
-	local fb_front = fb.front
-	for i = 1, fb.width * fb.height do
-		fb_front[i] = colour
-	end
 end
 
 --- Render a framebuffer to the screen, swapping its buffers, and handling
@@ -233,6 +234,46 @@ local function present_framebuffer(fb, term, dx, dy)
 	end
 end
 
+local function present_framebuffer_depth(fb, term, dx, dy, update_palette)
+	local math_floor = math.floor
+
+	if update_palette then
+		for i = 0, 15 do
+			term.setPaletteColour(2 ^ i, i / 15, i / 15, i / 15)
+		end
+	end
+
+	-- we're gonna do a hack to swap out the buffers and draw it like normal
+	local fb_depth = fb.depth
+	local old_front = fb.front
+	local new_front = {}
+	local min = fb_depth[1]
+	local max = fb_depth[1]
+
+	for i = 2, #fb_depth do
+		local a = fb_depth[i]
+		if a < min then min = a end
+		if a > max then max = a end
+	end
+
+	local delta = max - min
+
+	if min == max then
+		delta = 1
+	end
+
+	for i = 1, #fb_depth do
+		local a = (fb_depth[i] - min) / delta
+		local b = math_floor(a * 16)
+		if b == 16 then b = 15 end
+		new_front[i] = 2 ^ b
+	end
+
+	fb.front = new_front
+	present_framebuffer(fb, term, dx, dy)
+	fb.front = old_front
+end
+
 --------------------------------------------------------------------------------
 
 --- @class ccGeometry: table
@@ -323,12 +364,13 @@ end
 --------------------------------------------------------------------------------
 
 --- @private
-local function rasterize_triangle(
+local function rasterize_triangle_nodepth(
 	fb_front,
+	_,
 	fb_width, fb_height_m1,
-	p0x, p0y,
-	p1x, p1y,
-	p2x, p2y,
+	p0x, p0y, _,
+	p1x, p1y, _,
+	p2x, p2y, _,
 	colour)
 	local math_ceil = math.ceil
 	local math_floor = math.floor
@@ -429,28 +471,177 @@ local function rasterize_triangle(
 	end
 end
 
+--- @private
+local function rasterize_triangle_depth(
+	fb_front, fb_depth,
+	fb_width, fb_height_m1,
+	p0x, p0y, p0w,
+	p1x, p1y, p1w,
+	p2x, p2y, p2w,
+	colour)
+	local math_ceil = math.ceil
+	local math_floor = math.floor
+	local fb_width_m1 = fb_width - 1
+
+	-- see: https://github.com/exerro/ccgl3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+	-- there's an explanation of the algorithm there
+	-- this code has been heavily microoptimised so won't perfectly resemble that
+
+	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
+	if p1y > p2y then p1x, p1y, p1w, p2x, p2y, p2w = p2x, p2y, p2w, p1x, p1y, p1w end
+	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
+	if p0y == p2y then return end -- skip early if we have a perfectly flat triangle
+
+	local f = (p1y - p0y) / (p2y - p0y)
+	local pMx = p0x * (1 - f) + p2x * f
+	local pMw = p0w * (1 - f) + p2w * f
+
+	if pMx > p1x then
+		pMx, p1x = p1x, pMx
+		pMw, p1w = p1w, pMw
+	end
+
+	local rowTopMin = math_floor(p0y + 0.5)
+	local rowBottomMin = math_floor(p1y + 0.5)
+	local rowTopMax = rowBottomMin - 1
+	local rowBottomMax = math_ceil(p2y - 0.5)
+
+	if rowTopMin < 0 then rowTopMin = 0 end
+	if rowBottomMin < 0 then rowBottomMin = 0 end
+	if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
+	if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
+
+	if rowTopMin <= rowTopMax then
+		local topDeltaY = p1y - p0y
+		local topLeftGradientX = (pMx - p0x) / topDeltaY
+		local topRightGradientX = (p1x - p0x) / topDeltaY
+		local topLeftGradientW = (pMw - p0w) / topDeltaY
+		local topRightGradientW = (p1w - p0w) / topDeltaY
+
+		local topProjection = rowTopMin + 0.5 - p0y
+		local topLeftX = p0x + topLeftGradientX * topProjection - 0.5
+		local topRightX = p0x + topRightGradientX * topProjection - 1.5
+		local topLeftW = p0w + topLeftGradientW * topProjection
+		local topRightW = p0w + topRightGradientW * topProjection
+
+		for baseIndex = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1, fb_width do
+			local columnMinX = math_ceil(topLeftX)
+			local columnMaxX = math_ceil(topRightX)
+			-- intentionally not caring about the minor inaccuracies due to
+			-- pixel rounding, there are bigger fish to fry
+			local rowTotalDeltaX = topRightX - topLeftX + 1 -- 'cause of awkward optimisations above
+			local rowDeltaW = (topRightW - topLeftW) / rowTotalDeltaX
+			local rowLeftW = topLeftW + (columnMinX - topLeftX) * rowDeltaW
+
+			if columnMinX < 0 then
+				topLeftX = 0
+				topLeftGradientX = 0
+				columnMinX = topLeftX
+			end
+
+			if columnMaxX > fb_width_m1 then
+				topRightX = fb_width_m1
+				topRightGradientX = 0
+				columnMaxX = topRightX
+			end
+
+			for x = columnMinX, columnMaxX do
+				local index = baseIndex + x
+
+				if rowLeftW > fb_depth[index] then
+					fb_front[index] = colour
+					fb_depth[index] = rowLeftW
+				end
+
+				rowLeftW = rowLeftW + rowDeltaW
+			end
+
+			topLeftX = topLeftX + topLeftGradientX
+			topRightX = topRightX + topRightGradientX
+			topLeftW = topLeftW + topLeftGradientW
+			topRightW = topRightW + topRightGradientW
+		end
+	end
+
+	if rowBottomMin <= rowBottomMax then
+		local bottomDeltaY = p2y - p1y
+		local bottomLeftGradientX = (p2x - pMx) / bottomDeltaY
+		local bottomRightGradientX = (p2x - p1x) / bottomDeltaY
+		local bottomLeftGradientW = (p2w - pMw) / bottomDeltaY
+		local bottomRightGradientW = (p2w - p1w) / bottomDeltaY
+
+		local bottomProjection = rowBottomMin + 0.5 - p1y
+		local bottomLeftX = pMx + bottomLeftGradientX * bottomProjection - 0.5
+		local bottomRightX = p1x + bottomRightGradientX * bottomProjection - 1.5
+		local bottomLeftW = pMw + bottomLeftGradientW * bottomProjection
+		local bottomRightW = p1w + bottomRightGradientW * bottomProjection
+
+		for baseIndex = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1, fb_width do
+			local columnMinX = math_ceil(bottomLeftX)
+			local columnMaxX = math_ceil(bottomRightX)
+			-- intentionally not caring about the minor inaccuracies due to
+			-- pixel rounding, there are bigger fish to fry
+			local rowTotalDeltaX = bottomRightX - bottomLeftX + 1 -- 'cause of awkward optimisations above
+			local rowDeltaW = (bottomRightW - bottomLeftW) / rowTotalDeltaX
+			local rowLeftW = bottomLeftW + (columnMinX - bottomLeftX) * rowDeltaW
+
+			if columnMinX < 0 then
+				bottomLeftX = 0
+				bottomLeftGradientX = 0
+				columnMinX = bottomLeftX
+			end
+
+			if columnMaxX > fb_width_m1 then
+				bottomRightX = fb_width_m1
+				bottomRightGradientX = 0
+				columnMaxX = bottomRightX
+			end
+
+			for x = columnMinX, columnMaxX do
+				local index = baseIndex + x
+
+				if rowLeftW > fb_depth[index] then
+					fb_front[index] = colour
+					fb_depth[index] = rowLeftW
+				end
+
+				rowLeftW = rowLeftW + rowDeltaW
+			end
+
+			bottomLeftX = bottomLeftX + bottomLeftGradientX
+			bottomRightX = bottomRightX + bottomRightGradientX
+			bottomLeftW = bottomLeftW + bottomLeftGradientW
+			bottomRightW = bottomRightW + bottomRightGradientW
+		end
+	end
+end
+
 --- @param fb ccFramebuffer
 --- @param geometry ccGeometry
 --- @param camera ccCamera
-local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces)
+local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces, depth_test)
 	local DATA_PER_TRIANGLE = 10
 	local clipping_plane = -0.0001
 	local pxd = (fb.width - 1) / 2
 	local pyd = (fb.height - 1) / 2
 	local pxs = pyd
 	local pys = -pyd
-	local fb_front, fb_width, fb_height = fb.front, fb.width, fb.height
+	local fb_front, fb_width = fb.front, fb.width
+	local fb_depth = fb.depth
 	local fb_height_m1 = fb.height - 1
+	local math_sin, math_cos = math.sin, math.cos
 
 	aspect_ratio = aspect_ratio or fb.width / fb.height
 	cull_back_faces = cull_back_faces or 0
 
-	local sinX = math.sin(-camera.xRotation)
-	local sinY = math.sin(-camera.yRotation)
-	local sinZ = math.sin(-camera.zRotation)
-	local cosX = math.cos(-camera.xRotation)
-	local cosY = math.cos(-camera.yRotation)
-	local cosZ = math.cos(-camera.zRotation)
+	local rasterize_triangle_fn = depth_test ~= false and rasterize_triangle_depth or rasterize_triangle_nodepth
+
+	local sinX = math_sin(-camera.xRotation)
+	local sinY = math_sin(camera.yRotation)
+	local sinZ = math_sin(-camera.zRotation)
+	local cosX = math_cos(-camera.xRotation)
+	local cosY = math_cos(camera.yRotation)
+	local cosZ = math_cos(-camera.zRotation)
 	local scale_y = 1 / math.tan(camera.fov)
 	local scale_x = scale_y * aspect_ratio
 
@@ -511,28 +702,32 @@ local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_fac
 		end
 
 		if not cull_face then
-			p0x = fxx * p0x + fxy * p0y + fxz * p0z
-			p0y = fyx * p0x + fyy * p0y + fyz * p0z
-			p0z = fzx * p0x + fzy * p0y + fzz * p0z
+			p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
+			              , fyx * p0x + fyy * p0y + fyz * p0z
+			              , fzx * p0x + fzy * p0y + fzz * p0z
 
-			p1x = fxx * p1x + fxy * p1y + fxz * p1z
-			p1y = fyx * p1x + fyy * p1y + fyz * p1z
-			p1z = fzx * p1x + fzy * p1y + fzz * p1z
+			p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
+			              , fyx * p1x + fyy * p1y + fyz * p1z
+			              , fzx * p1x + fzy * p1y + fzz * p1z
 
-			p2x = fxx * p2x + fxy * p2y + fxz * p2z
-			p2y = fyx * p2x + fyy * p2y + fyz * p2z
-			p2z = fzx * p2x + fzy * p2y + fzz * p2z
+			p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
+			              , fyx * p2x + fyy * p2y + fyz * p2z
+			              , fzx * p2x + fzy * p2y + fzz * p2z
 
 			-- TODO: make this split polygons
 			if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-				p0x = pxd - p0x * scale_x / p0z
-				p0y = pyd - p0y * scale_y / p0z
-				p1x = pxd - p1x * scale_x / p1z
-				p1y = pyd - p1y * scale_y / p1z
-				p2x = pxd - p2x * scale_x / p2z
-				p2y = pyd - p2y * scale_y / p2z
+				local p0w = -1 / p0z
+				local p1w = -1 / p1z
+				local p2w = -1 / p2z
 
-				rasterize_triangle(fb_front, fb_width, fb_height_m1, p0x, p0y, p1x, p1y, p2x, p2y, colour)
+				p0x = pxd + p0x * scale_x * p0w
+				p0y = pyd + p0y * scale_y * p0w
+				p1x = pxd + p1x * scale_x * p1w
+				p1y = pyd + p1y * scale_y * p1w
+				p2x = pxd + p2x * scale_x * p2w
+				p2y = pyd + p2y * scale_y * p2w
+
+				rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, colour)
 			end
 		end
 	end
@@ -545,6 +740,7 @@ return {
 	create_framebuffer_subpixel = create_framebuffer_subpixel,
 	clear_framebuffer = clear_framebuffer,
 	present_framebuffer = present_framebuffer,
+	present_framebuffer_depth = present_framebuffer_depth,
 	create_geometry = create_geometry,
 	add_triangle = add_triangle,
 	rotate_geometry_z = rotate_geometry_z,

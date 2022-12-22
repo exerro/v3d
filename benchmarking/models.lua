@@ -49,8 +49,10 @@ table.insert(models, {
 	create_model = function(count)
 		local data = {}
 
-		local z = -11
+		local z = -5
 		local dz = -z * 2 / count
+
+		local dy = dz
 
 		for _ = 1, count do
 			local x = -5
@@ -59,13 +61,13 @@ table.insert(models, {
 			for _ = 1, count do
 				for i = 1, #cube_polygons, 10 do
 					table.insert(data, cube_polygons[i + 0] * dx + x)
-					table.insert(data, cube_polygons[i + 1])
+					table.insert(data, cube_polygons[i + 1] * dy)
 					table.insert(data, cube_polygons[i + 2] * dz + z)
 					table.insert(data, cube_polygons[i + 3] * dx + x)
-					table.insert(data, cube_polygons[i + 4])
+					table.insert(data, cube_polygons[i + 4] * dy)
 					table.insert(data, cube_polygons[i + 5] * dz + z)
 					table.insert(data, cube_polygons[i + 6] * dx + x)
-					table.insert(data, cube_polygons[i + 7])
+					table.insert(data, cube_polygons[i + 7] * dy)
 					table.insert(data, cube_polygons[i + 8] * dz + z)
 					table.insert(data, cube_polygons[i + 9])
 				end
@@ -94,7 +96,6 @@ table.insert(models, {
 		local xs = 5 / resolution
 		local zs = 5 / resolution
 		local ns = 1 / 3
-		local z0 = 6
 
 		for z = -resolution, resolution - 1 do
 			for x = -resolution, resolution - 1 do
@@ -104,13 +105,13 @@ table.insert(models, {
 				local h11 = simplex.Noise2D((x + 1) * ns * xs, (z + 1) * ns * zs)
 
 				for _, v in ipairs {
-					(x + 0) * xs, h00, (z + 0) * zs + z0,
-					(x + 0) * xs, h01, (z + 1) * zs + z0,
-					(x + 1) * xs, h11, (z + 1) * zs + z0,
+					(x + 0) * xs, h00, (z + 0) * zs,
+					(x + 0) * xs, h01, (z + 1) * zs,
+					(x + 1) * xs, h11, (z + 1) * zs,
 					colours.lime,
-					(x + 0) * xs, h00, (z + 0) * zs + z0,
-					(x + 1) * xs, h11, (z + 1) * zs + z0,
-					(x + 1) * xs, h10, (z + 0) * zs + z0,
+					(x + 0) * xs, h00, (z + 0) * zs,
+					(x + 1) * xs, h11, (z + 1) * zs,
+					(x + 1) * xs, h10, (z + 0) * zs,
 					colours.green,
 				} do
 					table.insert(data, v)
