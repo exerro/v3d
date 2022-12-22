@@ -415,17 +415,8 @@ local function rasterize_triangle_nodepth(
 			local columnMin = math_ceil(topLeftX)
 			local columnMax = math_ceil(topRightX)
 
-			if columnMin < 0 then
-				topLeftX = 0
-				topLeftGradient = 0
-				columnMin = topLeftX
-			end
-
-			if columnMax > fb_width_m1 then
-				topRightX = fb_width_m1
-				topRightGradient = 0
-				columnMax = topRightX
-			end
+			if columnMin < 0 then columnMin = topLeftX end
+			if columnMax > fb_width_m1 then columnMax = topRightX end
 
 			for x = columnMin, columnMax do
 				fb_front[baseIndex + x] = colour
@@ -449,17 +440,8 @@ local function rasterize_triangle_nodepth(
 			local columnMin = math_ceil(bottomLeftX)
 			local columnMax = math_ceil(bottomRightX)
 
-			if columnMin < 0 then
-				bottomLeftX = 0
-				bottomLeftGradient = 0
-				columnMin = bottomLeftX
-			end
-
-			if columnMax > fb_width_m1 then
-				bottomRightX = fb_width_m1
-				bottomRightGradient = 0
-				columnMax = bottomRightX
-			end
+			if columnMin < 0 then columnMin = bottomLeftX end
+			if columnMax > fb_width_m1 then columnMax = bottomRightX end
 
 			for x = columnMin, columnMax do
 				fb_front[baseIndex + x] = colour
@@ -527,23 +509,12 @@ local function rasterize_triangle_depth(
 		for baseIndex = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1, fb_width do
 			local columnMinX = math_ceil(topLeftX)
 			local columnMaxX = math_ceil(topRightX)
-			-- intentionally not caring about the minor inaccuracies due to
-			-- pixel rounding, there are bigger fish to fry
 			local rowTotalDeltaX = topRightX - topLeftX + 1 -- 'cause of awkward optimisations above
 			local rowDeltaW = (topRightW - topLeftW) / rowTotalDeltaX
 			local rowLeftW = topLeftW + (columnMinX - topLeftX) * rowDeltaW
 
-			if columnMinX < 0 then
-				topLeftX = 0
-				topLeftGradientX = 0
-				columnMinX = topLeftX
-			end
-
-			if columnMaxX > fb_width_m1 then
-				topRightX = fb_width_m1
-				topRightGradientX = 0
-				columnMaxX = topRightX
-			end
+			if columnMinX < 0 then columnMinX = topLeftX end
+			if columnMaxX > fb_width_m1 then columnMaxX = topRightX end
 
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x
@@ -579,23 +550,12 @@ local function rasterize_triangle_depth(
 		for baseIndex = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1, fb_width do
 			local columnMinX = math_ceil(bottomLeftX)
 			local columnMaxX = math_ceil(bottomRightX)
-			-- intentionally not caring about the minor inaccuracies due to
-			-- pixel rounding, there are bigger fish to fry
 			local rowTotalDeltaX = bottomRightX - bottomLeftX + 1 -- 'cause of awkward optimisations above
 			local rowDeltaW = (bottomRightW - bottomLeftW) / rowTotalDeltaX
 			local rowLeftW = bottomLeftW + (columnMinX - bottomLeftX) * rowDeltaW
 
-			if columnMinX < 0 then
-				bottomLeftX = 0
-				bottomLeftGradientX = 0
-				columnMinX = bottomLeftX
-			end
-
-			if columnMaxX > fb_width_m1 then
-				bottomRightX = fb_width_m1
-				bottomRightGradientX = 0
-				columnMaxX = bottomRightX
-			end
+			if columnMinX < 0 then columnMinX = bottomLeftX end
+			if columnMaxX > fb_width_m1 then columnMaxX = bottomRightX end
 
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x
