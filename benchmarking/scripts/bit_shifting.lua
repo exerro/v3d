@@ -25,9 +25,10 @@ local CONST_V3 = 3
 local CONST_V4 = 1
 local CONST_V5 = 2
 
+--- @diagnostic disable-next-line:undefined-global
 local clock = ccemux and function() return ccemux.nanoTime() / 1000000000 end or os.clock
-local blshift = bit.blshift
-local bor = bit.bor
+--- @diagnostic disable-next-line:undefined-global
+local blshift, bor = bit.blshift, bit.bor
 local string_char = string.char
 
 local overhead_iterations = 0

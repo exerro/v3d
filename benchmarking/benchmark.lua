@@ -88,8 +88,8 @@ local function benchmark(
 			fps = 1 / (td + tp),
 		})
 		if clock() - ty > 0.2 then
-			os.queueEvent 'benchmark_yield'
-			os.pullEvent 'benchmark_yield'
+			--- @diagnostic disable-next-line: undefined-field
+			os.queueEvent 'benchmark_yield'; os.pullEvent 'benchmark_yield'
 			ty = clock()
 		end
 	until iterations >= min_iterations and clock() - t0 >= min_duration
@@ -177,6 +177,7 @@ for si = 1, #screen_sizes do
 						end
 					end
 
+					--- @diagnostic disable-next-line: deprecated
 					local model_data = model.create_model(table.unpack(model_parameters))
 					local shape
 
@@ -195,8 +196,8 @@ for si = 1, #screen_sizes do
 							chart, lib, model, screen_size, shape.triangles, clear_fn, draw_fn, present_fn,
 							this_profile.warmup_iterations, this_profile.min_iterations, this_profile.min_duration, this_profile.suppress_present)
 
-						os.queueEvent 'benchmark_yield'
-						os.pullEvent 'benchmark_yield'
+						--- @diagnostic disable-next-line: undefined-field
+						os.queueEvent 'benchmark_yield'; os.pullEvent 'benchmark_yield'
 						if this_profile.post_run then
 							this_profile.post_run()
 						end
@@ -210,6 +211,7 @@ end
 local chart_options = this_profile.get_charts()
 
 for i = 0, 15 do
+	--- @diagnostic disable-next-line: deprecated
 	term.setPaletteColour(2 ^ i, table.unpack(palette[i + 1]))
 end
 

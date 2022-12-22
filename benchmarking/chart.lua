@@ -172,6 +172,7 @@ function chart.to_string(chart, options)
 				end
 			end
 
+			--- @diagnostic disable-next-line: deprecated
 			cells[i][j] = options.value_format:format(table.unpack(format_values))
 		end
 	end

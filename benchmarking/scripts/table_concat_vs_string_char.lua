@@ -18,6 +18,7 @@ local BYTE_A = string.byte 'a'
 local clock = os.clock
 local string_char = string.char
 local table_concat = table.concat
+--- @diagnostic disable-next-line: deprecated
 local table_unpack = table.unpack
 
 for _, length in ipairs(lengths) do
@@ -95,8 +96,8 @@ for _, length in ipairs(lengths) do
 	term.setTextColour(char_time < concat_time and colours.purple or colours.orange)
 	print(char_time < concat_time and "char" or "concat")
 
-	os.queueEvent 'benchmark_yield'
-	os.pullEvent 'benchmark_yield'
+	--- @diagnostic disable-next-line: undefined-field
+	os.queueEvent 'benchmark_yield'; os.pullEvent 'benchmark_yield'
 end
 
 term.setTextColour(colours.white)

@@ -56,12 +56,13 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 
 --------------------------------------------------------------------------------
 
-try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height, flags)
-	local fb = ccgl3d.create_framebuffer_subpixel(width, height)
-	local geom = ccgl3d.create_geometry()
-	local camera = ccgl3d.create_perspective_camera()
-	local ccgl3d_present = flags.depth_present and ccgl3d.present_framebuffer_depth or ccgl3d.present_framebuffer
-	local ccgl3d_render = ccgl3d.render_geometry
+--- @param verta VertaLibrary
+try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, flags)
+	local fb = verta.create_framebuffer_subpixel(width, height)
+	local geom = verta.create_geometry()
+	local camera = verta.create_perspective_camera()
+	local verta_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
+	local verta_render = verta.render_geometry
 	local aspect = fb.width / fb.height
 	local render_aspect = 1
 
@@ -74,20 +75,20 @@ try_load_library('CCGL3D', 'ccgl3d', function(ccgl3d, model_data, width, height,
 
 	for i = 1, model_data.triangles do
 		local t = model_data[i]
-		ccgl3d.add_triangle(geom, t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2, t.colour)
+		geom:add_coloured_triangle(t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2, t.colour)
 	end
 
 	local function clear_fn()
-		ccgl3d.clear_framebuffer(fb, 1)
-		-- ccgl3d.rotate_geometry_z(geom, 0.01)
+		fb:clear(1)
+		-- geom:rotate_z(0.01)
 	end
 
 	local function draw_fn()
-		ccgl3d_render(fb, geom, camera, render_aspect, flags.backface_culling or 1, flags.depth_test)
+		verta_render(fb, geom, camera, render_aspect, flags.backface_culling or 1, flags.depth_test)
 	end
 
 	local function present_fn()
-		ccgl3d_present(fb, term, 0, 0, true)
+		verta_present(fb, term, 0, 0, true)
 	end
 
 	return clear_fn, draw_fn, present_fn

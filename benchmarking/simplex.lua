@@ -3,6 +3,7 @@
 -- Original Java Source: http://staffwww.itn.liu.se/~stegu/simplexnoise/simplexnoise.pdf
 -- (most) Original comments included
 -----------------------------------------------
+--- @diagnostic disable
 
 local math = math
 local table = table

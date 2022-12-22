@@ -1,95 +1,279 @@
+-- MIT License
+--
+-- Copyright (c) 2022-2023 Benedict Allen (aka shady_duck, exerro)
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in all
+-- copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+-- SOFTWARE.
 
---- @class cc_term_lib
---- @field blit function
---- @field setCursorPos function
+-- Note, this section just declares all the functions so the top of this file
+-- can be used as documentation. The implementations are below.
+--- @diagnostic disable: missing-return, unused-local
 
 --------------------------------------------------------------------------------
+--[ Verta ]---------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- @class VertaLibrary
+local verta = {}
+
+--- Create an empty framebuffer of exactly `width` x `height` pixels.
+---
+--- Note, for using subpixel rendering (you probably are), use
+--- `create_framebuffer_subpixel` instead.
+--- @param width integer
+--- @param height integer
+--- @return VertaFramebuffer
+function verta.create_framebuffer(width, height) end
+
+--- Create an empty framebuffer of exactly `width * 2` x `height * 3` pixels,
+--- suitable for rendering subpixels.
+--- @param width integer
+--- @param height integer
+--- @return VertaFramebuffer
+function verta.create_framebuffer_subpixel(width, height) end
+
+--- TODO
+--- @param fov number | nil
+--- @return VertaCamera
+function verta.create_perspective_camera(fov) end
+
+--- Create some empty geometry with no triangles.
+--- @return VertaGeometry
+function verta.create_geometry() end
+
+-- TODO: add pipelines!
+--- TODO
+--- @param fb VertaFramebuffer
+--- @param geometry VertaGeometry
+--- @param camera VertaCamera
+--- @param aspect_ratio number | nil
+--- @param cull_back_faces integer | nil
+--- @param depth_test boolean | nil
+--- @return nil
+function verta.render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces, depth_test) end
+
+
+--------------------------------------------------------------------------------
+--[ Framebuffers ]--------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Stores the colour and depth of rendered triangles.
+--- @class VertaFramebuffer
+--- Width of the framebuffer in pixels. Note, if you're using subpixel
+--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
+--- width of 102 pixels in its framebuffer.
+--- @field width integer
+--- Height of the framebuffer in pixels. Note, if you're using subpixel
+--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
+--- height of 57 pixels in its framebuffer.
+--- @field height integer
+--- Stores the colour value of every pixel that's been drawn.
+--- @field front any[]
+--- Stores `1/Z` for every pixel drawn (when depth testing is enabled)
+--- @field depth number[]
+local VertaFramebuffer = {}
+
+--- Clears the entire framebuffer to the provided colour.
+--- @param colour integer | nil Colour to set every pixel to. Defaults to 1 (colours.white)
+--- @return nil
+function VertaFramebuffer:clear(colour) end
+
+--- Render the framebuffer to the terminal, drawing a high resolution using
+--- subpixel conversion.
+--- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @return nil
+function VertaFramebuffer:blit_subpixel(term, dx, dy) end
+
+--- Similar to `blit_subpixel` but draws the depth instead of colour.
+--- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
+--- @return nil
+function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
+
+
+--------------------------------------------------------------------------------
+--[ Camera ]--------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Contains information for the view transform when rasterizing geometry.
+--- @class VertaCamera
+--- Angle between the centre and the topmost pixel of the screen, in radians.
+--- @field fov number
+--- Centre X coordinate of the camera, where geometry is drawn relative to.
+--- A positive value moves the camera to the right in world space.
+--- @field x number
+--- Centre Y coordinate of the camera, where geometry is drawn relative to.
+--- A positive value moves the camera upwards in world space.
+--- @field y number
+--- Centre Z coordinate of the camera, where geometry is drawn relative to.
+--- A positive value moves the camera 'backwards' (away from where it's looking
+--- by default) in world space.
+--- @field z number
+--- TODO
+--- @field yRotation number
+--- TODO
+--- @field xRotation number
+--- TODO
+--- @field zRotation number
+local VertaCamera = {}
+
+-- TODO
+
+
+--------------------------------------------------------------------------------
+--[ Geometry ]------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Contains triangles.
+--- @class VertaGeometry
+--- Number of triangles contained within this geometry
+--- @field triangles integer
+local VertaGeometry = {}
+
+--- TODO
+--- @param p0x number
+--- @param p0y number
+--- @param p0z number
+--- @param p1x number
+--- @param p1y number
+--- @param p1z number
+--- @param p2x number
+--- @param p2y number
+--- @param p2z number
+--- @param colour integer
+--- @return nil
+function VertaGeometry:add_coloured_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
+
+--- TODO
+--- @param theta number
+--- @param cx number | nil
+--- @param cy number | nil
+--- @return nil
+function VertaGeometry:rotate_z(theta, cx, cy) end
+
+
+--------------------------------------------------------------------------------
+-- We're now done with the declarations!
+--- @diagnostic enable: missing-return, unused-local
+--------------------------------------------------------------------------------
+
+
+--------------------------------------------------------------------------------
+--[ Subpixel lookup tables ]----------------------------------------------------
+--------------------------------------------------------------------------------
+
 
 local CH_SPACE = string.byte ' '
 local CH_0 = string.byte '0'
 local CH_A = string.byte 'a'
 local CH_SUBPIXEL_NOISEY = 149
-local colour_lookup_byte = {}
+local colour_byte_lookup = {}
 local subpixel_code_ch_lookup = {}
 local subpixel_code_fg_lookup = {}
 local subpixel_code_bg_lookup = {}
 
-for i = 0, 15 do
-	colour_lookup_byte[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
-end
-
-local function subpixel_byte_value(v0, v1, v2, v3, v4, v5)
-	local b0 = v0 == v5 and 0 or 1
-	local b1 = v1 == v5 and 0 or 1
-	local b2 = v2 == v5 and 0 or 1
-	local b3 = v3 == v5 and 0 or 1
-	local b4 = v4 == v5 and 0 or 1
-
-	return 128 + b0 + b1 * 2 + b2 * 4 + b3 * 8 + b4 * 16
-end
-
-local function eval_subpixel_lookups(ci0, ci1, ci2, ci3, ci4, ci5, subpixel_code)
-	local colour_count = { [ci0] = 1 }
-	local unique_colour_values = { ci0 }
-	local unique_colours = 1
-
-	for _, c in ipairs { ci1, ci2, ci3, ci4, ci5 } do
-		if colour_count[c] then
-			colour_count[c] = colour_count[c] + 1
-		else
-			colour_count[c] = 1
-			unique_colours = unique_colours + 1
-			unique_colour_values[unique_colours] = c
-		end
+-- Code for pre-generating the lookup tables above
+do
+	for i = 0, 15 do
+		colour_byte_lookup[2 ^ i] = i < 10 and CH_0 + i or CH_A + (i - 10)
 	end
 
-	table.sort(unique_colour_values, function(a, b)
-		return colour_count[a] > colour_count[b]
-	end)
+	local function subpixel_byte_value(v0, v1, v2, v3, v4, v5)
+		local b0 = v0 == v5 and 0 or 1
+		local b1 = v1 == v5 and 0 or 1
+		local b2 = v2 == v5 and 0 or 1
+		local b3 = v3 == v5 and 0 or 1
+		local b4 = v4 == v5 and 0 or 1
 
-	if unique_colours == 1 then -- these should never be used!
-		subpixel_code_ch_lookup[subpixel_code] = false
-		subpixel_code_fg_lookup[subpixel_code] = false
-		subpixel_code_bg_lookup[subpixel_code] = false
-		return
+		return 128 + b0 + b1 * 2 + b2 * 4 + b3 * 8 + b4 * 16
 	end
 
-	local colour_indices = { ci0, ci1, ci2, ci3, ci4, ci5 }
-	local modal1_colour_index = unique_colour_values[1]
-	local modal2_colour_index = unique_colour_values[2]
-	local modal1_index = 0
-	local modal2_index = 0
+	local function eval_subpixel_lookups(ci0, ci1, ci2, ci3, ci4, ci5, subpixel_code)
+		local colour_count = { [ci0] = 1 }
+		local unique_colour_values = { ci0 }
+		local unique_colours = 1
 
-	for i = 1, 6 do
-		if colour_indices[i] == modal1_colour_index then
-			modal1_index = i
+		for _, c in ipairs { ci1, ci2, ci3, ci4, ci5 } do
+			if colour_count[c] then
+				colour_count[c] = colour_count[c] + 1
+			else
+				colour_count[c] = 1
+				unique_colours = unique_colours + 1
+				unique_colour_values[unique_colours] = c
+			end
 		end
-		if colour_indices[i] == modal2_colour_index then
-			modal2_index = i
+
+		table.sort(unique_colour_values, function(a, b)
+			return colour_count[a] > colour_count[b]
+		end)
+
+		if unique_colours == 1 then -- these should never be used!
+			subpixel_code_ch_lookup[subpixel_code] = false
+			subpixel_code_fg_lookup[subpixel_code] = false
+			subpixel_code_bg_lookup[subpixel_code] = false
+			return
 		end
+
+		local colour_indices = { ci0, ci1, ci2, ci3, ci4, ci5 }
+		local modal1_colour_index = unique_colour_values[1]
+		local modal2_colour_index = unique_colour_values[2]
+		local modal1_index = 0
+		local modal2_index = 0
+
+		for i = 1, 6 do
+			if colour_indices[i] == modal1_colour_index then
+				modal1_index = i
+			end
+			if colour_indices[i] == modal2_colour_index then
+				modal2_index = i
+			end
+		end
+
+		-- spatially map pixels!
+		ci0 = (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or ci2
+		ci1 = (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or ci3
+		ci2 = (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or ci4
+		ci3 = (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or ci5
+		ci4 = (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or ci2
+		ci5 = (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or ci3
+		subpixel_code_ch_lookup[subpixel_code] = subpixel_byte_value(ci0, ci1, ci2, ci3, ci4, ci5)
+		subpixel_code_fg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal2_index or modal1_index
+		subpixel_code_bg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal1_index or modal2_index
 	end
 
-	-- spatially map pixels!
-	ci0 = (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or ci2
-	ci1 = (ci1 == modal1_colour_index or ci1 == modal2_colour_index) and ci1 or (ci0 == modal1_colour_index or ci0 == modal2_colour_index) and ci0 or ci3
-	ci2 = (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or ci4
-	ci3 = (ci3 == modal1_colour_index or ci3 == modal2_colour_index) and ci3 or (ci2 == modal1_colour_index or ci2 == modal2_colour_index) and ci2 or ci5
-	ci4 = (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or ci2
-	ci5 = (ci5 == modal1_colour_index or ci5 == modal2_colour_index) and ci5 or (ci4 == modal1_colour_index or ci4 == modal2_colour_index) and ci4 or ci3
-	subpixel_code_ch_lookup[subpixel_code] = subpixel_byte_value(ci0, ci1, ci2, ci3, ci4, ci5)
-	subpixel_code_fg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal2_index or modal1_index
-	subpixel_code_bg_lookup[subpixel_code] = ci5 == modal1_colour_index and modal1_index or modal2_index
-end
-
-local subpixel_code = 0
-for c5 = 0, 3 do
-	for c4 = 0, 3 do
-		for c3 = 0, 3 do
-			for c2 = 0, 3 do
-				for c1 = 0, 3 do
-					for c0 = 0, 3 do
-						eval_subpixel_lookups(c0, c1, c2, c3, c4, c5, subpixel_code)
-						subpixel_code = subpixel_code + 1
+	local subpixel_code = 0
+	for c5 = 0, 3 do
+		for c4 = 0, 3 do
+			for c3 = 0, 3 do
+				for c2 = 0, 3 do
+					for c1 = 0, 3 do
+						for c0 = 0, 3 do
+							eval_subpixel_lookups(c0, c1, c2, c3, c4, c5, subpixel_code)
+							subpixel_code = subpixel_code + 1
+						end
 					end
 				end
 			end
@@ -97,15 +281,13 @@ for c5 = 0, 3 do
 	end
 end
 
---- @class ccFramebuffer
---- @field width integer
---- @field height integer
---- @field front table
---- @field depth { [integer]: number } Stores 1/Z for every pixel drawn (if enabled)
 
---- @param fb ccFramebuffer
---- @param colour integer
-local function clear_framebuffer(fb, colour)
+--------------------------------------------------------------------------------
+--[ Framebuffer functions ]-----------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function framebuffer_clear(fb, colour)
 	local fb_front = fb.front
 	local fb_depth = fb.depth
 	for i = 1, fb.width * fb.height do
@@ -114,36 +296,7 @@ local function clear_framebuffer(fb, colour)
 	end
 end
 
---- @param width integer
---- @param height integer
---- @return ccFramebuffer
-local function create_framebuffer(width, height)
-	local fb = {}
-
-	fb.width = width
-	fb.height = height
-	fb.front = {}
-	fb.depth = {}
-
-	clear_framebuffer(fb, 0)
-
-	return fb
-end
-
---- @param width integer
---- @param height integer
---- @return ccFramebuffer
-local function create_framebuffer_subpixel(width, height)
-	return create_framebuffer(width * 2, height * 3) -- multiply by subpixel dimensions
-end
-
---- Render a framebuffer to the screen, swapping its buffers, and handling
---- subpixel conversion
---- @param fb ccFramebuffer
---- @param term cc_term_lib
---- @param dx integer | nil
---- @param dy integer | nil
-local function present_framebuffer(fb, term, dx, dy)
+local function framebuffer_blit_subpixel(fb, term, dx, dy)
 	dx = dx or 0
 	dy = dy or 0
 
@@ -154,8 +307,9 @@ local function present_framebuffer(fb, term, dx, dy)
 
 	local xBlit = 1 + dx
 
-	local string_char = string.char
+	--- @diagnostic disable-next-line: deprecated
 	local table_unpack = table.unpack
+	local string_char = string.char
 	local term_blit = term.blit
 	local term_setCursorPos = term.setCursorPos
 
@@ -219,16 +373,16 @@ local function present_framebuffer(fb, term, dx, dy)
 				if c02 ~= c12 then subpixel_ch = subpixel_ch + 16 end
 
 				ch_t[ix] = subpixel_ch
-				fg_t[ix] = colour_lookup_byte[other_colour]
-				bg_t[ix] = colour_lookup_byte[c12]
+				fg_t[ix] = colour_byte_lookup[other_colour]
+				bg_t[ix] = colour_byte_lookup[c12]
 			elseif unique_colours == 1 then
 				ch_t[ix] = CH_SPACE
 				fg_t[ix] = CH_0
-				bg_t[ix] = colour_lookup_byte[c00]
+				bg_t[ix] = colour_byte_lookup[c00]
 			elseif unique_colours > 4 then -- so random that we're gonna just give up lol
 				ch_t[ix] = CH_SUBPIXEL_NOISEY
-				fg_t[ix] = colour_lookup_byte[c01]
-				bg_t[ix] = colour_lookup_byte[c00]
+				fg_t[ix] = colour_byte_lookup[c01]
+				bg_t[ix] = colour_byte_lookup[c00]
 			else
 				local colours = { c00, c10, c01, c11, c02, c12 }
 				local subpixel_code = unique_colour_lookup[c12] * 1024
@@ -239,8 +393,8 @@ local function present_framebuffer(fb, term, dx, dy)
 				                    + unique_colour_lookup[c00]
 
 				ch_t[ix] = subpixel_code_ch_lookup[subpixel_code]
-				fg_t[ix] = colour_lookup_byte[colours[subpixel_code_fg_lookup[subpixel_code]]]
-				bg_t[ix] = colour_lookup_byte[colours[subpixel_code_bg_lookup[subpixel_code]]]
+				fg_t[ix] = colour_byte_lookup[colours[subpixel_code_fg_lookup[subpixel_code]]]
+				bg_t[ix] = colour_byte_lookup[colours[subpixel_code_bg_lookup[subpixel_code]]]
 			end
 
 			i0 = i0 + SUBPIXEL_WIDTH
@@ -252,16 +406,17 @@ local function present_framebuffer(fb, term, dx, dy)
 	end
 end
 
-local function present_framebuffer_depth(fb, term, dx, dy, update_palette)
+local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
 	local math_floor = math.floor
 
-	if update_palette then
+	if update_palette ~= false then
 		for i = 0, 15 do
 			term.setPaletteColour(2 ^ i, i / 15, i / 15, i / 15)
 		end
 	end
 
 	-- we're gonna do a hack to swap out the buffers and draw it like normal
+
 	local fb_depth = fb.depth
 	local old_front = fb.front
 	local new_front = {}
@@ -288,33 +443,59 @@ local function present_framebuffer_depth(fb, term, dx, dy, update_palette)
 	end
 
 	fb.front = new_front
-	present_framebuffer(fb, term, dx, dy)
+	framebuffer_blit_subpixel(fb, term, dx, dy)
 	fb.front = old_front
 end
 
---------------------------------------------------------------------------------
+local function create_framebuffer(width, height)
+	--- @type VertaFramebuffer
+	local fb = {}
 
---- @class ccGeometry: table
---- @field triangles integer
+	fb.width = width
+	fb.height = height
+	fb.front = {}
+	fb.depth = {}
+	fb.clear = framebuffer_clear
+	fb.blit_subpixel = framebuffer_blit_subpixel
+	fb.blit_subpixel_depth = framebuffer_blit_subpixel_depth
 
---- @returns ccGeometry
-local function create_geometry()
-	return { triangles = 0 }
+	framebuffer_clear(fb, 0)
+
+	return fb
 end
 
---- @param geometry ccGeometry
---- @param p0x number
---- @param p0y number
---- @param p0z number
---- @param p1x number
---- @param p1y number
---- @param p1z number
---- @param p2x number
---- @param p2y number
---- @param p2z number
---- @param colour integer
---- @return nil
-local function add_triangle(geometry, p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour)
+local function create_framebuffer_subpixel(width, height)
+	return create_framebuffer(width * 2, height * 3) -- multiply by subpixel dimensions
+end
+
+
+--------------------------------------------------------------------------------
+--[ Camera functions ]----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function create_perspective_camera(fov)
+	--- @type VertaCamera
+	local camera = {}
+
+	camera.fov = fov or math.pi / 3
+	camera.x = 0
+	camera.y = 0
+	camera.z = 0
+	camera.yRotation = 0
+	camera.xRotation = 0
+	camera.zRotation = 0
+
+	return camera
+end
+
+
+--------------------------------------------------------------------------------
+--[ Geometry functions ]--------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function geometry_add_coloured_triangle(geometry, p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour)
 	local DATA_PER_TRIANGLE = 10
 	local idx = geometry.triangles * DATA_PER_TRIANGLE
 
@@ -331,11 +512,10 @@ local function add_triangle(geometry, p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2
 	geometry[idx + 10] = colour
 end
 
-----------------------------------------------------------------
-
-local function rotate_geometry_z(geometry, theta, cx, cy)
+local function geometry_rotate_z(geometry, theta, cx, cy)
 	local DATA_PER_TRIANGLE = 10
 
+	--- TODO: use cx and cy
 	cx = cx or 0
 	cy = cy or 0
 
@@ -352,34 +532,22 @@ local function rotate_geometry_z(geometry, theta, cx, cy)
 	end
 end
 
---------------------------------------------------------------------------------
+local function create_geometry()
+	--- @type VertaGeometry
+	local geometry = {}
 
---- @class ccCamera
---- @field fov number
---- @field x number
---- @field y number
---- @field z number
---- @field yRotation number
---- @field xRotation number
---- @field zRotation number
+	geometry.triangles = 0
+	geometry.add_coloured_triangle = geometry_add_coloured_triangle
+	geometry.rotate_z = geometry_rotate_z
 
---- @param fov number | nil
---- @return ccCamera
-local function create_perspective_camera(fov)
-	local camera = {}
-
-	camera.fov = fov or math.pi / 3
-	camera.x = 0
-	camera.y = 0
-	camera.z = 0
-	camera.yRotation = 0
-	camera.xRotation = 0
-	camera.zRotation = 0
-
-	return camera
+	return geometry
 end
 
+
 --------------------------------------------------------------------------------
+--[ Rasterization functions ]---------------------------------------------------
+--------------------------------------------------------------------------------
+
 
 --- @private
 local function rasterize_triangle_nodepth(
@@ -394,7 +562,7 @@ local function rasterize_triangle_nodepth(
 	local math_floor = math.floor
 	local fb_width_m1 = fb_width - 1
 
-	-- see: https://github.com/exerro/ccgl3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+	-- see: https://github.com/exerro/verta/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
 	-- there's an explanation of the algorithm there
 	-- this code has been heavily microoptimised so won't perfectly resemble that
 
@@ -483,7 +651,7 @@ local function rasterize_triangle_depth(
 	local math_floor = math.floor
 	local fb_width_m1 = fb_width - 1
 
-	-- see: https://github.com/exerro/ccgl3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+	-- see: https://github.com/exerro/verta/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
 	-- there's an explanation of the algorithm there
 	-- this code has been heavily microoptimised so won't perfectly resemble that
 
@@ -594,9 +762,6 @@ local function rasterize_triangle_depth(
 	end
 end
 
---- @param fb ccFramebuffer
---- @param geometry ccGeometry
---- @param camera ccCamera
 local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces, depth_test)
 	local DATA_PER_TRIANGLE = 10
 	local clipping_plane = -0.0001
@@ -711,17 +876,24 @@ local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_fac
 	end
 end
 
+
+--------------------------------------------------------------------------------
+--[ Library export ]------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-return {
-	create_framebuffer = create_framebuffer,
-	create_framebuffer_subpixel = create_framebuffer_subpixel,
-	clear_framebuffer = clear_framebuffer,
-	present_framebuffer = present_framebuffer,
-	present_framebuffer_depth = present_framebuffer_depth,
-	create_geometry = create_geometry,
-	add_triangle = add_triangle,
-	rotate_geometry_z = rotate_geometry_z,
-	create_perspective_camera = create_perspective_camera,
-	render_geometry = render_geometry,
-}
+
+-- This purely exists to bypass the language server being too clever for itself.
+-- It's here so the LS can't work out what's going on so we keep the types and
+-- docstrings from the top of the file rather than adding weird shit from here.
+local function set_function(name, fn)
+	local c = verta
+	c[name] = fn
+end
+
+set_function('create_framebuffer', create_framebuffer)
+set_function('create_framebuffer_subpixel', create_framebuffer_subpixel)
+set_function('create_perspective_camera', create_perspective_camera)
+set_function('create_geometry', create_geometry)
+set_function('render_geometry', render_geometry)
+
+return verta
