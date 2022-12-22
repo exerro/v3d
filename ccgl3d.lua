@@ -174,6 +174,9 @@ local function present_framebuffer(fb, term, dx, dy)
 			local c01, c11 = fb_front[i1], fb_front[i1 + 1]
 			local c02, c12 = fb_front[i2], fb_front[i2 + 1]
 
+			-- TODO: make this a massive decision tree?
+			-- if two middle pixels are equal, that's a guaranteed colour
+
 			local unique_colour_lookup = { [c00] = 0 }
 			local unique_colours = 1
 
@@ -198,9 +201,29 @@ local function present_framebuffer(fb, term, dx, dy)
 				unique_colours = unique_colours + 1
 			end
 
-			if unique_colours == 1 then
+			if unique_colours == 2 then
+				local other_colour = c02
+
+				    if c00 ~= c12 then other_colour = c00
+				elseif c10 ~= c12 then other_colour = c10
+				elseif c01 ~= c12 then other_colour = c01
+				elseif c11 ~= c12 then other_colour = c11
+				end
+
+				local subpixel_ch = 128
+
+				if c00 ~= c12 then subpixel_ch = subpixel_ch + 1 end
+				if c10 ~= c12 then subpixel_ch = subpixel_ch + 2 end
+				if c01 ~= c12 then subpixel_ch = subpixel_ch + 4 end
+				if c11 ~= c12 then subpixel_ch = subpixel_ch + 8 end
+				if c02 ~= c12 then subpixel_ch = subpixel_ch + 16 end
+
+				ch_t[ix] = subpixel_ch
+				fg_t[ix] = colour_lookup_byte[other_colour]
+				bg_t[ix] = colour_lookup_byte[c12]
+			elseif unique_colours == 1 then
 				ch_t[ix] = CH_SPACE
-				fg_t[ix] = colour_lookup_byte[1]
+				fg_t[ix] = CH_0
 				bg_t[ix] = colour_lookup_byte[c00]
 			elseif unique_colours > 4 then -- so random that we're gonna just give up lol
 				ch_t[ix] = CH_SUBPIXEL_NOISEY
