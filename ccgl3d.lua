@@ -20,6 +20,25 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
+
+--[[ TODO: example library usage
+
+local fb = verta.create_framebuffer_subpixel(term.getSize())
+local camera = verta.create_perspective_camera(math.pi / 7)
+local geometry = verta.load_model('mymodel.obj'):expect_uvs()
+local texture = verta.load_texture('myimage.idk')
+local pipeline = verta.create_pipeline {
+	cull_face = verta.CULL_BACK_FACE,
+	interpolate_uvs = true,
+	fragment_shader = verta.create_texture_shader 'u_texture',
+}
+
+pipeline:set_uniform('u_texture', texture)
+pipeline:render_geometry(geometry, fb, camera)
+fb:blit_subpixel(term)
+]]
+
+
 -- Note, this section just declares all the functions so the top of this file
 -- can be used as documentation. The implementations are below.
 --- @diagnostic disable: missing-return, unused-local
@@ -72,6 +91,7 @@ function verta.create_perspective_camera(fov) end
 --- @return VertaGeometry
 function verta.create_geometry() end
 
+-- TODO: create_pipeline_builder():set_blah():build()?
 --- TODO
 --- @param options VertaPipelineOptions | nil
 --- @return VertaPipeline
@@ -218,7 +238,7 @@ local VertaProjection = {
 --- @field vertex_shader function TODO(type)
 local VertaPipelineOptions = {}
 
--- TODO: list of geometry instead?
+-- TODO: list of geometry instead? with count and offset options
 --- TODO
 --- @param geometry VertaGeometry
 --- @param fb VertaFramebuffer
