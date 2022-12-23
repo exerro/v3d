@@ -32,6 +32,21 @@
 --- @class VertaLibrary
 local verta = {}
 
+--- @type VertaCullFace
+verta.CULL_FRONT_FACE = -1
+
+--- @type VertaCullFace
+verta.CULL_BACK_FACE = 1
+
+--- @type VertaProjection
+verta.NO_PROJECTION = 0
+
+--- @type VertaProjection
+verta.PERSPECTIVE_PROJECTION = 1
+
+--- @type VertaProjection
+verta.ORTHOGRAPHIC_PROJECTION = 2
+
 --- Create an empty framebuffer of exactly `width` x `height` pixels.
 ---
 --- Note, for using subpixel rendering (you probably are), use
@@ -57,16 +72,10 @@ function verta.create_perspective_camera(fov) end
 --- @return VertaGeometry
 function verta.create_geometry() end
 
--- TODO: add pipelines!
 --- TODO
---- @param fb VertaFramebuffer
---- @param geometry VertaGeometry
---- @param camera VertaCamera
---- @param aspect_ratio number | nil
---- @param cull_back_faces integer | nil
---- @param depth_test boolean | nil
---- @return nil
-function verta.render_geometry(fb, geometry, camera, aspect_ratio, cull_back_faces, depth_test) end
+--- @param options VertaPipelineOptions | nil
+--- @return VertaPipeline
+function verta.create_pipeline(options) end
 
 
 --------------------------------------------------------------------------------
@@ -113,7 +122,7 @@ function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 
 
 --------------------------------------------------------------------------------
---[ Camera ]--------------------------------------------------------------------
+--[ Cameras ]-------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
@@ -138,8 +147,6 @@ function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 --- TODO
 --- @field zRotation number
 local VertaCamera = {}
-
--- TODO
 
 
 --------------------------------------------------------------------------------
@@ -173,6 +180,51 @@ function VertaGeometry:add_coloured_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, 
 --- @param cy number | nil
 --- @return nil
 function VertaGeometry:rotate_z(theta, cx, cy) end
+
+
+--------------------------------------------------------------------------------
+--[ Pipelines ]-----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- TODO
+--- @class VertaPipeline
+local VertaPipeline = {}
+
+--- TODO
+--- @enum VertaCullFace
+local VertaCullFace = {
+	BACK_FACE = 1,
+	FRONT_FACE = -1,
+}
+
+--- TODO
+--- @enum VertaProjection
+local VertaProjection = {
+	NONE = 0,
+	PERSPECTIVE = 1,
+	ORTHOGRAPHIC = 2,
+}
+
+--- TODO
+--- @class VertaPipelineOptions
+--- @field cull_face VertaCullFace | false | nil
+--- @field depth_store boolean | nil
+--- @field depth_test boolean | nil
+--- @field fragment_shader function TODO(type)
+--- @field interpolate_uvs boolean | nil
+--- @field pixel_aspect_ratio number | nil
+--- @field projection VertaProjection | nil
+--- @field vertex_shader function TODO(type)
+local VertaPipelineOptions = {}
+
+-- TODO: list of geometry instead?
+--- TODO
+--- @param geometry VertaGeometry
+--- @param fb VertaFramebuffer
+--- @param camera VertaCamera
+--- @return nil
+function VertaPipeline:render_geometry(geometry, fb, camera) end
 
 
 --------------------------------------------------------------------------------
@@ -549,7 +601,6 @@ end
 --------------------------------------------------------------------------------
 
 
---- @private
 local function rasterize_triangle_nodepth(
 	fb_front,
 	_,
@@ -639,7 +690,6 @@ local function rasterize_triangle_nodepth(
 	end
 end
 
---- @private
 local function rasterize_triangle_depth(
 	fb_front, fb_depth,
 	fb_width, fb_height_m1,
@@ -876,6 +926,29 @@ local function render_geometry(fb, geometry, camera, aspect_ratio, cull_back_fac
 	end
 end
 
+local function create_pipeline(options)
+	options = options or {}
+	options.pixel_aspect_ratio = options.pixel_aspect_ratio or 1
+	options.cull_face = options.cull_face == nil and verta.CULL_BACK_FACE or options.cull_face
+	options.depth_store = options.depth_store == nil or options.depth_store
+	options.depth_test = options.depth_test == nil or options.depth_test
+	options.interpolate_uvs = options.interpolate_uvs or false
+	options.fragment_shader = options.fragment_shader or nil
+	options.vertex_shader = options.vertex_shader or nil
+	options.projection = options.projection or VertaProjection.PERSPECTIVE
+
+	--- @type VertaPipeline
+	local pipeline = {}
+
+	-- magical hacks to get around the language server!
+	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
+		-- TODO: do this properly
+		return render_geometry(fb, geometry, camera, options.pixel_aspect_ratio, options.cull_face, options.depth_test)
+	end
+
+	return pipeline
+end
+
 
 --------------------------------------------------------------------------------
 --[ Library export ]------------------------------------------------------------
@@ -894,6 +967,6 @@ set_function('create_framebuffer', create_framebuffer)
 set_function('create_framebuffer_subpixel', create_framebuffer_subpixel)
 set_function('create_perspective_camera', create_perspective_camera)
 set_function('create_geometry', create_geometry)
-set_function('render_geometry', render_geometry)
+set_function('create_pipeline', create_pipeline)
 
 return verta

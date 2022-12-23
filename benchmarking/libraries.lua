@@ -61,10 +61,18 @@ try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, f
 	local fb = verta.create_framebuffer_subpixel(width, height)
 	local geom = verta.create_geometry()
 	local camera = verta.create_perspective_camera()
+	local pipeline = verta.create_pipeline {
+		cull_face = flags.cull_face == nil and verta.CULL_BACK_FACE or flags.cull_face,
+		depth_test = flags.depth_test,
+	}
 	local verta_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
-	local verta_render = verta.render_geometry
+	local verta_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
-	local render_aspect = 1
+
+	verta.create_pipeline {
+		aspect_ratio = 0,
+		cull_face = verta.CULL_BACK_FACE,
+	}
 
 	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
 	camera.xRotation = SETTING_CAMERA_X_ROTATION
@@ -84,7 +92,7 @@ try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, f
 	end
 
 	local function draw_fn()
-		verta_render(fb, geom, camera, render_aspect, flags.backface_culling or 1, flags.depth_test)
+		verta_render(pipeline, geom, fb, camera)
 	end
 
 	local function present_fn()
