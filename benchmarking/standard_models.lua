@@ -14,16 +14,11 @@ local cube_polygons -- defined at bottom of file
 --- * 'named-struct-*' are both a list of { x0, y0, z0, x1, y1, z1, x2, y2, z2,
 ---   colour } tables. The suffix denotes what is "right", "up" and "forward".
 --- @field format 'flat' | 'named-struct-X+Y+Z-' | 'named-struct-Z+Y+X+'
---- A list of parameters that let the model vary. See below.
---- @field parameters { [integer]: ModelParameter }
+--- TODO
+--- @field default_details { [integer]: integer }
 --- Function to create a model, given values for the parameters. Should return
 --- data according to the format.
 --- @field create_model fun(...): { [integer]: ModelNamedStructPolygon | number }
-
---- @class ModelParameter
---- @field name string Human-friendly name of the parameter, doesn't need to match code.
---- @field default any Default value used for large scale benchmarks.
---- @field options { [integer]: any } Set of options that the parameter accepts.
 
 --- @class ModelNamedStructPolygon 3 vertex positions and a colour
 --- @field x0 number World space X coordinate of the first triangle vertex
@@ -43,22 +38,20 @@ table.insert(models, {
 	id = 'box',
 	name = 'Box',
 	format = 'flat',
-	parameters = {
-		{ name = 'count', default = 16, options = { 1, 2, 4, 8, 16, 32, 64, 128 } }
-	},
-	create_model = function(count)
+	default_details = { 4, 8, 25 },
+	create_model = function(detail)
 		local data = {}
 
 		local z = -5
-		local dz = -z * 2 / count
+		local dz = -z * 2 / detail
 
 		local dy = dz
 
-		for _ = 1, count do
+		for _ = 1, detail do
 			local x = -5
-			local dx = -x * 2 / count
+			local dx = -x * 2 / detail
 	
-			for _ = 1, count do
+			for _ = 1, detail do
 				for i = 1, #cube_polygons, 10 do
 					table.insert(data, cube_polygons[i + 0] * dx + x)
 					table.insert(data, cube_polygons[i + 1] * dy)
@@ -85,20 +78,18 @@ table.insert(models, {
 --------------------------------------------------------------------------------
 
 table.insert(models, {
-	id = 'noise',
-	name = 'Noise',
+	id = 'land',
+	name = 'Land',
 	format = 'flat',
-	parameters = {
-		{ name = 'resolution', default = 16, options = { 4, 8, 16, 32, 64 } }
-	},
-	create_model = function(resolution)
+	default_details = { 4, 8, 16 },
+	create_model = function(detail)
 		local data = {}
-		local xs = 5 / resolution
-		local zs = 5 / resolution
+		local xs = 5 / detail
+		local zs = 5 / detail
 		local ns = 1 / 3
 
-		for z = -resolution, resolution - 1 do
-			for x = -resolution, resolution - 1 do
+		for z = -detail, detail - 1 do
+			for x = -detail, detail - 1 do
 				local h00 = simplex.Noise2D((x + 0) * ns * xs, (z + 0) * ns * zs)
 				local h01 = simplex.Noise2D((x + 0) * ns * xs, (z + 1) * ns * zs)
 				local h10 = simplex.Noise2D((x + 1) * ns * xs, (z + 0) * ns * zs)

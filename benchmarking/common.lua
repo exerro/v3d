@@ -1,7 +1,4 @@
 
---- @class Options: { [integer]: table }
-local Options = {}
-
 --- @alias Datapoint { [string]: unknown }
 
 --- @class Dataset: { [integer]: Datapoint }
@@ -11,7 +8,7 @@ local Dataset = {}
 --- @field cells { [integer]: { [integer]: string } }
 local Chart = {}
 
---- @alias ChartOptions2<R, C> { title: string, rows: R[], columns: C[], format_row: (fun(row: R): string), format_column: (fun(column: C): string), format_cell: (fun(row: R, column: C): string) }
+--- @alias ChartOptions<R, C> { title: string, rows: R[], columns: C[], format_row: (fun(row: R): string), format_column: (fun(column: C): string), format_cell: (fun(row: R, column: C): string) }
 
 --- @class ChartPrintOptions
 --- @field x_offset integer | nil
@@ -46,53 +43,43 @@ end
 
 --------------------------------------------------------------------------------
 
---- @param self Options
---- @param name string
---- @param values unknown[]
---- @param filter (fun(option: table): boolean) | nil
---- @return Options
-function Options:add_option(name, values, filter)
-	local new_results = {}
-
-	for i = 1, #self do
-		if filter and not filter(self[i]) then
-			table.insert(new_results, self[i])
-		else
-			for j = 1, #values do
-				local t = copy(self[i])
-				t[name] = values[j]
-				table.insert(new_results, t)
-			end
-		end
-	end
-
-	for i = 1, #new_results do
-		self[i] = new_results[i]
-	end
-
-	for i = #self, #new_results + 1, -1 do
-		self[i] = nil
-	end
-
-	return self
-end
-
---- @return Options
-function common.create_options()
-	--- @type Options
-	local o = { {} }
-	o.add_option = Options.add_option
-	return o
-end
-
---------------------------------------------------------------------------------
-
 --- Add a datapoint to this dataset and return the dataset. Does not make a copy
 --- of this dataset.
 --- @param datapoint Datapoint
 --- @return Dataset
 function Dataset:add_datapoint(datapoint)
 	table.insert(self, datapoint)
+	return self
+end
+
+--- TODO
+--- @param key string
+--- @param values any[]
+--- @param filter (fun(dp: Datapoint): boolean) | nil
+--- @return Dataset
+function Dataset:add_permutation(key, values, filter)
+	local new_datapoints = {}
+
+	for i = 1, #self do
+		if filter and not filter(self[i]) then
+			table.insert(new_datapoints, self[i])
+		else
+			for j = 1, #values do
+				local t = copy(self[i])
+				t[key] = values[j]
+				table.insert(new_datapoints, t)
+			end
+		end
+	end
+
+	for i = 1, #new_datapoints do
+		self[i] = new_datapoints[i]
+	end
+
+	for i = #self, #new_datapoints + 1, -1 do
+		self[i] = nil
+	end
+
 	return self
 end
 
@@ -112,6 +99,21 @@ function Dataset:filter(predicate)
 	return ds
 end
 
+--- TODO
+--- @param values { [string]: any }
+--- @return Dataset
+function Dataset:filter_values(values)
+	return self:filter(function(dp)
+		for k, v in pairs(values) do
+			if dp[k] ~= v then
+				return false
+			end
+		end
+
+		return true
+	end)
+end
+
 --- @param reducer fun(a: Datapoint, b: Datapoint, n: integer, i: integer): Datapoint
 --- @param v0 Datapoint | nil
 --- @return Datapoint
@@ -125,21 +127,52 @@ function Dataset:reduce(reducer, v0)
 	return r
 end
 
---- @param key string
+--- @param ... string
 --- @return unknown[]
-function Dataset:distinct(key)
+function Dataset:distinct(...)
+	local keys = { ... }
 	local lookup = {}
 	local r = {}
 
+	if #keys == 0 then
+		return { {} }
+	end
+
 	for i = 1, #self do
-		local v = self[i][key]
-		if not lookup[v] then
-			lookup[v] = true
-			table.insert(r, v)
+		local t = lookup
+		for j = 1, #keys do
+			local v = self[i][keys[j]]
+			if not t[v] then
+				t[v] = {}
+				if j == #keys then
+					local rr = {}
+
+					for k = 1, #keys do
+						rr[keys[k]] = self[i][keys[k]]
+					end
+
+					table.insert(r, rr)
+				end
+			end
+			t = t[v]
 		end
 	end
 
 	return r
+end
+
+--- @return (fun(table: Dataset, i?: integer): integer, Datapoint), Dataset, integer
+function Dataset:iterator()
+	return ipairs(self)
+end
+
+--- @return Dataset
+function Dataset:copy()
+	local d = common.create_dataset()
+	for i = 1, #self do
+		d[i] = self[i]
+	end
+	return d
 end
 
 --- @return Dataset
@@ -147,9 +180,13 @@ function common.create_dataset()
 	--- @type Dataset
 	local dataset = {}
 	dataset.add_datapoint = Dataset.add_datapoint
+	dataset.add_permutation = Dataset.add_permutation
 	dataset.filter = Dataset.filter
+	dataset.filter_values = Dataset.filter_values
 	dataset.reduce = Dataset.reduce
 	dataset.distinct = Dataset.distinct
+	dataset.iterator = Dataset.iterator
+	dataset.copy = Dataset.copy
 	return dataset
 end
 
@@ -292,8 +329,11 @@ function Chart:pretty_print(options)
 				end
 			end
 
+			local insert = true -- insert stuff to fix weirdness where every
+			                    -- other line is an empty string
 			for line in self.cells[i][j]:gmatch "[^\n]*" do
-				table.insert(lines, line)
+				if insert then table.insert(lines, line) end
+				insert = not insert
 			end
 
 			for r = 1, #lines do
@@ -313,7 +353,7 @@ function Chart:pretty_print(options)
 
 			for r = #lines + 1, row_heights[i] do
 				table.insert(this_row_actions[r], function()
-					term.write((" "):rep(column_lengths[j]))
+					term.write((" "):rep(column_lengths[j] + 2)) -- +2 to account for padding
 				end)
 			end
 		end
@@ -333,7 +373,7 @@ end
 
 --- @generic R
 --- @generic C
---- @param options ChartOptions2<R, C>
+--- @param options ChartOptions<R, C>
 --- @return Chart
 function common.create_chart(options)
 	local chart = {}
@@ -360,37 +400,5 @@ function common.create_chart(options)
 
 	return chart
 end
-
-local data = common.create_dataset()
-
-for i = 1, 4 do
-	for j = 5, 7 do
-		data:add_datapoint { x = i, y = j, value = i * i + j }
-	end
-end
-
-local chart = common.create_chart {
-	title = '&green;hello',
-	rows = data:distinct 'y',
-	columns = data:distinct 'x',
-	format_row = function(r) return '&orange;r' .. r end,
-	format_column = function(c) return '&cyan;c' .. c end,
-	format_cell = function(r, c)
-		local v = data:filter(function(it)
-			return it.y == r and it.x == c
-		end):reduce(function(a, b)
-			return { value = a.value + b.value }
-		end)
-
-		return '&red;r' .. r .. '&blue;c' .. c .. "&white;: " .. v.value
-	end,
-}
-
-chart:pretty_print {
-	background_colour = colours.grey,
-	alternate_background_colour = colours.black,
-	text_colour = colours.white,
-	separator_colour = colours.lightGrey,
-}
 
 return common

@@ -10,7 +10,6 @@ local table = table
 local tonumber = tonumber
 local ipairs = ipairs
 local error = error
-local bit = require("bit")
 
 local simplex = {}
 

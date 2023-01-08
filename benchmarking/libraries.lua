@@ -32,7 +32,8 @@ package.path = '/?.lua;/?/?.lua;' .. package.path
 local function try_load_library(name, library, setup_fn)
 	local ok, lib = pcall(require, library)
 	if not ok then
-		print('Failed to load ' .. library)
+		print('Warning: Failed to load ' .. library)
+		return
 	end
 	local l = {
 		id = library,
@@ -70,7 +71,7 @@ try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, f
 	local aspect = fb.width / fb.height
 
 	verta.create_pipeline {
-		aspect_ratio = 0,
+		aspect_ratio = 1,
 		cull_face = verta.CULL_BACK_FACE,
 	}
 
