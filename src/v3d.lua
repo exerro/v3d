@@ -223,6 +223,11 @@ function V3DGeometry:add_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p
 --- TODO
 --- @param theta number
 --- @return nil
+function V3DGeometry:rotate_y(theta) end
+
+--- TODO
+--- @param theta number
+--- @return nil
 function V3DGeometry:rotate_z(theta) end
 
 
@@ -656,6 +661,23 @@ local function geometry_rotate_z(geometry, theta)
 	end
 end
 
+local function geometry_rotate_y(geometry, theta)
+	local poly_stride = geometry_poly_size(geometry.type)
+	local pos_stride = geometry_poly_pos_stride(geometry.type)
+
+	local sT = math.sin(theta)
+	local cT = math.cos(theta)
+
+	for i = 1, geometry.triangles * poly_stride, poly_stride do
+		local x0, z0 = geometry[i], geometry[i + 2]
+		local x1, z1 = geometry[i + pos_stride], geometry[i + pos_stride + 2]
+		local x2, z2 = geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 2]
+		geometry[i], geometry[i + 2] = x0 * cT - z0 * sT, x0 * sT + z0 * cT
+		geometry[i + pos_stride], geometry[i + pos_stride + 2] = x1 * cT - z1 * sT, x1 * sT + z1 * cT
+		geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 2] = x2 * cT - z2 * sT, x2 * sT + z2 * cT
+	end
+end
+
 local function create_geometry(type)
 	--- @type V3DGeometry
 	local geometry = {}
@@ -663,6 +685,7 @@ local function create_geometry(type)
 	geometry.type = type
 	geometry.triangles = 0
 	geometry.add_triangle = geometry_add_triangle
+	geometry.rotate_y = geometry_rotate_y
 	geometry.rotate_z = geometry_rotate_z
 
 	return geometry
@@ -674,7 +697,7 @@ end
 --------------------------------------------------------------------------------
 
 
--- #section depth_test depth_store enable_fs
+-- #section depth_test depth_store interpolate_uvs enable_fs
 local function rasterize_triangle(
 	fb_front, fb_depth,
 	fb_width, fb_height_m1,
@@ -690,11 +713,19 @@ local function rasterize_triangle(
 	-- see: https://github.com/exerro/v3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
 	-- there's an explanation of the algorithm there
 	-- this code has been heavily microoptimised so won't perfectly resemble that
+	-- this has also had depth testing and UV interpolation added in, so good
+	-- luck understanding anything here :/
 
-	-- #if depth_test depth_store
+	-- #if depth_test depth_store interpolate_uvs
+	-- #if interpolate_uvs
+	if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end
+	if p1y > p2y then p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v = p2x, p2y, p2w, p2u, p2v, p1x, p1y, p1w, p1u, p1v end
+	if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end
+	-- #else
 	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
 	if p1y > p2y then p1x, p1y, p1w, p2x, p2y, p2w = p2x, p2y, p2w, p1x, p1y, p1w end
 	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
+	-- #end
 	-- #else
 	if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end
 	if p1y > p2y then p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y end
@@ -704,14 +735,22 @@ local function rasterize_triangle(
 
 	local f = (p1y - p0y) / (p2y - p0y)
 	local pMx = p0x * (1 - f) + p2x * f
-	-- #if depth_test depth_store
+	-- #if depth_test depth_store interpolate_uvs
 	local pMw = p0w * (1 - f) + p2w * f
+	-- #end
+	-- #if interpolate_uvs
+	local pMu = (p0u * p0w * (1 - f) + p2u * p2w * f) / pMw
+	local pMv = (p0v * p0w * (1 - f) + p2v * p2w * f) / pMw
 	-- #end
 
 	if pMx > p1x then
 		pMx, p1x = p1x, pMx
-		-- #if depth_test depth_store
+		-- #if depth_test depth_store interpolate_uvs
 		pMw, p1w = p1w, pMw
+		-- #end
+		-- #if interpolate_uvs
+		pMu, p1u = p1u, pMu
+		pMv, p1v = p1v, pMv
 		-- #end
 	end
 
@@ -728,19 +767,28 @@ local function rasterize_triangle(
 	local function rasterise_flat_triangle(
 		triLeftGradientX, triRightGradientX,
 		triLeftGradientW, triRightGradientW,
+		triLeftGradientUW, triRightGradientUW,
+		triLeftGradientVW, triRightGradientVW,
 		triLeftX, triRightX,
 		triLeftW, triRightW,
+		triLeftUW, triRightUW,
+		triLeftVW, triRightVW,
 		it_a, it_b
 	)
 		for baseIndex = it_a, it_b, fb_width do
 			local columnMinX = math_ceil(triLeftX)
 			local columnMaxX = math_ceil(triRightX)
-			-- #if depth_test depth_store
+			-- #if depth_test depth_store interpolate_uvs
 			local rowTotalDeltaX = triRightX - triLeftX + 1 -- 'cause of awkward optimisations above
 			local rowDeltaW = (triRightW - triLeftW) / rowTotalDeltaX
 			local rowLeftW = triLeftW + (columnMinX - triLeftX) * rowDeltaW
 			-- #end
-			-- b = a*w0 / ((rowTotalDeltaX - a)w1 + a*w0)
+			-- #if interpolate_uvs
+			local rowDeltaU = (triRightUW - triLeftUW) / rowTotalDeltaX
+			local rowLeftU = triLeftUW + (columnMinX - triLeftX) * rowDeltaU
+			local rowDeltaV = (triRightVW - triLeftVW) / rowTotalDeltaX
+			local rowLeftV = triLeftVW + (columnMinX - triLeftX) * rowDeltaV
+			-- #end
 
 			if columnMinX < 0 then columnMinX = 0 end
 			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
@@ -748,10 +796,16 @@ local function rasterize_triangle(
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x
 
+				local u, v = 0, 0
+				-- #if interpolate_uvs
+				u = rowLeftU / rowLeftW
+				v = rowLeftV / rowLeftW
+				-- #end
+
 				-- #if depth_test
 				if rowLeftW > fb_depth[index] then
 					-- #if enable_fs
-					local fs_colour = fragment_shader(pipeline_uniforms, 0, 0)
+					local fs_colour = fragment_shader(pipeline_uniforms, u, v)
 					if fs_colour ~= 0 then
 						fb_front[index] = fs_colour
 						-- #if depth_store
@@ -782,16 +836,26 @@ local function rasterize_triangle(
 				-- #end
 				-- #end
 
-				-- #if depth_test depth_store
+				-- #if depth_test depth_store interpolate_uvs
 				rowLeftW = rowLeftW + rowDeltaW
+				-- #end
+				-- #if interpolate_uvs
+				rowLeftU = rowLeftU + rowDeltaU
+				rowLeftV = rowLeftV + rowDeltaV
 				-- #end
 			end
 
 			triLeftX = triLeftX + triLeftGradientX
 			triRightX = triRightX + triRightGradientX
-			-- #if depth_test depth_store
+			-- #if depth_test depth_store interpolate_uvs
 			triLeftW = triLeftW + triLeftGradientW
 			triRightW = triRightW + triRightGradientW
+			-- #end
+			-- #if interpolate_uvs
+			triLeftUW = triLeftUW + triLeftGradientUW
+			triRightUW = triRightUW + triRightGradientUW
+			triLeftVW = triLeftVW + triLeftGradientVW
+			triRightVW = triRightVW + triRightGradientVW
 			-- #end
 		end
 	end
@@ -801,18 +865,34 @@ local function rasterize_triangle(
 		local triLeftGradientX = (pMx - p0x) / triDeltaY
 		local triRightGradientX = (p1x - p0x) / triDeltaY
 		local triLeftGradientW, triRightGradientW
-		-- #if depth_test depth_store
+		-- #if depth_test depth_store interpolate_uvs
 		triLeftGradientW = (pMw - p0w) / triDeltaY
 		triRightGradientW = (p1w - p0w) / triDeltaY
+		-- #end
+		local triLeftGradientUW, triRightGradientUW
+		local triLeftGradientVW, triRightGradientVW
+		-- #if interpolate_uvs
+		triLeftGradientUW = (pMu * pMw - p0u * p0w) / triDeltaY
+		triRightGradientUW = (p1u * p1w - p0u * p0w) / triDeltaY
+		triLeftGradientVW = (pMv * pMw - p0v * p0w) / triDeltaY
+		triRightGradientVW = (p1v * p1w - p0v * p0w) / triDeltaY
 		-- #end
 
 		local triProjection = rowTopMin + 0.5 - p0y
 		local triLeftX = p0x + triLeftGradientX * triProjection - 0.5
 		local triRightX = p0x + triRightGradientX * triProjection - 1.5
 		local triLeftW, triRightW
-		-- #if depth_test depth_store
+		-- #if depth_test depth_store interpolate_uvs
 		triLeftW = p0w + triLeftGradientW * triProjection
 		triRightW = p0w + triRightGradientW * triProjection
+		-- #end
+		local triLeftUW, triRightUW
+		local triLeftVW, triRightVW
+		-- #if interpolate_uvs
+		triLeftUW = p0u * p0w + triLeftGradientUW * triProjection
+		triRightUW = p0u * p0w + triRightGradientUW * triProjection
+		triLeftVW = p0v * p0w + triLeftGradientVW * triProjection
+		triRightVW = p0v * p0w + triRightGradientVW * triProjection
 		-- #end
 
 		local it_a, it_b = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1
@@ -820,8 +900,12 @@ local function rasterize_triangle(
 		rasterise_flat_triangle(
 			triLeftGradientX, triRightGradientX,
 			triLeftGradientW, triRightGradientW,
+			triLeftGradientUW, triRightGradientUW,
+			triLeftGradientVW, triRightGradientVW,
 			triLeftX, triRightX,
 			triLeftW, triRightW,
+			triLeftUW, triRightUW,
+			triLeftVW, triRightVW,
 			it_a, it_b)
 	end
 
@@ -830,18 +914,34 @@ local function rasterize_triangle(
 		local triLeftGradientX = (p2x - pMx) / triDeltaY
 		local triRightGradientX = (p2x - p1x) / triDeltaY
 		local triLeftGradientW, triRightGradientW
-		-- #if depth_test depth_store
+		-- #if depth_test depth_store interpolate_uvs
 		triLeftGradientW = (p2w - pMw) / triDeltaY
 		triRightGradientW = (p2w - p1w) / triDeltaY
+		-- #end
+		local triLeftGradientUW, triRightGradientUW
+		local triLeftGradientVW, triRightGradientVW
+		-- #if interpolate_uvs
+		triLeftGradientUW = (p2u * p2w - pMu * pMw) / triDeltaY
+		triRightGradientUW = (p2u * p2w - p1u * p1w) / triDeltaY
+		triLeftGradientVW = (p2v * p2w - pMv * pMw) / triDeltaY
+		triRightGradientVW = (p2v * p2w - p1v * p1w) / triDeltaY
 		-- #end
 
 		local triProjection = rowBottomMin + 0.5 - p1y
 		local triLeftX = pMx + triLeftGradientX * triProjection - 0.5
 		local triRightX = p1x + triRightGradientX * triProjection - 1.5
 		local triLeftW, triRightW
-		-- #if depth_test depth_store
+		-- #if depth_test depth_store interpolate_uvs
 		triLeftW = pMw + triLeftGradientW * triProjection
 		triRightW = p1w + triRightGradientW * triProjection
+		-- #end
+		local triLeftUW, triRightUW
+		local triLeftVW, triRightVW
+		-- #if interpolate_uvs
+		triLeftUW = pMu * pMw + triLeftGradientUW * triProjection
+		triRightUW = p1u * p1w + triRightGradientUW * triProjection
+		triLeftVW = pMv * pMw + triLeftGradientVW * triProjection
+		triRightVW = p1v * p1w + triRightGradientVW * triProjection
 		-- #end
 
 		local it_a, it_b = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1
@@ -849,8 +949,12 @@ local function rasterize_triangle(
 		rasterise_flat_triangle(
 			triLeftGradientX, triRightGradientX,
 			triLeftGradientW, triRightGradientW,
+			triLeftGradientUW, triRightGradientUW,
+			triLeftGradientVW, triRightGradientVW,
 			triLeftX, triRightX,
 			triLeftW, triRightW,
+			triLeftUW, triRightUW,
+			triLeftVW, triRightVW,
 			it_a, it_b)
 	end
 end
@@ -868,8 +972,8 @@ local function create_pipeline(options)
 	-- used by the #select below
 	--- @diagnostic disable-next-line: unused-local
 	local opt_depth_test = options.depth_test == nil or options.depth_test
-	local opt_interpolate_uvs = options.interpolate_uvs or false
 	local opt_fragment_shader = options.fragment_shader or nil
+	local opt_interpolate_uvs = options.interpolate_uvs and opt_fragment_shader or false
 	local opt_vertex_shader = options.vertex_shader or nil
 	local opt_projection = options.projection or V3DProjection.PERSPECTIVE
 
@@ -882,11 +986,15 @@ local function create_pipeline(options)
 	-- #select rasterize_triangle_fn rasterize_triangle
 	-- #select-param depth_test opt_depth_test
 	-- #select-param depth_store opt_depth_store
+	-- #select-param interpolate_uvs opt_interpolate_uvs
 	-- #select-param enable_fs opt_fragment_shader
 
 	-- magical hacks to get around the language server!
 	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
-		-- TODO: check geometry type is :ok_hand: for opt_interpolate_uvs + opt_fragment_shader
+		if opt_interpolate_uvs and geometry.type == V3DGeometryType.COLOUR then
+			error("Invalid geometry type: expected uvs for this pipeline", 2)
+			return
+		end
 
 		local poly_stride = geometry_poly_size(geometry.type)
 		local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
