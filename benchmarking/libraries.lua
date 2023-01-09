@@ -63,7 +63,7 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 
 --------------------------------------------------------------------------------
 
---- @param v3d VertaLibrary
+--- @param v3d V3DLibrary
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local fb = v3d.create_framebuffer_subpixel(width, height)
 	local geom = v3d.create_geometry()
@@ -78,11 +78,14 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local aspect = fb.width / fb.height
 
 	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
-	camera.xRotation = SETTING_CAMERA_X_ROTATION
-	camera.yRotation = SETTING_CAMERA_Y_ROTATION
-	camera.x = SETTING_CAMERA_X
-	camera.y = SETTING_CAMERA_Y
-	camera.z = SETTING_CAMERA_Z
+
+	if not flags.front_facing then
+		camera.xRotation = SETTING_CAMERA_X_ROTATION
+		camera.yRotation = SETTING_CAMERA_Y_ROTATION
+		camera.x = SETTING_CAMERA_X
+		camera.y = SETTING_CAMERA_Y
+		camera.z = SETTING_CAMERA_Z
+	end
 
 	for i = 1, model_data.triangles do
 		local t = model_data[i]

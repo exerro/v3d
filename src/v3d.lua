@@ -23,14 +23,14 @@
 
 --[[ TODO: example library usage
 
-local fb = verta.create_framebuffer_subpixel(term.getSize())
-local camera = verta.create_perspective_camera(math.pi / 7)
-local geometry = verta.load_model('mymodel.obj'):expect_uvs()
-local texture = verta.load_texture('myimage.idk')
-local pipeline = verta.create_pipeline {
-	cull_face = verta.CULL_BACK_FACE,
+local fb = v3d.create_framebuffer_subpixel(term.getSize())
+local camera = v3d.create_perspective_camera(math.pi / 7)
+local geometry = v3d.load_model('mymodel.obj'):expect_uvs()
+local texture = v3d.load_texture('myimage.idk')
+local pipeline = v3d.create_pipeline {
+	cull_face = v3d.CULL_BACK_FACE,
 	interpolate_uvs = true,
-	fragment_shader = verta.create_texture_shader 'u_texture',
+	fragment_shader = v3d.create_texture_shader 'u_texture',
 }
 
 pipeline:set_uniform('u_texture', texture)
@@ -44,27 +44,27 @@ fb:blit_subpixel(term)
 --- @diagnostic disable: missing-return, unused-local
 
 --------------------------------------------------------------------------------
---[ Verta ]---------------------------------------------------------------------
+--[ V3D ]-----------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
---- @class VertaLibrary
-local verta = {}
+--- @class V3DLibrary
+local v3d = {}
 
---- @type VertaCullFace
-verta.CULL_FRONT_FACE = -1
+--- @type V3DCullFace
+v3d.CULL_FRONT_FACE = -1
 
---- @type VertaCullFace
-verta.CULL_BACK_FACE = 1
+--- @type V3DCullFace
+v3d.CULL_BACK_FACE = 1
 
---- @type VertaProjection
-verta.NO_PROJECTION = 0
+--- @type V3DProjection
+v3d.NO_PROJECTION = 0
 
---- @type VertaProjection
-verta.PERSPECTIVE_PROJECTION = 1
+--- @type V3DProjection
+v3d.PERSPECTIVE_PROJECTION = 1
 
---- @type VertaProjection
-verta.ORTHOGRAPHIC_PROJECTION = 2
+--- @type V3DProjection
+v3d.ORTHOGRAPHIC_PROJECTION = 2
 
 --- Create an empty framebuffer of exactly `width` x `height` pixels.
 ---
@@ -72,30 +72,30 @@ verta.ORTHOGRAPHIC_PROJECTION = 2
 --- `create_framebuffer_subpixel` instead.
 --- @param width integer
 --- @param height integer
---- @return VertaFramebuffer
-function verta.create_framebuffer(width, height) end
+--- @return V3DFramebuffer
+function v3d.create_framebuffer(width, height) end
 
 --- Create an empty framebuffer of exactly `width * 2` x `height * 3` pixels,
 --- suitable for rendering subpixels.
 --- @param width integer
 --- @param height integer
---- @return VertaFramebuffer
-function verta.create_framebuffer_subpixel(width, height) end
+--- @return V3DFramebuffer
+function v3d.create_framebuffer_subpixel(width, height) end
 
 --- TODO
 --- @param fov number | nil
---- @return VertaCamera
-function verta.create_perspective_camera(fov) end
+--- @return V3DCamera
+function v3d.create_perspective_camera(fov) end
 
 --- Create some empty geometry with no triangles.
---- @return VertaGeometry
-function verta.create_geometry() end
+--- @return V3DGeometry
+function v3d.create_geometry() end
 
 -- TODO: create_pipeline_builder():set_blah():build()?
 --- TODO
---- @param options VertaPipelineOptions | nil
---- @return VertaPipeline
-function verta.create_pipeline(options) end
+--- @param options V3DPipelineOptions | nil
+--- @return V3DPipeline
+function v3d.create_pipeline(options) end
 
 
 --------------------------------------------------------------------------------
@@ -104,7 +104,7 @@ function verta.create_pipeline(options) end
 
 
 --- Stores the colour and depth of rendered triangles.
---- @class VertaFramebuffer
+--- @class V3DFramebuffer
 --- Width of the framebuffer in pixels. Note, if you're using subpixel
 --- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
 --- width of 102 pixels in its framebuffer.
@@ -115,14 +115,14 @@ function verta.create_pipeline(options) end
 --- @field height integer
 --- Stores the colour value of every pixel that's been drawn.
 --- @field front any[]
---- Stores `1/Z` for every pixel drawn (when depth testing is enabled)
+--- Stores `1/Z` for every pixel drawn (when depth storing is enabled)
 --- @field depth number[]
-local VertaFramebuffer = {}
+local V3DFramebuffer = {}
 
 --- Clears the entire framebuffer to the provided colour.
 --- @param colour integer | nil Colour to set every pixel to. Defaults to 1 (colours.white)
 --- @return nil
-function VertaFramebuffer:clear(colour) end
+function V3DFramebuffer:clear(colour) end
 
 --- Render the framebuffer to the terminal, drawing a high resolution using
 --- subpixel conversion.
@@ -130,7 +130,7 @@ function VertaFramebuffer:clear(colour) end
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @return nil
-function VertaFramebuffer:blit_subpixel(term, dx, dy) end
+function V3DFramebuffer:blit_subpixel(term, dx, dy) end
 
 --- Similar to `blit_subpixel` but draws the depth instead of colour.
 --- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
@@ -138,7 +138,7 @@ function VertaFramebuffer:blit_subpixel(term, dx, dy) end
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
 --- @return nil
-function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
+function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 
 
 --------------------------------------------------------------------------------
@@ -147,7 +147,7 @@ function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 
 
 --- Contains information for the view transform when rasterizing geometry.
---- @class VertaCamera
+--- @class V3DCamera
 --- Angle between the centre and the topmost pixel of the screen, in radians.
 --- @field fov number
 --- Centre X coordinate of the camera, where geometry is drawn relative to.
@@ -166,7 +166,7 @@ function VertaFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 --- @field xRotation number
 --- TODO
 --- @field zRotation number
-local VertaCamera = {}
+local V3DCamera = {}
 
 
 --------------------------------------------------------------------------------
@@ -175,10 +175,10 @@ local VertaCamera = {}
 
 
 --- Contains triangles.
---- @class VertaGeometry
+--- @class V3DGeometry
 --- Number of triangles contained within this geometry
 --- @field triangles integer
-local VertaGeometry = {}
+local V3DGeometry = {}
 
 --- TODO
 --- @param p0x number
@@ -192,14 +192,14 @@ local VertaGeometry = {}
 --- @param p2z number
 --- @param colour integer
 --- @return nil
-function VertaGeometry:add_coloured_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
+function V3DGeometry:add_coloured_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
 
 --- TODO
 --- @param theta number
 --- @param cx number | nil
 --- @param cy number | nil
 --- @return nil
-function VertaGeometry:rotate_z(theta, cx, cy) end
+function V3DGeometry:rotate_z(theta, cx, cy) end
 
 
 --------------------------------------------------------------------------------
@@ -208,43 +208,57 @@ function VertaGeometry:rotate_z(theta, cx, cy) end
 
 
 --- TODO
---- @class VertaPipeline
-local VertaPipeline = {}
+--- @class V3DPipeline
+local V3DPipeline = {}
 
 --- TODO
---- @enum VertaCullFace
-local VertaCullFace = {
+--- @enum V3DCullFace
+local V3DCullFace = {
 	BACK_FACE = 1,
 	FRONT_FACE = -1,
 }
 
 --- TODO
---- @enum VertaProjection
-local VertaProjection = {
+--- @enum V3DProjection
+local V3DProjection = {
 	NONE = 0,
 	PERSPECTIVE = 1,
 	ORTHOGRAPHIC = 2,
 }
 
 --- TODO
---- @class VertaPipelineOptions
---- @field cull_face VertaCullFace | false | nil
+--- @alias V3DFragmentShader fun(uniforms: { [string]: unknown }, u: number, v: number): integer
+
+--- TODO
+--- @class V3DPipelineOptions
+--- @field cull_face V3DCullFace | false | nil
 --- @field depth_store boolean | nil
 --- @field depth_test boolean | nil
---- @field fragment_shader function TODO(type)
+--- @field fragment_shader V3DFragmentShader | nil
 --- @field interpolate_uvs boolean | nil
 --- @field pixel_aspect_ratio number | nil
---- @field projection VertaProjection | nil
+--- @field projection V3DProjection | nil
 --- @field vertex_shader function TODO(type)
-local VertaPipelineOptions = {}
+local V3DPipelineOptions = {}
 
 -- TODO: list of geometry instead? with count and offset options
 --- TODO
---- @param geometry VertaGeometry
---- @param fb VertaFramebuffer
---- @param camera VertaCamera
+--- @param geometry V3DGeometry
+--- @param fb V3DFramebuffer
+--- @param camera V3DCamera
 --- @return nil
-function VertaPipeline:render_geometry(geometry, fb, camera) end
+function V3DPipeline:render_geometry(geometry, fb, camera) end
+
+--- TODO
+--- @param name string
+--- @param value any
+--- @return nil
+function V3DPipeline:set_uniform(name, value) end
+
+--- TODO
+--- @param name string
+--- @return unknown
+function V3DPipeline:get_uniform(name) end
 
 
 --------------------------------------------------------------------------------
@@ -520,7 +534,7 @@ local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
 end
 
 local function create_framebuffer(width, height)
-	--- @type VertaFramebuffer
+	--- @type V3DFramebuffer
 	local fb = {}
 
 	fb.width = width
@@ -531,7 +545,7 @@ local function create_framebuffer(width, height)
 	fb.blit_subpixel = framebuffer_blit_subpixel
 	fb.blit_subpixel_depth = framebuffer_blit_subpixel_depth
 
-	framebuffer_clear(fb, 0)
+	framebuffer_clear(fb, 1)
 
 	return fb
 end
@@ -547,7 +561,7 @@ end
 
 
 local function create_perspective_camera(fov)
-	--- @type VertaCamera
+	--- @type V3DCamera
 	local camera = {}
 
 	camera.fov = fov or math.pi / 3
@@ -605,7 +619,7 @@ local function geometry_rotate_z(geometry, theta, cx, cy)
 end
 
 local function create_geometry()
-	--- @type VertaGeometry
+	--- @type V3DGeometry
 	local geometry = {}
 
 	geometry.triangles = 0
@@ -621,19 +635,20 @@ end
 --------------------------------------------------------------------------------
 
 
--- #section depth_test depth_store
+-- #section depth_test depth_store enable_fs
 local function rasterize_triangle(
 	fb_front, fb_depth,
 	fb_width, fb_height_m1,
 	p0x, p0y, p0w,
 	p1x, p1y, p1w,
 	p2x, p2y, p2w,
-	colour)
+	fixed_colour,
+	fragment_shader, pipeline_uniforms)
 	local math_ceil = math.ceil
 	local math_floor = math.floor
 	local fb_width_m1 = fb_width - 1
 
-	-- see: https://github.com/exerro/verta/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+	-- see: https://github.com/exerro/v3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
 	-- there's an explanation of the algorithm there
 	-- this code has been heavily microoptimised so won't perfectly resemble that
 
@@ -671,30 +686,20 @@ local function rasterize_triangle(
 	if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
 	if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
 
-	if rowTopMin <= rowTopMax then
-		local topDeltaY = p1y - p0y
-		local topLeftGradientX = (pMx - p0x) / topDeltaY
-		local topRightGradientX = (p1x - p0x) / topDeltaY
-		-- #if depth_test depth_store
-		local topLeftGradientW = (pMw - p0w) / topDeltaY
-		local topRightGradientW = (p1w - p0w) / topDeltaY
-		-- #end
-
-		local topProjection = rowTopMin + 0.5 - p0y
-		local topLeftX = p0x + topLeftGradientX * topProjection - 0.5
-		local topRightX = p0x + topRightGradientX * topProjection - 1.5
-		-- #if depth_test depth_store
-		local topLeftW = p0w + topLeftGradientW * topProjection
-		local topRightW = p0w + topRightGradientW * topProjection
-		-- #end
-
-		for baseIndex = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1, fb_width do
-			local columnMinX = math_ceil(topLeftX)
-			local columnMaxX = math_ceil(topRightX)
+	local function rasterise_flat_triangle(
+		triLeftGradientX, triRightGradientX,
+		triLeftGradientW, triRightGradientW,
+		triLeftX, triRightX,
+		triLeftW, triRightW,
+		it_a, it_b
+	)
+		for baseIndex = it_a, it_b, fb_width do
+			local columnMinX = math_ceil(triLeftX)
+			local columnMaxX = math_ceil(triRightX)
 			-- #if depth_test depth_store
-			local rowTotalDeltaX = topRightX - topLeftX + 1 -- 'cause of awkward optimisations above
-			local rowDeltaW = (topRightW - topLeftW) / rowTotalDeltaX
-			local rowLeftW = topLeftW + (columnMinX - topLeftX) * rowDeltaW
+			local rowTotalDeltaX = triRightX - triLeftX + 1 -- 'cause of awkward optimisations above
+			local rowDeltaW = (triRightW - triLeftW) / rowTotalDeltaX
+			local rowLeftW = triLeftW + (columnMinX - triLeftX) * rowDeltaW
 			-- #end
 
 			if columnMinX < 0 then columnMinX = 0 end
@@ -702,18 +707,38 @@ local function rasterize_triangle(
 
 			for x = columnMinX, columnMaxX do
 				local index = baseIndex + x
-				
+
 				-- #if depth_test
 				if rowLeftW > fb_depth[index] then
-					fb_front[index] = colour
+					-- #if enable_fs
+					local fs_colour = fragment_shader(pipeline_uniforms, 0, 0)
+					if fs_colour ~= 0 then
+						fb_front[index] = fs_colour
+						-- #if depth_store
+						fb_depth[index] = rowLeftW
+						-- #end
+					end
+					-- #else
+					fb_front[index] = fixed_colour
+					-- #if depth_store
+					fb_depth[index] = rowLeftW
+					-- #end
+					-- #end
+				end
+				-- #else
+				-- #if enable_fs
+				local fs_colour = fragment_shader(pipeline_uniforms, 0, 0)
+				if fs_colour ~= 0 then
+					fb_front[index] = fs_colour
 					-- #if depth_store
 					fb_depth[index] = rowLeftW
 					-- #end
 				end
 				-- #else
-				fb_front[index] = colour
+				fb_front[index] = fixed_colour
 				-- #if depth_store
 				fb_depth[index] = rowLeftW
+				-- #end
 				-- #end
 				-- #end
 
@@ -722,97 +747,102 @@ local function rasterize_triangle(
 				-- #end
 			end
 
-			topLeftX = topLeftX + topLeftGradientX
-			topRightX = topRightX + topRightGradientX
+			triLeftX = triLeftX + triLeftGradientX
+			triRightX = triRightX + triRightGradientX
 			-- #if depth_test depth_store
-			topLeftW = topLeftW + topLeftGradientW
-			topRightW = topRightW + topRightGradientW
+			triLeftW = triLeftW + triLeftGradientW
+			triRightW = triRightW + triRightGradientW
 			-- #end
 		end
 	end
 
+	if rowTopMin <= rowTopMax then
+		local triDeltaY = p1y - p0y
+		local triLeftGradientX = (pMx - p0x) / triDeltaY
+		local triRightGradientX = (p1x - p0x) / triDeltaY
+		local triLeftGradientW, triRightGradientW
+		-- #if depth_test depth_store
+		triLeftGradientW = (pMw - p0w) / triDeltaY
+		triRightGradientW = (p1w - p0w) / triDeltaY
+		-- #end
+
+		local triProjection = rowTopMin + 0.5 - p0y
+		local triLeftX = p0x + triLeftGradientX * triProjection - 0.5
+		local triRightX = p0x + triRightGradientX * triProjection - 1.5
+		local triLeftW, triRightW
+		-- #if depth_test depth_store
+		triLeftW = p0w + triLeftGradientW * triProjection
+		triRightW = p0w + triRightGradientW * triProjection
+		-- #end
+
+		local it_a, it_b = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1
+
+		rasterise_flat_triangle(
+			triLeftGradientX, triRightGradientX,
+			triLeftGradientW, triRightGradientW,
+			triLeftX, triRightX,
+			triLeftW, triRightW,
+			it_a, it_b)
+	end
+
 	if rowBottomMin <= rowBottomMax then
-		local bottomDeltaY = p2y - p1y
-		local bottomLeftGradientX = (p2x - pMx) / bottomDeltaY
-		local bottomRightGradientX = (p2x - p1x) / bottomDeltaY
+		local triDeltaY = p2y - p1y
+		local triLeftGradientX = (p2x - pMx) / triDeltaY
+		local triRightGradientX = (p2x - p1x) / triDeltaY
+		local triLeftGradientW, triRightGradientW
 		-- #if depth_test depth_store
-		local bottomLeftGradientW = (p2w - pMw) / bottomDeltaY
-		local bottomRightGradientW = (p2w - p1w) / bottomDeltaY
+		triLeftGradientW = (p2w - pMw) / triDeltaY
+		triRightGradientW = (p2w - p1w) / triDeltaY
 		-- #end
 
-		local bottomProjection = rowBottomMin + 0.5 - p1y
-		local bottomLeftX = pMx + bottomLeftGradientX * bottomProjection - 0.5
-		local bottomRightX = p1x + bottomRightGradientX * bottomProjection - 1.5
+		local triProjection = rowBottomMin + 0.5 - p1y
+		local triLeftX = pMx + triLeftGradientX * triProjection - 0.5
+		local triRightX = p1x + triRightGradientX * triProjection - 1.5
+		local triLeftW, triRightW
 		-- #if depth_test depth_store
-		local bottomLeftW = pMw + bottomLeftGradientW * bottomProjection
-		local bottomRightW = p1w + bottomRightGradientW * bottomProjection
+		triLeftW = pMw + triLeftGradientW * triProjection
+		triRightW = p1w + triRightGradientW * triProjection
 		-- #end
 
-		for baseIndex = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1, fb_width do
-			local columnMinX = math_ceil(bottomLeftX)
-			local columnMaxX = math_ceil(bottomRightX)
-			-- #if depth_test depth_store
-			local rowTotalDeltaX = bottomRightX - bottomLeftX + 1 -- 'cause of awkward optimisations above
-			local rowDeltaW = (bottomRightW - bottomLeftW) / rowTotalDeltaX
-			local rowLeftW = bottomLeftW + (columnMinX - bottomLeftX) * rowDeltaW
-			-- #end
+		local it_a, it_b = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1
 
-			if columnMinX < 0 then columnMinX = 0 end
-			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
-
-			for x = columnMinX, columnMaxX do
-				local index = baseIndex + x
-
-				-- #if depth_test
-				if rowLeftW > fb_depth[index] then
-					fb_front[index] = colour
-					-- #if depth_store
-					fb_depth[index] = rowLeftW
-					-- #end
-				end
-				-- #else
-				fb_front[index] = colour
-				-- #if depth_store
-				fb_depth[index] = rowLeftW
-				-- #end
-				-- #end
-
-				-- #if depth_test depth_store
-				rowLeftW = rowLeftW + rowDeltaW
-				-- #end
-			end
-
-			bottomLeftX = bottomLeftX + bottomLeftGradientX
-			bottomRightX = bottomRightX + bottomRightGradientX
-			-- #if depth_test depth_store
-			bottomLeftW = bottomLeftW + bottomLeftGradientW
-			bottomRightW = bottomRightW + bottomRightGradientW
-			-- #end
-		end
+		rasterise_flat_triangle(
+			triLeftGradientX, triRightGradientX,
+			triLeftGradientW, triRightGradientW,
+			triLeftX, triRightX,
+			triLeftW, triRightW,
+			it_a, it_b)
 	end
 end
 -- #endsection
 
---- @param options VertaPipelineOptions
+--- @param options V3DPipelineOptions
 local function create_pipeline(options)
 	options = options or {}
 
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
-	local opt_cull_face = options.cull_face == nil and verta.CULL_BACK_FACE or options.cull_face
+	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
+	-- used by the #select below
+	--- @diagnostic disable-next-line: unused-local
 	local opt_depth_store = options.depth_store == nil or options.depth_store
+	-- used by the #select below
+	--- @diagnostic disable-next-line: unused-local
 	local opt_depth_test = options.depth_test == nil or options.depth_test
 	local opt_interpolate_uvs = options.interpolate_uvs or false
 	local opt_fragment_shader = options.fragment_shader or nil
 	local opt_vertex_shader = options.vertex_shader or nil
-	local opt_projection = options.projection or VertaProjection.PERSPECTIVE
+	local opt_projection = options.projection or V3DProjection.PERSPECTIVE
 
-	--- @type VertaPipeline
+	--- @type V3DPipeline
 	local pipeline = {}
+
+	local uniforms = {}
 
 	local rasterize_triangle_fn = rasterize_triangle
 	-- #select rasterize_triangle_fn rasterize_triangle
 	-- #select-param depth_test opt_depth_test
 	-- #select-param depth_store opt_depth_store
+	-- #select-param enable_fs opt_fragment_shader
 
 	-- magical hacks to get around the language server!
 	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
@@ -826,8 +856,6 @@ local function create_pipeline(options)
 		local fb_depth = fb.depth
 		local fb_height_m1 = fb.height - 1
 		local math_sin, math_cos = math.sin, math.cos
-
-		local cull_back_faces = opt_cull_face or 0
 
 		local sinX = math_sin(-camera.xRotation)
 		local sinY = math_sin(camera.yRotation)
@@ -880,7 +908,7 @@ local function create_pipeline(options)
 
 			local cull_face = false
 
-			if cull_back_faces ~= 0 then
+			if opt_cull_face then
 				local d1x = p1x - p0x
 				local d1y = p1y - p0y
 				local d1z = p1z - p0z
@@ -891,7 +919,7 @@ local function create_pipeline(options)
 				local cy = d1z*d2x - d1x*d2z
 				local cz = d1x*d2y - d1y*d2x
 				local d = cx * p0x + cy * p0y + cz * p0z
-				cull_face = d * cull_back_faces > 0
+				cull_face = d * opt_cull_face > 0
 			end
 
 			if not cull_face then
@@ -920,10 +948,18 @@ local function create_pipeline(options)
 					p2x = pxd + p2x * scale_x * p2w
 					p2y = pyd + p2y * scale_y * p2w
 
-					rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, colour)
+					rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, colour, opt_fragment_shader, uniforms)
 				end
 			end
 		end
+	end
+
+	select(1, pipeline).set_uniform = function(_, name, value)
+		uniforms[name] = value
+	end
+
+	select(1, pipeline).get_uniform = function(_, name)
+		return uniforms[name]
 	end
 
 	return pipeline
@@ -939,7 +975,7 @@ end
 -- It's here so the LS can't work out what's going on so we keep the types and
 -- docstrings from the top of the file rather than adding weird shit from here.
 local function set_function(name, fn)
-	local c = verta
+	local c = v3d
 	c[name] = fn
 end
 
@@ -949,4 +985,4 @@ set_function('create_perspective_camera', create_perspective_camera)
 set_function('create_geometry', create_geometry)
 set_function('create_pipeline', create_pipeline)
 
-return verta
+return v3d

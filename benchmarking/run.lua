@@ -1,4 +1,18 @@
 
+--- @class Profile
+--- @field benchmark_options Dataset
+--- @field chart_selectors string[]
+--- @field row_selectors string[]
+--- @field column_selectors string[]
+--- @field chart_sorter fun(a: Datapoint, b: Datapoint): boolean
+--- @field row_sorter fun(a: Datapoint, b: Datapoint): boolean
+--- @field column_sorter fun(a: Datapoint, b: Datapoint): boolean
+--- @field chart_formatter fun(a: Datapoint): string
+--- @field row_formatter fun(a: Datapoint): string
+--- @field column_formatter fun(a: Datapoint): string
+--- @field uses_screen_size boolean | nil
+--- @field validate_renders boolean | nil
+
 local args = { ... }
 local root_dir = shell.getRunningProgram():match("^.+/") or ""
 
@@ -144,11 +158,16 @@ end
 
 local profile_name = table.remove(args, 1) or error('No profile provided')
 
+--- @type Profile
 local profile = require('profiles.' .. profile_name)
 local benchmark_options = profile.benchmark_options
 
 if profile.uses_screen_size then
 	benchmark_options = benchmark_options:copy():add_permutation('screen_size', screen_sizes)
+end
+
+if profile.validate_renders then
+	present_buffers = 'one'
 end
 
 benchmark_options = benchmark_options:filter(function (o)
@@ -194,6 +213,10 @@ local function benchmark(
 		draw_fn()
 		if present_buffers == 'all' or present_buffers == 'one' and i == 1 then
 			present_fn()
+			if profile.validate_renders then
+			--- @diagnostic disable-next-line: undefined-field
+				os.pullEvent 'key'
+			end
 		end
 	end
 
@@ -289,9 +312,6 @@ for _, option in benchmark_options:iterator() do
 
 		--- @diagnostic disable-next-line: undefined-field
 		os.queueEvent 'benchmark_yield'; os.pullEvent 'benchmark_yield'
-		if option.post_run then
-			option.post_run()
-		end
 	end)
 
 	if not ok then

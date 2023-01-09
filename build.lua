@@ -135,28 +135,34 @@ for _, section in ipairs(sections) do
 	generate_section_selections(section)
 
 	if section.flags then
-		if not section[1]:find "function [%w_]+" then
-			error 'Section doesn\'t start with a function'
-		end
-
 		local function_name = section[1]:match 'function ([%w_]+)'
 
 		for _, flagset in ipairs(permute(section.flags)) do
 			local this_function_name = function_name
-			for i = 1, #section.flags do
-				if flagset[section.flags[i]] then
-					this_function_name = this_function_name .. '_' .. section.flags[i]
+
+			if function_name then
+				for i = 1, #section.flags do
+					if flagset[section.flags[i]] then
+						this_function_name = this_function_name .. '_' .. section.flags[i]
+					end
 				end
 			end
+
 			local s = generate_section_permutations(section, flagset)
-			s[1] = s[1]:gsub('function ' .. function_name, 'function ' .. this_function_name)
+
+			if function_name then
+				s[1] = s[1]:gsub('function ' .. function_name, 'function ' .. this_function_name)
+			end
+
 			table.insert(s, 1, '-- section-flags: ')
+
 			for i = 1, #section.flags do
 				if i > 1 then
 					s[1] = s[1] .. ', '
 				end
 				s[1] = s[1] .. section.flags[i] .. ': ' .. tostring(flagset[section.flags[i]])
 			end
+
 			table.insert(blocks, table.concat(s, '\n'))
 		end
 	else

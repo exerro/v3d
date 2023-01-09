@@ -3,6 +3,7 @@ local common = require 'common'
 local libraries = require 'libraries'
 local standard_models = require 'standard_models'
 
+--- @type Profile
 local profile = {}
 
 --------------------------------------------------------------------------------
