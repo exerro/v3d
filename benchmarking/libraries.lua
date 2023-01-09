@@ -1,4 +1,6 @@
 
+--- @module 'src.v3d'
+
 --- @class Library
 --- @field id string
 --- @field name string
@@ -29,6 +31,10 @@ local libraries = {}
 local oldPath = package.path
 package.path = '/?.lua;/?/?.lua;' .. package.path
 
+if fs.isDir('v3d') then
+	assert(loadfile 'v3d/build.lua')()
+end
+
 local function try_load_library(name, library, setup_fn)
 	local ok, lib = pcall(require, library)
 	if not ok then
@@ -57,23 +63,19 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 
 --------------------------------------------------------------------------------
 
---- @param verta VertaLibrary
-try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, flags)
-	local fb = verta.create_framebuffer_subpixel(width, height)
-	local geom = verta.create_geometry()
-	local camera = verta.create_perspective_camera()
-	local pipeline = verta.create_pipeline {
-		cull_face = flags.cull_face == nil and verta.CULL_BACK_FACE or flags.cull_face,
+--- @param v3d VertaLibrary
+try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
+	local fb = v3d.create_framebuffer_subpixel(width, height)
+	local geom = v3d.create_geometry()
+	local camera = v3d.create_perspective_camera()
+	local pipeline = v3d.create_pipeline {
+		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
 		depth_test = flags.depth_test,
+		depth_store = flags.depth_test,
 	}
-	local verta_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
-	local verta_render = pipeline.render_geometry
+	local v3d_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
+	local v3d_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
-
-	verta.create_pipeline {
-		aspect_ratio = 1,
-		cull_face = verta.CULL_BACK_FACE,
-	}
 
 	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
 	camera.xRotation = SETTING_CAMERA_X_ROTATION
@@ -93,11 +95,11 @@ try_load_library('Verta', 'ccgl3d', function(verta, model_data, width, height, f
 	end
 
 	local function draw_fn()
-		verta_render(pipeline, geom, fb, camera)
+		v3d_render(pipeline, geom, fb, camera)
 	end
 
 	local function present_fn()
-		verta_present(fb, term, 0, 0, true)
+		v3d_present(fb, term, 0, 0, true)
 	end
 
 	return clear_fn, draw_fn, present_fn

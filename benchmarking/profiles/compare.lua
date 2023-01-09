@@ -23,6 +23,7 @@ end
 
 profile.benchmark_options:add_permutation('library', libraries)
 profile.benchmark_options:add_permutation('library_flags', { {} })
+profile.benchmark_options:add_permutation('library_flags', { {}, { depth_test = false } }, function(dp) return dp.library.id == 'v3d' end)
 
 ----------------------------------------------------------------
 
@@ -40,7 +41,11 @@ function profile.row_formatter(rd)
 end
 
 function profile.column_formatter(cd)
-	return cd.library.name
+	local title = cd.library.name
+	for k, v in pairs(cd.library_flags) do
+		title = title .. "\n" .. k .. ": " .. tostring(v)
+	end
+	return title
 end
 
 function profile.chart_sorter(cd1, cd2)
