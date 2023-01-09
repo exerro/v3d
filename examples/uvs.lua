@@ -6,7 +6,7 @@ local v3d = require 'v3d'
 local w, h = term.getSize()
 local fb = v3d.create_framebuffer_subpixel(math.min(60, w), math.min(30, h - 2))
 local camera = v3d.create_perspective_camera(math.pi / 4)
-local geometry = v3d.create_geometry()
+local geometry = v3d.create_geometry(v3d.GEOMETRY_COLOUR_UV)
 local pipeline = v3d.create_pipeline {
 	interpolate_uvs = true,
 	fragment_shader = function(uniforms, u, v)
@@ -20,8 +20,8 @@ local pipeline = v3d.create_pipeline {
 
 pipeline:set_uniform('colour', colours.purple)
 
-geometry:add_coloured_triangle(-1,  1, -2, -1, -1, -2, 1, -1, -2, colours.blue)
-geometry:add_coloured_triangle(-1,  1, -2, 1, -1, -2, 1,  1, -2, colours.cyan)
+geometry:add_triangle(-1,  1, -2, 0, 0, -1, -1, -2, 0, 1, 1, -1, -2, 1, 1, colours.blue)
+geometry:add_triangle(-1,  1, -2, 0, 0,  1, -1, -2, 1, 1, 1,  1, -2, 1, 0, colours.cyan)
 
 pipeline:render_geometry(geometry, fb, camera)
 fb:blit_subpixel(term)

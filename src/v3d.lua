@@ -66,6 +66,15 @@ v3d.PERSPECTIVE_PROJECTION = 1
 --- @type V3DProjection
 v3d.ORTHOGRAPHIC_PROJECTION = 2
 
+--- @type V3DGeometryType
+v3d.GEOMETRY_COLOUR = 1
+
+--- @type V3DGeometryType
+v3d.GEOMETRY_UV = 2
+
+--- @type V3DGeometryType
+v3d.GEOMETRY_COLOUR_UV = 3
+
 --- Create an empty framebuffer of exactly `width` x `height` pixels.
 ---
 --- Note, for using subpixel rendering (you probably are), use
@@ -88,8 +97,9 @@ function v3d.create_framebuffer_subpixel(width, height) end
 function v3d.create_perspective_camera(fov) end
 
 --- Create some empty geometry with no triangles.
+--- @param type V3DGeometryType
 --- @return V3DGeometry
-function v3d.create_geometry() end
+function v3d.create_geometry(type) end
 
 -- TODO: create_pipeline_builder():set_blah():build()?
 --- TODO
@@ -176,30 +186,44 @@ local V3DCamera = {}
 
 --- Contains triangles.
 --- @class V3DGeometry
+--- TODO
+--- @field type V3DGeometryType
 --- Number of triangles contained within this geometry
 --- @field triangles integer
 local V3DGeometry = {}
+
+--- @enum V3DGeometryType
+local V3DGeometryType = {
+	COLOUR = 1,
+	UV = 2,
+	COLOUR_UV = 3,
+}
 
 --- TODO
 --- @param p0x number
 --- @param p0y number
 --- @param p0z number
+--- @param p0u number
+--- @param p0v number
 --- @param p1x number
 --- @param p1y number
 --- @param p1z number
+--- @param p1u number
+--- @param p1v number
 --- @param p2x number
 --- @param p2y number
 --- @param p2z number
+--- @param p2u number
+--- @param p2v number
 --- @param colour integer
---- @return nil
-function V3DGeometry:add_coloured_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
+--- @overload fun (p0x: number, p0y: number, p0z: number, p1x: number, p1y: number, p1z: number, p2x: number, p2y: number, p2z: number, colour: integer): nil
+--- @overload fun (p0x: number, p0y: number, p0z: number, p0u: number, p0v: number, p1x: number, p1y: number, p1z: number, p1u: number, p1v: number, p2x: number, p2y: number, p2z: number, p2u: number, p2v: number): nil
+function V3DGeometry:add_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
 
 --- TODO
 --- @param theta number
---- @param cx number | nil
---- @param cy number | nil
 --- @return nil
-function V3DGeometry:rotate_z(theta, cx, cy) end
+function V3DGeometry:rotate_z(theta) end
 
 
 --------------------------------------------------------------------------------
@@ -581,49 +605,64 @@ end
 --------------------------------------------------------------------------------
 
 
-local function geometry_add_coloured_triangle(geometry, p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour)
-	local DATA_PER_TRIANGLE = 10
-	local idx = geometry.triangles * DATA_PER_TRIANGLE
-
-	geometry.triangles = geometry.triangles + 1
-	geometry[idx + 1] = p0x
-	geometry[idx + 2] = p0y
-	geometry[idx + 3] = p0z
-	geometry[idx + 4] = p1x
-	geometry[idx + 5] = p1y
-	geometry[idx + 6] = p1z
-	geometry[idx + 7] = p2x
-	geometry[idx + 8] = p2y
-	geometry[idx + 9] = p2z
-	geometry[idx + 10] = colour
+local function geometry_poly_size(type)
+	if type == V3DGeometryType.UV then
+		return 15
+	elseif type == V3DGeometryType.COLOUR_UV then
+		return 16
+	else
+		return 10
+	end
 end
 
-local function geometry_rotate_z(geometry, theta, cx, cy)
-	local DATA_PER_TRIANGLE = 10
+local function geometry_poly_pos_stride(type)
+	if type == V3DGeometryType.UV then
+		return 5
+	elseif type == V3DGeometryType.COLOUR_UV then
+		return 5
+	else
+		return 3
+	end
+end
 
-	--- TODO: use cx and cy
-	cx = cx or 0
-	cy = cy or 0
+local function geometry_add_triangle(geometry, ...)
+	local data = { ... }
+	local n = geometry_poly_size(geometry.type)
+
+	assert(n == #data, "Wrong data for adding triangle: " .. #data .. " ~= " .. n)
+
+	local idx = geometry.triangles * n
+	geometry.triangles = geometry.triangles + 1
+
+	for i = 1, n do
+		geometry[idx + i] = data[i]
+	end
+end
+
+local function geometry_rotate_z(geometry, theta)
+	local poly_stride = geometry_poly_size(geometry.type)
+	local pos_stride = geometry_poly_pos_stride(geometry.type)
 
 	local sT = math.sin(theta)
 	local cT = math.cos(theta)
 
-	for i = 1, geometry.triangles * DATA_PER_TRIANGLE, DATA_PER_TRIANGLE do
+	for i = 1, geometry.triangles * poly_stride, poly_stride do
 		local x0, y0 = geometry[i], geometry[i + 1]
-		local x1, y1 = geometry[i + 3], geometry[i + 4]
-		local x2, y2 = geometry[i + 6], geometry[i + 7]
+		local x1, y1 = geometry[i + pos_stride], geometry[i + pos_stride + 1]
+		local x2, y2 = geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 1]
 		geometry[i], geometry[i + 1] = x0 * cT - y0 * sT, x0 * sT + y0 * cT
-		geometry[i + 3], geometry[i + 4] = x1 * cT - y1 * sT, x1 * sT + y1 * cT
-		geometry[i + 6], geometry[i + 7] = x2 * cT - y2 * sT, x2 * sT + y2 * cT
+		geometry[i + pos_stride], geometry[i + pos_stride + 1] = x1 * cT - y1 * sT, x1 * sT + y1 * cT
+		geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 1] = x2 * cT - y2 * sT, x2 * sT + y2 * cT
 	end
 end
 
-local function create_geometry()
+local function create_geometry(type)
 	--- @type V3DGeometry
 	local geometry = {}
 
+	geometry.type = type
 	geometry.triangles = 0
-	geometry.add_coloured_triangle = geometry_add_coloured_triangle
+	geometry.add_triangle = geometry_add_triangle
 	geometry.rotate_z = geometry_rotate_z
 
 	return geometry
@@ -639,9 +678,9 @@ end
 local function rasterize_triangle(
 	fb_front, fb_depth,
 	fb_width, fb_height_m1,
-	p0x, p0y, p0w,
-	p1x, p1y, p1w,
-	p2x, p2y, p2w,
+	p0x, p0y, p0w, p0u, p0v,
+	p1x, p1y, p1w, p1u, p1v,
+	p2x, p2y, p2w, p2u, p2v,
 	fixed_colour,
 	fragment_shader, pipeline_uniforms)
 	local math_ceil = math.ceil
@@ -701,6 +740,7 @@ local function rasterize_triangle(
 			local rowDeltaW = (triRightW - triLeftW) / rowTotalDeltaX
 			local rowLeftW = triLeftW + (columnMinX - triLeftX) * rowDeltaW
 			-- #end
+			-- b = a*w0 / ((rowTotalDeltaX - a)w1 + a*w0)
 
 			if columnMinX < 0 then columnMinX = 0 end
 			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
@@ -846,7 +886,10 @@ local function create_pipeline(options)
 
 	-- magical hacks to get around the language server!
 	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
-		local DATA_PER_TRIANGLE = 10
+		-- TODO: check geometry type is :ok_hand: for opt_interpolate_uvs + opt_fragment_shader
+
+		local poly_stride = geometry_poly_size(geometry.type)
+		local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
@@ -882,17 +925,28 @@ local function create_pipeline(options)
 		local fdy = -camera.y
 		local fdz = -camera.z
 
-		for i = 1, geometry.triangles * DATA_PER_TRIANGLE, DATA_PER_TRIANGLE do
+		for i = 1, geometry.triangles * poly_stride, poly_stride do
 			local p0x = geometry[i]
 			local p0y = geometry[i + 1]
 			local p0z = geometry[i + 2]
-			local p1x = geometry[i + 3]
-			local p1y = geometry[i + 4]
-			local p1z = geometry[i + 5]
-			local p2x = geometry[i + 6]
-			local p2y = geometry[i + 7]
-			local p2z = geometry[i + 8]
-			local colour = geometry[i + 9]
+			local p1x = geometry[i + poly_pos_stride]
+			local p1y = geometry[i + poly_pos_stride + 1]
+			local p1z = geometry[i + poly_pos_stride + 2]
+			local p2x = geometry[i + poly_pos_stride + poly_pos_stride]
+			local p2y = geometry[i + poly_pos_stride + poly_pos_stride + 1]
+			local p2z = geometry[i + poly_pos_stride + poly_pos_stride + 2]
+			local colour = geometry[i + poly_pos_stride * 3]
+
+			local p0u, p0v, p1u, p1v, p2u, p2v
+
+			if opt_interpolate_uvs then
+				p0u = geometry[i + 3]
+				p0v = geometry[i + 4]
+				p1u = geometry[i + 8]
+				p1v = geometry[i + 9]
+				p2u = geometry[i + 13]
+				p2v = geometry[i + 14]
+			end
 
 			p0x = p0x + fdx
 			p0y = p0y + fdy
@@ -924,16 +978,16 @@ local function create_pipeline(options)
 
 			if not cull_face then
 				p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-							, fyx * p0x + fyy * p0y + fyz * p0z
-							, fzx * p0x + fzy * p0y + fzz * p0z
+				              , fyx * p0x + fyy * p0y + fyz * p0z
+				              , fzx * p0x + fzy * p0y + fzz * p0z
 
 				p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-							, fyx * p1x + fyy * p1y + fyz * p1z
-							, fzx * p1x + fzy * p1y + fzz * p1z
+				              , fyx * p1x + fyy * p1y + fyz * p1z
+				              , fzx * p1x + fzy * p1y + fzz * p1z
 
 				p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-							, fyx * p2x + fyy * p2y + fyz * p2z
-							, fzx * p2x + fzy * p2y + fzz * p2z
+				              , fyx * p2x + fyy * p2y + fyz * p2z
+				              , fzx * p2x + fzy * p2y + fzz * p2z
 
 				-- TODO: make this split polygons
 				if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
@@ -948,7 +1002,7 @@ local function create_pipeline(options)
 					p2x = pxd + p2x * scale_x * p2w
 					p2y = pyd + p2y * scale_y * p2w
 
-					rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, colour, opt_fragment_shader, uniforms)
+					rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
 				end
 			end
 		end

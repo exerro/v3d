@@ -66,7 +66,7 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 --- @param v3d V3DLibrary
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local fb = v3d.create_framebuffer_subpixel(width, height)
-	local geom = v3d.create_geometry()
+	local geom = v3d.create_geometry(v3d.GEOMETRY_COLOUR)
 	local camera = v3d.create_perspective_camera()
 	local pipeline = v3d.create_pipeline {
 		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
@@ -89,7 +89,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 
 	for i = 1, model_data.triangles do
 		local t = model_data[i]
-		geom:add_coloured_triangle(t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2, t.colour)
+		geom:add_triangle(t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2, t.colour)
 	end
 
 	local function clear_fn()
