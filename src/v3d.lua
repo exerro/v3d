@@ -216,8 +216,8 @@ local V3DGeometryType = {
 --- @param p2u number
 --- @param p2v number
 --- @param colour integer
---- @overload fun (p0x: number, p0y: number, p0z: number, p1x: number, p1y: number, p1z: number, p2x: number, p2y: number, p2z: number, colour: integer): nil
---- @overload fun (p0x: number, p0y: number, p0z: number, p0u: number, p0v: number, p1x: number, p1y: number, p1z: number, p1u: number, p1v: number, p2x: number, p2y: number, p2z: number, p2u: number, p2v: number): nil
+--- @overload fun (self: V3DGeometry, p0x: number, p0y: number, p0z: number, p1x: number, p1y: number, p1z: number, p2x: number, p2y: number, p2z: number, colour: integer): nil
+--- @overload fun (self: V3DGeometry, p0x: number, p0y: number, p0z: number, p0u: number, p0v: number, p1x: number, p1y: number, p1z: number, p1u: number, p1v: number, p2x: number, p2y: number, p2z: number, p2u: number, p2v: number): nil
 function V3DGeometry:add_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
 
 --- TODO

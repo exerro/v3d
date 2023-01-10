@@ -19,15 +19,12 @@ local pipeline = v3d.create_pipeline {
 
 camera.z = 2
 
-pipeline:set_uniform('colour', colours.purple)
-
 geometry:add_triangle(-1,  1, 0, 0, 0, -1, -1, 0, 0, 1,  1, -1, 0, 1, 1, colours.blue)
 geometry:add_triangle(-1,  1, 0, 0, 0,  1, -1, 0, 1, 1,  1,  1, 0, 1, 0, colours.cyan)
 
-for _ = 1, 20 do
+for i = 1, 100 do
 	geometry:rotate_y(0.05)
 	fb:clear(1)
 	pipeline:render_geometry(geometry, fb, camera)
 	fb:blit_subpixel(term)
-	sleep(0.05)
 end

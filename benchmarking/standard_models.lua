@@ -1,5 +1,5 @@
 
-local simplex = require 'simplex'
+local simplex = require 'util.simplex'
 
 --- @type { [integer]: Model, [string]: Model }
 local models = {}

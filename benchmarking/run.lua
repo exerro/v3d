@@ -16,7 +16,12 @@
 local args = { ... }
 local root_dir = shell.getRunningProgram():match("^.+/") or ""
 
-package.path = root_dir .. "?.lua:" .. package.path
+package.path = "/" .. root_dir .. "?.lua;" .. package.path
+
+if root_dir:sub(1, -2):find "/" then
+	local parent_dir = root_dir:match "([^/]+/)[^/]*/"
+	package.path = "/" .. parent_dir .. "?.lua;" .. package.path
+end
 
 --- @module "libraries"
 --- @module "standard_models"
