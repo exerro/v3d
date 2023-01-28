@@ -146,7 +146,8 @@ function v3d.create_pipeline(options) end
 --- @field depth number[]
 local V3DFramebuffer = {}
 
---- Clears the entire framebuffer to the provided colour.
+--- Clears the entire framebuffer to the provided colour and resets the depth
+--- values.
 --- @param colour integer | nil Colour to set every pixel to. Defaults to 1 (colours.white)
 --- @return nil
 function V3DFramebuffer:clear(colour) end
