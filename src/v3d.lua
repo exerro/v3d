@@ -51,10 +51,15 @@ fb:blit_subpixel(term)
 --- V3D library instance. Used to create all objects for rendering, and refer to
 --- enum values.
 --- @class v3d
+--- Specify to cull (not draw) the front face (facing towards the camera).
 --- @field CULL_FRONT_FACE V3DCullFace
+--- Specify to cull (not draw) the back face (facing away from the camera).
 --- @field CULL_BACK_FACE V3DCullFace
+--- Type of geometry that only has colour information and no UV coordinates.
 --- @field GEOMETRY_COLOUR V3DGeometryType
+--- Type of geometry that only has UV coordinates and no colour information.
 --- @field GEOMETRY_UV V3DGeometryType
+--- Type of geometry that has both colour information and UV coordinates.
 --- @field GEOMETRY_COLOUR_UV V3DGeometryType
 local v3d = {
 	CULL_FRONT_FACE = -1,
@@ -80,7 +85,7 @@ function v3d.create_framebuffer(width, height) end
 --- @return V3DFramebuffer
 function v3d.create_framebuffer_subpixel(width, height) end
 
---- TODO
+--- Create a camera with the given field of view.
 --- @param fov number | nil
 --- @return V3DCamera
 function v3d.create_camera(fov) end
@@ -91,7 +96,16 @@ function v3d.create_camera(fov) end
 function v3d.create_geometry(type) end
 
 -- TODO: create_pipeline_builder():set_blah():build()?
---- TODO
+--- Create a pipeline with the given options. Options can be omitted to use
+--- defaults, and any field within the options can also be omitted to use
+--- defaults.
+---
+--- Example usage:
+--- ```lua
+--- local pipeline = v3d.create_pipeline {
+--- 	cull_face = false,
+--- }
+--- ```
 --- @param options V3DPipelineOptions | nil
 --- @return V3DPipeline
 function v3d.create_pipeline(options) end
@@ -159,11 +173,17 @@ function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 --- A positive value moves the camera 'backwards' (away from where it's looking
 --- by default) in world space.
 --- @field z number
---- TODO
+--- Counter-clockwise rotation of the camera in radians around the Y axis.
+--- Increasing this value will make the camera look "to the left". Decreasing it
+--- will make the camera look "to the right".
 --- @field yRotation number
---- TODO
+--- Counter-clockwise rotation of the camera in radians around the X axis.
+--- Increasing this value will make the camera look "up". Decreasing it will
+--- make the camera look "down".
 --- @field xRotation number
---- TODO
+--- Counter-clockwise rotation of the camera in radians around the Z axis.
+--- Increasing this value will make the camera tilt "to the left". Decreasing it
+--- will make the camera tilt "to the right".
 --- @field zRotation number
 local V3DCamera = {}
 
@@ -183,7 +203,8 @@ local V3DCamera = {}
 
 --- Contains triangles.
 --- @class V3DGeometry
---- TODO
+--- Structure of the triangles contained within this geometry. This is fixed
+--- upon creation and affects the kind of triangles you can add to the geometry.
 --- @field type V3DGeometryType
 --- Number of triangles contained within this geometry
 --- @field triangles integer
@@ -192,7 +213,7 @@ local V3DGeometry = {}
 --- Add a triangle to this geometry using the 3 corner coordinates and a block
 --- colour for the whole triangle.
 ---
---- Must only be used with [[v3d.GEOMETRY_COLOUR]] typed geometry objects.
+--- Must only be used with [[@v3d.GEOMETRY_COLOUR]] typed geometry objects.
 --- @param p0x number
 --- @param p0y number
 --- @param p0z number
@@ -208,7 +229,7 @@ function V3DGeometry:add_colour_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y,
 
 --- Add a triangle to this geometry using the 3 corner coordinates with UVs.
 ---
---- Must only be used with [[v3d.GEOMETRY_UV]] typed geometry objects.
+--- Must only be used with [[@v3d.GEOMETRY_UV]] typed geometry objects.
 --- @param p0x number
 --- @param p0y number
 --- @param p0z number
@@ -230,7 +251,7 @@ function V3DGeometry:add_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u
 --- Add a triangle to this geometry using the 3 corner coordinates with UVs and
 --- a block colour for the whole triangle.
 ---
---- Must only be used with [[v3d.GEOMETRY_COLOUR_UV]] typed geometry objects.
+--- Must only be used with [[@v3d.GEOMETRY_COLOUR_UV]] typed geometry objects.
 --- @param p0x number
 --- @param p0y number
 --- @param p0z number
@@ -250,12 +271,14 @@ function V3DGeometry:add_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u
 --- @return nil
 function V3DGeometry:add_colour_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
 
---- TODO
+--- Rotate every vertex position within this geometry counter-clockwise by theta
+--- radians around the Y axis.
 --- @param theta number
 --- @return nil
 function V3DGeometry:rotate_y(theta) end
 
---- TODO
+--- Rotate every vertex position within this geometry counter-clockwise by theta
+--- radians around the Z axis.
 --- @param theta number
 --- @return nil
 function V3DGeometry:rotate_z(theta) end
@@ -266,7 +289,12 @@ function V3DGeometry:rotate_z(theta) end
 --------------------------------------------------------------------------------
 
 
---- TODO
+--- A pipeline is an optimised object used to draw [[@V3DGeometry]] to a
+--- [[@V3DFramebuffer]] using a [[@V3DCamera]]. It is created using
+--- [[@V3DPipelineOptions]] which cannot change. To configure the pipeline after
+--- creation, uniforms can be used alongside shaders. Alternatively, multiple
+--- pipelines can be created or re-created at will according to the needs of the
+--- application.
 --- @class V3DPipeline
 local V3DPipeline = {}
 
@@ -275,7 +303,10 @@ local V3DPipeline = {}
 --- @see v3d.CULL_FRONT_FACE
 --- @alias V3DCullFace 1 | -1
 
---- TODO
+--- A fragment shader runs for every pixel being drawn, accepting the
+--- interpolated UV coordinates of that pixel if UV interpolation is enabled in
+--- the pipeline settings.
+--- The shader should return a value to be written directly to the framebuffer.
 --- @alias V3DFragmentShader fun(uniforms: { [string]: unknown }, u: number, v: number): integer
 
 --- TODO

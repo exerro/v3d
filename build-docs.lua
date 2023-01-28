@@ -1,4 +1,6 @@
 
+-- TODO: parse [[@ref]] in docstrings
+
 local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
 local sections = {}
 local section = nil
@@ -22,7 +24,7 @@ end
 
 for i = 1, #sections do
 	for j = 1, #sections[i] do
-		sections[i][j] = sections[i][j]:gsub('^%s*%-%-%-%s*', '')
+		sections[i][j] = sections[i][j]:gsub('^%s*%-%-%- *', '')
 	end
 end
 
@@ -193,7 +195,7 @@ local function register_alias(section)
 			a.docstring = a.docstring .. ', '
 		end
 
-		a.docstring = a.docstring .. '[`' .. see[i] .. '`](#' .. see[i]:gsub('[^%w_]+', '') .. ')'
+		a.docstring = a.docstring .. '[`' .. see[i] .. '`](#' .. see[i]:gsub('[^%w_]+', ''):lower() .. ')'
 	end
 end
 
