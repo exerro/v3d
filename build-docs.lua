@@ -227,6 +227,12 @@ local function type_to_markdown(s)
 	end))
 end
 
+local function docstring_to_markdown(s)
+	return (s:gsub('%[%[@([%w_%.]+)%]%]', function(ss)
+		return '[`' .. ss .. '`](#' .. ss:gsub('[^%w_]', ''):lower() .. ')'
+	end))
+end
+
 local h = assert(io.open('v3d-docs.md', 'w'))
 
 h:write '\n# Index\n\n'
@@ -270,7 +276,7 @@ for i = 1, #classes do
 	h:write '---\n\n# `'
 	h:write(class.name)
 	h:write '`\n\n'
-	h:write(class.docstring)
+	h:write(docstring_to_markdown(class.docstring))
 	h:write '\n\n'
 
 	for j = 1, #class.fields do
@@ -285,7 +291,7 @@ for i = 1, #classes do
 		h:write '\n\n'
 
 		if class.fields[j].docstring ~= '' then
-			h:write(class.fields[j].docstring)
+			h:write(docstring_to_markdown(class.fields[j].docstring))
 			h:write '\n\n'
 		end
 	end
@@ -298,7 +304,7 @@ for i = 1, #classes do
 		h:write '()`\n\n'
 
 		if class.methods[j].docstring ~= '' then
-			h:write(class.methods[j].docstring)
+			h:write(docstring_to_markdown(class.methods[j].docstring))
 			h:write '\n\n'
 		end
 
@@ -328,7 +334,7 @@ for i = 1, #classes do
 			h:write '\n\n'
 
 			if class.methods[j].parameters[k].docstring ~= '' then
-				h:write(class.methods[j].parameters[k].docstring)
+				h:write(docstring_to_markdown(class.methods[j].parameters[k].docstring))
 				h:write '\n\n'
 			end
 		end

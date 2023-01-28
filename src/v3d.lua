@@ -69,7 +69,7 @@ local v3d = {
 	GEOMETRY_COLOUR_UV = 3,
 }
 
---- Create an empty framebuffer of exactly `width` x `height` pixels.
+--- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
 ---
 --- Note, for using subpixel rendering (you probably are), use
 --- `create_framebuffer_subpixel` instead.
@@ -78,26 +78,25 @@ local v3d = {
 --- @return V3DFramebuffer
 function v3d.create_framebuffer(width, height) end
 
---- Create an empty framebuffer of exactly `width * 2` x `height * 3` pixels,
---- suitable for rendering subpixels.
+--- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
+--- pixels, suitable for rendering subpixels.
 --- @param width integer
 --- @param height integer
 --- @return V3DFramebuffer
 function v3d.create_framebuffer_subpixel(width, height) end
 
---- Create a camera with the given field of view.
+--- Create a [[@V3DCamera]] with the given field of view.
 --- @param fov number | nil
 --- @return V3DCamera
 function v3d.create_camera(fov) end
 
---- Create some empty geometry with no triangles.
+--- Create an empty [[@V3DGeometry]] with no triangles.
 --- @param type V3DGeometryType
 --- @return V3DGeometry
 function v3d.create_geometry(type) end
 
--- TODO: create_pipeline_builder():set_blah():build()?
---- Create a pipeline with the given options. Options can be omitted to use
---- defaults, and any field within the options can also be omitted to use
+--- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
+--- use defaults, and any field within the options can also be omitted to use
 --- defaults.
 ---
 --- Example usage:
@@ -307,35 +306,70 @@ local V3DPipeline = {}
 --- interpolated UV coordinates of that pixel if UV interpolation is enabled in
 --- the pipeline settings.
 --- The shader should return a value to be written directly to the framebuffer.
+--- Note: if `nil` is returned, no pixel is written, and the depth value is not
+--- updated for that pixel.
 --- @alias V3DFragmentShader fun(uniforms: { [string]: unknown }, u: number, v: number): integer
 
---- TODO
+--- TODO: Currently unused.
+--- @alias V3DVertexShader function
+
+--- Pipeline options describe the settings used to create a pipeline. Every
+--- field is optional and has a sensible default. Not using or disabling
+--- features may lead to a performance gain, for example disabling depth testing
+--- or not using shaders.
 --- @class V3DPipelineOptions
+--- Specify a face to cull (not draw), or false to disable face culling.
+--- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
+--- performance and should only be changed from the default when doing something
+--- weird. For example, to not draw faces facing towards the camera, use
+--- `cull_face = v3d.CULL_FRONT_FACE`.
 --- @field cull_face V3DCullFace | false | nil
+--- Whether to write the depth of drawn pixels to the depth buffer. Defaults to
+--- true.
+--- Slight performance gain if both this and `depth_test` are disabled.
+--- Defaults to `true`.
 --- @field depth_store boolean | nil
+--- Whether to test the depth of candidate pixels, and only draw ones that are
+--- closer to the camera than what's been drawn already.
+--- Slight performance gain if both this and `depth_store` are disabled.
+--- Defaults to `true`.
 --- @field depth_test boolean | nil
+--- Function to run for every pixel being drawn that determines the colour of
+--- the pixel.
+--- Note: for the UV values passed to the fragment shader to be correct, you
+--- need to enable UV interpolation using the `interpolate_uvs` setting.
+--- Slight performance loss when using fragment shaders.
 --- @field fragment_shader V3DFragmentShader | nil
+--- Whether to interpolate UV values across polygons being drawn. Only useful
+--- when using fragment shaders, and has a slight performance loss when used.
+--- Defaults to `false`.
 --- @field interpolate_uvs boolean | nil
+--- Aspect ratio of the pixels being drawn. For square pixels, this should be 1.
+--- For non-square pixels, like the ComputerCraft non-subpixel characters, this
+--- should be their width/height, for example 2/3 for non-subpixel characters.
+--- Defaults to `1`.
 --- @field pixel_aspect_ratio number | nil
---- @field vertex_shader function TODO(type)
+--- TODO: Currently unused.
+--- @field vertex_shader V3DVertexShader | nil
 local V3DPipelineOptions = {}
 
--- TODO: list of geometry instead? with count and offset options
---- TODO
---- @param geometry V3DGeometry
---- @param fb V3DFramebuffer
---- @param camera V3DCamera
+--- Draw a list of geometry objects to the framebuffer using the camera given.
+--- @param geometries V3DGeometry[] List of geometry to draw.
+--- @param fb V3DFramebuffer Framebuffer to draw to.
+--- @param camera V3DCamera Camera from whose perspective objects should be drawn.
+--- @param offset integer | nil Index of the first geometry in the list to draw. Defaults to 1.
+--- @param count integer | nil Number of geometry objects to draw. Defaults to ~'all remaining'.
 --- @return nil
-function V3DPipeline:render_geometry(geometry, fb, camera) end
+function V3DPipeline:render_geometry(geometries, fb, camera, offset, count) end
 
---- TODO
---- @param name string
---- @param value any
+--- Set a uniform value which can be accessed from shaders.
+--- @param name string Name of the uniform. Shaders can access using `uniforms[name]`
+--- @param value any Any value to pass to the shader.
 --- @return nil
 function V3DPipeline:set_uniform(name, value) end
 
---- TODO
---- @param name string
+--- Get a uniform value that's been set with `set_uniform`.
+--- @param name string Name of the uniform.
 --- @return unknown
 function V3DPipeline:get_uniform(name) end
 
@@ -863,7 +897,7 @@ local function rasterize_triangle(
 				if rowLeftW > fb_depth[index] then
 					-- #if enable_fs
 					local fs_colour = fragment_shader(pipeline_uniforms, u, v)
-					if fs_colour ~= 0 then
+					if fs_colour ~= nil then
 						fb_colour[index] = fs_colour
 						-- #if depth_store
 						fb_depth[index] = rowLeftW
@@ -1046,14 +1080,7 @@ local function create_pipeline(options)
 	-- #select-param enable_fs opt_fragment_shader
 
 	-- magical hacks to get around the language server!
-	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
-		if opt_interpolate_uvs and geometry.type == v3d.GEOMETRY_COLOUR then
-			error("Invalid geometry type: expected uvs for this pipeline", 2)
-			return
-		end
-
-		local poly_stride = geometry_poly_size(geometry.type)
-		local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
+	select(1, pipeline).render_geometry = function(_, geometries, fb, camera, offset, count)
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
@@ -1089,84 +1116,96 @@ local function create_pipeline(options)
 		local fdy = -camera.y
 		local fdz = -camera.z
 
-		for i = 1, geometry.triangles * poly_stride, poly_stride do
-			local p0x = geometry[i]
-			local p0y = geometry[i + 1]
-			local p0z = geometry[i + 2]
-			local p1x = geometry[i + poly_pos_stride]
-			local p1y = geometry[i + poly_pos_stride + 1]
-			local p1z = geometry[i + poly_pos_stride + 2]
-			local p2x = geometry[i + poly_pos_stride + poly_pos_stride]
-			local p2y = geometry[i + poly_pos_stride + poly_pos_stride + 1]
-			local p2z = geometry[i + poly_pos_stride + poly_pos_stride + 2]
-			local colour = geometry[i + poly_pos_stride * 3]
+		offset = offset or 1
+		count = count or #geometries - offset + 1
 
-			local p0u, p0v, p1u, p1v, p2u, p2v
-
-			if opt_interpolate_uvs then
-				p0u = geometry[i + 3]
-				p0v = geometry[i + 4]
-				p1u = geometry[i + 8]
-				p1v = geometry[i + 9]
-				p2u = geometry[i + 13]
-				p2v = geometry[i + 14]
+		for j = offset, offset + count - 1 do
+			local geometry = geometries[j]
+			if opt_interpolate_uvs and geometry.type == v3d.GEOMETRY_COLOUR then
+				error("Invalid geometry type: expected uvs for this pipeline", 2)
+				return
 			end
+			local poly_stride = geometry_poly_size(geometry.type)
+			local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
+			for i = 1, geometry.triangles * poly_stride, poly_stride do
+				local p0x = geometry[i]
+				local p0y = geometry[i + 1]
+				local p0z = geometry[i + 2]
+				local p1x = geometry[i + poly_pos_stride]
+				local p1y = geometry[i + poly_pos_stride + 1]
+				local p1z = geometry[i + poly_pos_stride + 2]
+				local p2x = geometry[i + poly_pos_stride + poly_pos_stride]
+				local p2y = geometry[i + poly_pos_stride + poly_pos_stride + 1]
+				local p2z = geometry[i + poly_pos_stride + poly_pos_stride + 2]
+				local colour = geometry[i + poly_pos_stride * 3]
 
-			p0x = p0x + fdx
-			p0y = p0y + fdy
-			p0z = p0z + fdz
+				local p0u, p0v, p1u, p1v, p2u, p2v
 
-			p1x = p1x + fdx
-			p1y = p1y + fdy
-			p1z = p1z + fdz
+				if opt_interpolate_uvs then
+					p0u = geometry[i + 3]
+					p0v = geometry[i + 4]
+					p1u = geometry[i + 8]
+					p1v = geometry[i + 9]
+					p2u = geometry[i + 13]
+					p2v = geometry[i + 14]
+				end
 
-			p2x = p2x + fdx
-			p2y = p2y + fdy
-			p2z = p2z + fdz
+				p0x = p0x + fdx
+				p0y = p0y + fdy
+				p0z = p0z + fdz
 
-			local cull_face = false
+				p1x = p1x + fdx
+				p1y = p1y + fdy
+				p1z = p1z + fdz
 
-			if opt_cull_face then
-				local d1x = p1x - p0x
-				local d1y = p1y - p0y
-				local d1z = p1z - p0z
-				local d2x = p2x - p0x
-				local d2y = p2y - p0y
-				local d2z = p2z - p0z
-				local cx = d1y*d2z - d1z*d2y
-				local cy = d1z*d2x - d1x*d2z
-				local cz = d1x*d2y - d1y*d2x
-				local d = cx * p0x + cy * p0y + cz * p0z
-				cull_face = d * opt_cull_face > 0
-			end
+				p2x = p2x + fdx
+				p2y = p2y + fdy
+				p2z = p2z + fdz
 
-			if not cull_face then
-				p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-				              , fyx * p0x + fyy * p0y + fyz * p0z
-				              , fzx * p0x + fzy * p0y + fzz * p0z
+				local cull_face = false
 
-				p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-				              , fyx * p1x + fyy * p1y + fyz * p1z
-				              , fzx * p1x + fzy * p1y + fzz * p1z
+				if opt_cull_face then
+					local d1x = p1x - p0x
+					local d1y = p1y - p0y
+					local d1z = p1z - p0z
+					local d2x = p2x - p0x
+					local d2y = p2y - p0y
+					local d2z = p2z - p0z
+					local cx = d1y*d2z - d1z*d2y
+					local cy = d1z*d2x - d1x*d2z
+					local cz = d1x*d2y - d1y*d2x
+					local d = cx * p0x + cy * p0y + cz * p0z
+					cull_face = d * opt_cull_face > 0
+				end
 
-				p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-				              , fyx * p2x + fyy * p2y + fyz * p2z
-				              , fzx * p2x + fzy * p2y + fzz * p2z
+				if not cull_face then
+					p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
+								, fyx * p0x + fyy * p0y + fyz * p0z
+								, fzx * p0x + fzy * p0y + fzz * p0z
 
-				-- TODO: make this split polygons
-				if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-					local p0w = -1 / p0z
-					local p1w = -1 / p1z
-					local p2w = -1 / p2z
+					p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
+								, fyx * p1x + fyy * p1y + fyz * p1z
+								, fzx * p1x + fzy * p1y + fzz * p1z
 
-					p0x = pxd + p0x * scale_x * p0w
-					p0y = pyd + p0y * scale_y * p0w
-					p1x = pxd + p1x * scale_x * p1w
-					p1y = pyd + p1y * scale_y * p1w
-					p2x = pxd + p2x * scale_x * p2w
-					p2y = pyd + p2y * scale_y * p2w
+					p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
+								, fyx * p2x + fyy * p2y + fyz * p2z
+								, fzx * p2x + fzy * p2y + fzz * p2z
 
-					rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
+					-- TODO: make this split polygons
+					if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
+						local p0w = -1 / p0z
+						local p1w = -1 / p1z
+						local p2w = -1 / p2z
+
+						p0x = pxd + p0x * scale_x * p0w
+						p0y = pyd + p0y * scale_y * p0w
+						p1x = pxd + p1x * scale_x * p1w
+						p1y = pyd + p1y * scale_y * p1w
+						p2x = pxd + p2x * scale_x * p2w
+						p2y = pyd + p2y * scale_y * p2w
+
+						rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
+					end
 				end
 			end
 		end

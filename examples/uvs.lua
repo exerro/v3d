@@ -1,7 +1,6 @@
 
 shell.run '/v3d/build'
-package.path = "/?.lua;" .. package.path
-local v3d = require 'v3d'
+local v3d = require '/v3d'
 
 local w, h = term.getSize()
 local fb = v3d.create_framebuffer_subpixel(math.min(60, w), math.min(30, h - 2))
@@ -19,12 +18,12 @@ local pipeline = v3d.create_pipeline {
 
 camera.z = 2
 
-geometry:add_triangle(-1,  1, 0, 0, 0, -1, -1, 0, 0, 1,  1, -1, 0, 1, 1, colours.blue)
-geometry:add_triangle(-1,  1, 0, 0, 0,  1, -1, 0, 1, 1,  1,  1, 0, 1, 0, colours.cyan)
+geometry:add_colour_uv_triangle(-1,  1, 0, 0, 0, -1, -1, 0, 0, 1,  1, -1, 0, 1, 1, colours.blue)
+geometry:add_colour_uv_triangle(-1,  1, 0, 0, 0,  1, -1, 0, 1, 1,  1,  1, 0, 1, 0, colours.cyan)
 
 for i = 1, 100 do
 	geometry:rotate_y(0.05)
 	fb:clear(1)
-	pipeline:render_geometry(geometry, fb, camera)
+	pipeline:render_geometry({ geometry }, fb, camera)
 	fb:blit_subpixel(term)
 end

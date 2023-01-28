@@ -2,8 +2,7 @@
 if fs.isDir 'v3d' then shell.run 'v3d/build' end
 package.path = "/" .. fs.getDir(shell.getRunningProgram()) .. "/?.lua;" .. package.path
 package.path = "/" .. fs.getDir(fs.getDir(shell.getRunningProgram())) .. "/?.lua;" .. package.path
-package.path = "/?.lua;" .. package.path
-local v3d = require 'v3d'
+local v3d = require '/v3d'
 local simplex = require 'util.simplex'
 --- @diagnostic disable-next-line: undefined-field
 local startTimer = os.startTimer
@@ -122,8 +121,8 @@ local function tesselate_face(cx, cz, divisions, gen_uvs)
 			local u10, v10 = gen_uvs(x1, y10, z)
 			local u11, v11 = gen_uvs(x1, y11, z1)
 			local u01, v01 = gen_uvs(x, y01, z1)
-			geometry:add_triangle(x, y00, z, u00, v00, x, y01, z1, u01, v01, x1, y11, z1, u11, v11, colours.green)
-			geometry:add_triangle(x, y00, z, u00, v00, x1, y11, z1, u11, v11, x1, y10, z, u10, v10, colours.lime)
+			geometry:add_colour_uv_triangle(x, y00, z, u00, v00, x, y01, z1, u01, v01, x1, y11, z1, u11, v11, colours.green)
+			geometry:add_colour_uv_triangle(x, y00, z, u00, v00, x1, y11, z1, u11, v11, x1, y10, z, u10, v10, colours.lime)
 			z = z + deltaZ
 		end
 
@@ -155,12 +154,7 @@ local function draw()
 	end
 
 	framebuffer:clear(2 ^ 6)
-
-	for i = 1, #visible_chunks do
-		local g = visible_chunks[i]
-		terrain_pipeline:render_geometry(g, framebuffer, camera)
-	end
-
+	terrain_pipeline:render_geometry(visible_chunks, framebuffer, camera)
 	framebuffer:blit_subpixel(term)
 end
 
