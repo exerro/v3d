@@ -166,6 +166,16 @@ for _, section in ipairs(sections) do
 			table.insert(blocks, table.concat(s, '\n'))
 		end
 	else
+		local removing = false
+
+		for i = 1, #section do
+			removing = removing and not section[i]:find '%s*%-%-%s*#end%s*$'
+			local should_remove = removing
+			removing = removing or section[i]:find '%s*%-%-%s*#remove%s*$'
+			if should_remove then
+				section[i] = ''
+			end
+		end
 		table.insert(blocks, table.concat(section, '\n'))
 	end
 end

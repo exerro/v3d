@@ -38,6 +38,12 @@ pipeline:render_geometry(geometry, fb, camera)
 fb:blit_subpixel(term)
 ]]
 
+-- #remove
+-- note: this code will be stripped out during the build process, thus removing
+--       the error
+error 'Cannot use v3d source code, must use built library'
+-- #end
+
 
 -- Note, this section just declares all the functions so the top of this file
 -- can be used as an API reference. The implementations are below.
