@@ -9,7 +9,7 @@ local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline()
 
 -- Add a red triangle
-geometry:add_colour_triangle(0, 0.8, -1, -0.9, -0.8, -1, 0.9, -0.8, -1, colours.red)
+geometry:add_colour_triangle(0, 0.8, -2, -0.9, -0.8, -2, 0.9, -0.8, -2, colours.red)
 
 -- Clear the framebuffer to light blue
 framebuffer:clear(colours.lightBlue)

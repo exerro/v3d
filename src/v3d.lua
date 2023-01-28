@@ -91,7 +91,8 @@ function v3d.create_framebuffer(width, height) end
 --- @return V3DFramebuffer
 function v3d.create_framebuffer_subpixel(width, height) end
 
---- Create a [[@V3DCamera]] with the given field of view.
+--- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
+--- degrees.
 --- @param fov number | nil
 --- @return V3DCamera
 function v3d.create_camera(fov) end
@@ -100,6 +101,14 @@ function v3d.create_camera(fov) end
 --- @param type V3DGeometryType
 --- @return V3DGeometry
 function v3d.create_geometry(type) end
+
+--- Create a [[@V3DGeometry]] cube containing coloured triangles with UVs.
+--- @param cx number | nil
+--- @param cy number | nil
+--- @param cz number | nil
+--- @param size number | nil
+--- @return V3DGeometry
+function v3d.create_debug_cube(cx, cy, cz, size) end
 
 --- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
 --- use defaults, and any field within the options can also be omitted to use
@@ -683,7 +692,7 @@ local function create_camera(fov)
 	--- @type V3DCamera
 	local camera = {}
 
-	camera.fov = fov or math.pi / 3
+	camera.fov = fov or math.pi / 6
 	camera.x = 0
 	camera.y = 0
 	camera.z = 0
@@ -783,6 +792,61 @@ local function create_geometry(type)
 		geometry.add_uv_triangle = geometry_add_triangle
 	elseif type == v3d.GEOMETRY_COLOUR_UV then
 		geometry.add_colour_uv_triangle = geometry_add_triangle
+	end
+
+	return geometry
+end
+
+local function create_debug_cube(cx, cy, cz, size)
+	local geometry = create_geometry(v3d.GEOMETRY_COLOUR_UV)
+	local s2 = (size or 1) / 2
+
+	cx = cx or 0
+	cy = cy or 0
+	cz = cz or 0
+
+	-- front
+	geometry:add_colour_uv_triangle(
+		-s2,  s2,  s2, 0, 0, -s2, -s2,  s2, 0, 1,  s2,  s2,  s2, 1, 0, colours.blue)
+	geometry:add_colour_uv_triangle(
+		-s2, -s2,  s2, 0, 1,  s2, -s2,  s2, 1, 1,  s2,  s2,  s2, 1, 0, colours.cyan)
+
+	-- back
+	geometry:add_colour_uv_triangle(
+		 s2,  s2, -s2, 0, 0,  s2, -s2, -s2, 0, 1, -s2,  s2, -s2, 1, 0, colours.brown)
+	geometry:add_colour_uv_triangle(
+		 s2, -s2, -s2, 0, 1, -s2, -s2, -s2, 1, 1, -s2,  s2, -s2, 1, 0, colours.yellow)
+
+	-- left
+	geometry:add_colour_uv_triangle(
+		-s2,  s2, -s2, 0, 0, -s2, -s2, -s2, 0, 1, -s2,  s2,  s2, 1, 0, colours.lightBlue)
+	geometry:add_colour_uv_triangle(
+		-s2, -s2, -s2, 0, 1, -s2, -s2,  s2, 1, 1, -s2,  s2,  s2, 1, 0, colours.pink)
+
+	-- right
+	geometry:add_colour_uv_triangle(
+		 s2,  s2,  s2, 0, 0,  s2, -s2,  s2, 0, 1,  s2,  s2, -s2, 1, 0, colours.red)
+	geometry:add_colour_uv_triangle(
+		 s2, -s2,  s2, 0, 1,  s2, -s2, -s2, 1, 1,  s2,  s2, -s2, 1, 0, colours.orange)
+
+	-- top
+	geometry:add_colour_uv_triangle(
+		-s2,  s2, -s2, 0, 0, -s2,  s2,  s2, 0, 1,  s2,  s2, -s2, 1, 0, colours.green)
+	geometry:add_colour_uv_triangle(
+		-s2,  s2,  s2, 0, 1,  s2,  s2,  s2, 1, 1,  s2,  s2, -s2, 1, 0, colours.lime)
+
+	-- bottom
+	geometry:add_colour_uv_triangle(
+		 s2, -s2, -s2, 0, 0,  s2, -s2,  s2, 0, 1, -s2, -s2, -s2, 1, 0, colours.purple)
+	geometry:add_colour_uv_triangle(
+		 s2, -s2,  s2, 0, 1, -s2, -s2,  s2, 1, 1, -s2, -s2, -s2, 1, 0, colours.magenta)
+
+	for i = 1, #geometry, 16 do
+		for j = i, i + 10, 5 do
+			geometry[j] = geometry[j] + cx
+			geometry[j + 1] = geometry[j + 1] + cy
+			geometry[j + 2] = geometry[j + 2] + cz
+		end
 	end
 
 	return geometry
@@ -1246,6 +1310,7 @@ set_function('create_framebuffer', create_framebuffer)
 set_function('create_framebuffer_subpixel', create_framebuffer_subpixel)
 set_function('create_camera', create_camera)
 set_function('create_geometry', create_geometry)
+set_function('create_debug_cube', create_debug_cube)
 set_function('create_pipeline', create_pipeline)
 
 return v3d
