@@ -24,7 +24,7 @@
 --[[ TODO: example library usage
 
 local fb = v3d.create_framebuffer_subpixel(term.getSize())
-local camera = v3d.create_perspective_camera(math.pi / 7)
+local camera = v3d.create_camera(math.pi / 7)
 local geometry = v3d.load_model('mymodel.obj'):expect_uvs()
 local texture = v3d.load_texture('myimage.idk')
 local pipeline = v3d.create_pipeline {
@@ -40,7 +40,7 @@ fb:blit_subpixel(term)
 
 
 -- Note, this section just declares all the functions so the top of this file
--- can be used as documentation. The implementations are below.
+-- can be used as an API reference. The implementations are below.
 --- @diagnostic disable: missing-return, unused-local
 
 --------------------------------------------------------------------------------
@@ -48,32 +48,21 @@ fb:blit_subpixel(term)
 --------------------------------------------------------------------------------
 
 
---- @class V3DLibrary
-local v3d = {}
-
---- @type V3DCullFace
-v3d.CULL_FRONT_FACE = -1
-
---- @type V3DCullFace
-v3d.CULL_BACK_FACE = 1
-
---- @type V3DProjection
-v3d.NO_PROJECTION = 0
-
---- @type V3DProjection
-v3d.PERSPECTIVE_PROJECTION = 1
-
---- @type V3DProjection
-v3d.ORTHOGRAPHIC_PROJECTION = 2
-
---- @type V3DGeometryType
-v3d.GEOMETRY_COLOUR = 1
-
---- @type V3DGeometryType
-v3d.GEOMETRY_UV = 2
-
---- @type V3DGeometryType
-v3d.GEOMETRY_COLOUR_UV = 3
+--- V3D library instance. Used to create all objects for rendering, and refer to
+--- enum values.
+--- @class v3d
+--- @field CULL_FRONT_FACE V3DCullFace
+--- @field CULL_BACK_FACE V3DCullFace
+--- @field GEOMETRY_COLOUR V3DGeometryType
+--- @field GEOMETRY_UV V3DGeometryType
+--- @field GEOMETRY_COLOUR_UV V3DGeometryType
+local v3d = {
+	CULL_FRONT_FACE = -1,
+	CULL_BACK_FACE = 1,
+	GEOMETRY_COLOUR = 1,
+	GEOMETRY_UV = 2,
+	GEOMETRY_COLOUR_UV = 3,
+}
 
 --- Create an empty framebuffer of exactly `width` x `height` pixels.
 ---
@@ -94,7 +83,7 @@ function v3d.create_framebuffer_subpixel(width, height) end
 --- TODO
 --- @param fov number | nil
 --- @return V3DCamera
-function v3d.create_perspective_camera(fov) end
+function v3d.create_camera(fov) end
 
 --- Create some empty geometry with no triangles.
 --- @param type V3DGeometryType
@@ -124,7 +113,7 @@ function v3d.create_pipeline(options) end
 --- height of 57 pixels in its framebuffer.
 --- @field height integer
 --- Stores the colour value of every pixel that's been drawn.
---- @field front any[]
+--- @field colour integer[]
 --- Stores `1/Z` for every pixel drawn (when depth storing is enabled)
 --- @field depth number[]
 local V3DFramebuffer = {}
@@ -134,8 +123,8 @@ local V3DFramebuffer = {}
 --- @return nil
 function V3DFramebuffer:clear(colour) end
 
---- Render the framebuffer to the terminal, drawing a high resolution using
---- subpixel conversion.
+--- Render the framebuffer to the terminal, drawing a high resolution image
+--- using subpixel conversion.
 --- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
@@ -184,6 +173,14 @@ local V3DCamera = {}
 --------------------------------------------------------------------------------
 
 
+--- Describes whether geometry contains colour information, UV information, or
+--- both.
+--- @see v3d.GEOMETRY_COLOUR
+--- @see v3d.GEOMETRY_UV
+--- @see v3d.GEOMETRY_COLOUR_UV
+--- @alias V3DGeometryType 1 | 2 | 3
+
+
 --- Contains triangles.
 --- @class V3DGeometry
 --- TODO
@@ -192,14 +189,48 @@ local V3DCamera = {}
 --- @field triangles integer
 local V3DGeometry = {}
 
---- @enum V3DGeometryType
-local V3DGeometryType = {
-	COLOUR = 1,
-	UV = 2,
-	COLOUR_UV = 3,
-}
+--- Add a triangle to this geometry using the 3 corner coordinates and a block
+--- colour for the whole triangle.
+---
+--- Must only be used with [[v3d.GEOMETRY_COLOUR]] typed geometry objects.
+--- @param p0x number
+--- @param p0y number
+--- @param p0z number
+--- @param p1x number
+--- @param p1y number
+--- @param p1z number
+--- @param p2x number
+--- @param p2y number
+--- @param p2z number
+--- @param colour integer
+--- @return nil
+function V3DGeometry:add_colour_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
 
---- TODO
+--- Add a triangle to this geometry using the 3 corner coordinates with UVs.
+---
+--- Must only be used with [[v3d.GEOMETRY_UV]] typed geometry objects.
+--- @param p0x number
+--- @param p0y number
+--- @param p0z number
+--- @param p0u number
+--- @param p0v number
+--- @param p1x number
+--- @param p1y number
+--- @param p1z number
+--- @param p1u number
+--- @param p1v number
+--- @param p2x number
+--- @param p2y number
+--- @param p2z number
+--- @param p2u number
+--- @param p2v number
+--- @return nil
+function V3DGeometry:add_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v) end
+
+--- Add a triangle to this geometry using the 3 corner coordinates with UVs and
+--- a block colour for the whole triangle.
+---
+--- Must only be used with [[v3d.GEOMETRY_COLOUR_UV]] typed geometry objects.
 --- @param p0x number
 --- @param p0y number
 --- @param p0z number
@@ -216,9 +247,8 @@ local V3DGeometryType = {
 --- @param p2u number
 --- @param p2v number
 --- @param colour integer
---- @overload fun (self: V3DGeometry, p0x: number, p0y: number, p0z: number, p1x: number, p1y: number, p1z: number, p2x: number, p2y: number, p2z: number, colour: integer): nil
---- @overload fun (self: V3DGeometry, p0x: number, p0y: number, p0z: number, p0u: number, p0v: number, p1x: number, p1y: number, p1z: number, p1u: number, p1v: number, p2x: number, p2y: number, p2z: number, p2u: number, p2v: number): nil
-function V3DGeometry:add_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
+--- @return nil
+function V3DGeometry:add_colour_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
 
 --- TODO
 --- @param theta number
@@ -240,20 +270,10 @@ function V3DGeometry:rotate_z(theta) end
 --- @class V3DPipeline
 local V3DPipeline = {}
 
---- TODO
---- @enum V3DCullFace
-local V3DCullFace = {
-	BACK_FACE = 1,
-	FRONT_FACE = -1,
-}
-
---- TODO
---- @enum V3DProjection
-local V3DProjection = {
-	NONE = 0,
-	PERSPECTIVE = 1,
-	ORTHOGRAPHIC = 2,
-}
+--- Specifies which face to cull, either the front or back face.
+--- @see v3d.CULL_BACK_FACE
+--- @see v3d.CULL_FRONT_FACE
+--- @alias V3DCullFace 1 | -1
 
 --- TODO
 --- @alias V3DFragmentShader fun(uniforms: { [string]: unknown }, u: number, v: number): integer
@@ -266,7 +286,6 @@ local V3DProjection = {
 --- @field fragment_shader V3DFragmentShader | nil
 --- @field interpolate_uvs boolean | nil
 --- @field pixel_aspect_ratio number | nil
---- @field projection V3DProjection | nil
 --- @field vertex_shader function TODO(type)
 local V3DPipelineOptions = {}
 
@@ -403,10 +422,10 @@ end
 
 
 local function framebuffer_clear(fb, colour)
-	local fb_front = fb.front
+	local fb_colour = fb.colour
 	local fb_depth = fb.depth
 	for i = 1, fb.width * fb.height do
-		fb_front[i] = colour
+		fb_colour[i] = colour
 		fb_depth[i] = 0
 	end
 end
@@ -418,7 +437,7 @@ local function framebuffer_blit_subpixel(fb, term, dx, dy)
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
 
-	local fb_front, fb_width = fb.front, fb.width
+	local fb_colour, fb_width = fb.colour, fb.width
 
 	local xBlit = 1 + dx
 
@@ -439,9 +458,9 @@ local function framebuffer_blit_subpixel(fb, term, dx, dy)
 		for ix = 1, ixMax do
 			local i1 = i0 + fb_width
 			local i2 = i1 + fb_width
-			local c00, c10 = fb_front[i0], fb_front[i0 + 1]
-			local c01, c11 = fb_front[i1], fb_front[i1 + 1]
-			local c02, c12 = fb_front[i2], fb_front[i2 + 1]
+			local c00, c10 = fb_colour[i0], fb_colour[i0 + 1]
+			local c01, c11 = fb_colour[i1], fb_colour[i1 + 1]
+			local c02, c12 = fb_colour[i2], fb_colour[i2 + 1]
 
 			-- TODO: make this a massive decision tree?
 			-- if two middle pixels are equal, that's a guaranteed colour
@@ -533,8 +552,8 @@ local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
 	-- we're gonna do a hack to swap out the buffers and draw it like normal
 
 	local fb_depth = fb.depth
-	local old_front = fb.front
-	local new_front = {}
+	local old_colour = fb.colour
+	local new_colour = {}
 	local min = fb_depth[1]
 	local max = fb_depth[1]
 
@@ -554,12 +573,12 @@ local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
 		local a = (fb_depth[i] - min) / delta
 		local b = math_floor(a * 16)
 		if b == 16 then b = 15 end
-		new_front[i] = 2 ^ b
+		new_colour[i] = 2 ^ b
 	end
 
-	fb.front = new_front
+	fb.colour = new_colour
 	framebuffer_blit_subpixel(fb, term, dx, dy)
-	fb.front = old_front
+	fb.colour = old_colour
 end
 
 local function create_framebuffer(width, height)
@@ -568,7 +587,7 @@ local function create_framebuffer(width, height)
 
 	fb.width = width
 	fb.height = height
-	fb.front = {}
+	fb.colour = {}
 	fb.depth = {}
 	fb.clear = framebuffer_clear
 	fb.blit_subpixel = framebuffer_blit_subpixel
@@ -589,7 +608,7 @@ end
 --------------------------------------------------------------------------------
 
 
-local function create_perspective_camera(fov)
+local function create_camera(fov)
 	--- @type V3DCamera
 	local camera = {}
 
@@ -611,9 +630,9 @@ end
 
 
 local function geometry_poly_size(type)
-	if type == V3DGeometryType.UV then
+	if type == v3d.GEOMETRY_UV then
 		return 15
-	elseif type == V3DGeometryType.COLOUR_UV then
+	elseif type == v3d.GEOMETRY_COLOUR_UV then
 		return 16
 	else
 		return 10
@@ -621,9 +640,9 @@ local function geometry_poly_size(type)
 end
 
 local function geometry_poly_pos_stride(type)
-	if type == V3DGeometryType.UV then
+	if type == v3d.GEOMETRY_UV then
 		return 5
-	elseif type == V3DGeometryType.COLOUR_UV then
+	elseif type == v3d.GEOMETRY_COLOUR_UV then
 		return 5
 	else
 		return 3
@@ -684,9 +703,16 @@ local function create_geometry(type)
 
 	geometry.type = type
 	geometry.triangles = 0
-	geometry.add_triangle = geometry_add_triangle
 	geometry.rotate_y = geometry_rotate_y
 	geometry.rotate_z = geometry_rotate_z
+
+	if type == v3d.GEOMETRY_COLOUR then
+		geometry.add_colour_triangle = geometry_add_triangle
+	elseif type == v3d.GEOMETRY_UV then
+		geometry.add_uv_triangle = geometry_add_triangle
+	elseif type == v3d.GEOMETRY_COLOUR_UV then
+		geometry.add_colour_uv_triangle = geometry_add_triangle
+	end
 
 	return geometry
 end
@@ -699,7 +725,7 @@ end
 
 -- #section depth_test depth_store interpolate_uvs enable_fs
 local function rasterize_triangle(
-	fb_front, fb_depth,
+	fb_colour, fb_depth,
 	fb_width, fb_height_m1,
 	p0x, p0y, p0w, p0u, p0v,
 	p1x, p1y, p1w, p1u, p1v,
@@ -807,13 +833,13 @@ local function rasterize_triangle(
 					-- #if enable_fs
 					local fs_colour = fragment_shader(pipeline_uniforms, u, v)
 					if fs_colour ~= 0 then
-						fb_front[index] = fs_colour
+						fb_colour[index] = fs_colour
 						-- #if depth_store
 						fb_depth[index] = rowLeftW
 						-- #end
 					end
 					-- #else
-					fb_front[index] = fixed_colour
+					fb_colour[index] = fixed_colour
 					-- #if depth_store
 					fb_depth[index] = rowLeftW
 					-- #end
@@ -823,13 +849,13 @@ local function rasterize_triangle(
 				-- #if enable_fs
 				local fs_colour = fragment_shader(pipeline_uniforms, 0, 0)
 				if fs_colour ~= 0 then
-					fb_front[index] = fs_colour
+					fb_colour[index] = fs_colour
 					-- #if depth_store
 					fb_depth[index] = rowLeftW
 					-- #end
 				end
 				-- #else
-				fb_front[index] = fixed_colour
+				fb_colour[index] = fixed_colour
 				-- #if depth_store
 				fb_depth[index] = rowLeftW
 				-- #end
@@ -975,7 +1001,6 @@ local function create_pipeline(options)
 	local opt_fragment_shader = options.fragment_shader or nil
 	local opt_interpolate_uvs = options.interpolate_uvs and opt_fragment_shader or false
 	local opt_vertex_shader = options.vertex_shader or nil
-	local opt_projection = options.projection or V3DProjection.PERSPECTIVE
 
 	--- @type V3DPipeline
 	local pipeline = {}
@@ -991,7 +1016,7 @@ local function create_pipeline(options)
 
 	-- magical hacks to get around the language server!
 	select(1, pipeline).render_geometry = function(_, geometry, fb, camera)
-		if opt_interpolate_uvs and geometry.type == V3DGeometryType.COLOUR then
+		if opt_interpolate_uvs and geometry.type == v3d.GEOMETRY_COLOUR then
 			error("Invalid geometry type: expected uvs for this pipeline", 2)
 			return
 		end
@@ -1003,7 +1028,7 @@ local function create_pipeline(options)
 		local pyd = (fb.height - 1) / 2
 		local pxs = pyd
 		local pys = -pyd
-		local fb_front, fb_width = fb.front, fb.width
+		local fb_colour, fb_width = fb.colour, fb.width
 		local fb_depth = fb.depth
 		local fb_height_m1 = fb.height - 1
 		local math_sin, math_cos = math.sin, math.cos
@@ -1110,7 +1135,7 @@ local function create_pipeline(options)
 					p2x = pxd + p2x * scale_x * p2w
 					p2y = pyd + p2y * scale_y * p2w
 
-					rasterize_triangle_fn(fb_front, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
+					rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
 				end
 			end
 		end
@@ -1143,7 +1168,7 @@ end
 
 set_function('create_framebuffer', create_framebuffer)
 set_function('create_framebuffer_subpixel', create_framebuffer_subpixel)
-set_function('create_perspective_camera', create_perspective_camera)
+set_function('create_camera', create_camera)
 set_function('create_geometry', create_geometry)
 set_function('create_pipeline', create_pipeline)
 

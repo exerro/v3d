@@ -1,10 +1,10 @@
 
 if fs.isDir 'v3d' then shell.run 'v3d/build' end
-package.path = "/" .. fs.getDir(shell.getRunningProgram()) .. "/util/?.lua;" .. package.path
-package.path = "/" .. fs.getDir(fs.getDir(shell.getRunningProgram())) .. "/util/?.lua;" .. package.path
+package.path = "/" .. fs.getDir(shell.getRunningProgram()) .. "/?.lua;" .. package.path
+package.path = "/" .. fs.getDir(fs.getDir(shell.getRunningProgram())) .. "/?.lua;" .. package.path
 package.path = "/?.lua;" .. package.path
 local v3d = require 'v3d'
-local simplex = require 'simplex'
+local simplex = require 'util.simplex'
 --- @diagnostic disable-next-line: undefined-field
 local startTimer = os.startTimer
 
@@ -29,7 +29,7 @@ local PLANE_CAMERA_X_ROTATION_DELTA = math.atan(PLANE_CAMERA_UP_DISTANCE / PLANE
 -- set up graphics state
 local screen_width, screen_height = term.getSize()
 local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
-local camera = v3d.create_perspective_camera(math.pi / 6)
+local camera = v3d.create_camera(math.pi / 6)
 local terrain_pipeline = v3d.create_pipeline {
 	interpolate_uvs = true,
 	fragment_shader = function(uniforms, u, v)

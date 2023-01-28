@@ -67,7 +67,7 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local fb = v3d.create_framebuffer_subpixel(width, height)
 	local geom = v3d.create_geometry(v3d.GEOMETRY_COLOUR)
-	local camera = v3d.create_perspective_camera()
+	local camera = v3d.create_camera()
 	local pipeline = v3d.create_pipeline {
 		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
 		depth_test = flags.depth_test,

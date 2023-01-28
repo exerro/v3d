@@ -5,7 +5,7 @@ local v3d = require 'v3d'
 
 local w, h = term.getSize()
 local fb = v3d.create_framebuffer_subpixel(math.min(60, w), math.min(30, h - 2))
-local camera = v3d.create_perspective_camera(math.pi / 4)
+local camera = v3d.create_camera(math.pi / 4)
 local geometry = v3d.create_geometry(v3d.GEOMETRY_COLOUR_UV)
 local pipeline = v3d.create_pipeline {
 	interpolate_uvs = true,
