@@ -218,7 +218,7 @@ end
 local function type_to_markdown(s)
 	return (s:gsub('[%w_][^ ]*', function(ss)
 		if classes[ss] then
-			return '[`' .. ss .. '`](#' .. ss .. ')'
+			return '[`' .. ss .. '`](#' .. ss:lower() .. ')'
 		else
 			return '`' .. ss .. '`'
 		end
@@ -227,14 +227,45 @@ end
 
 local h = assert(io.open('v3d-docs.md', 'w'))
 
+h:write '\n# Index\n\n'
+
+for i = 1, #classes do
+	local class = classes[classes[i]]
+	h:write '* [`'
+	h:write(class.name)
+	h:write '`](#'
+	h:write(class.name:lower())
+	h:write ')\n'
+
+	for j = 1, #class.fields do
+		h:write '  * [`'
+		h:write(class.name)
+		h:write '.'
+		h:write(class.fields[j].name)
+		h:write('`](#')
+		h:write(class.name:lower())
+		h:write(class.fields[j].name:lower())
+		h:write ')\n'
+	end
+
+	for j = 1, #class.methods do
+		h:write '  * [`'
+		h:write(class.name)
+		h:write(class.methods[j].method_syntax and ':' or '.')
+		h:write(class.methods[j].name)
+		h:write('()`](#')
+		h:write(class.name:lower())
+		h:write(class.methods[j].name:lower())
+		h:write ')\n'
+	end
+end
+
+h:write '\n'
+
 for i = 1, #classes do
 	local class = classes[classes[i]]
 
-	if i ~= 1 then
-		h:write '---\n\n'
-	end
-
-	h:write '# `'
+	h:write '---\n\n# `'
 	h:write(class.name)
 	h:write '`\n\n'
 	h:write(class.docstring)
@@ -242,8 +273,8 @@ for i = 1, #classes do
 
 	for j = 1, #class.fields do
 		h:write '### `'
-		-- h:write(class.name)
-		-- h:write '.'
+		h:write(class.name)
+		h:write '.'
 		h:write(class.fields[j].name)
 		h:write '`\n\n'
 
