@@ -103,10 +103,10 @@ function v3d.create_camera(fov) end
 function v3d.create_geometry(type) end
 
 --- Create a [[@V3DGeometry]] cube containing coloured triangles with UVs.
---- @param cx number | nil
---- @param cy number | nil
---- @param cz number | nil
---- @param size number | nil
+--- @param cx number | nil Centre X coordinate of the cube.
+--- @param cy number | nil Centre Y coordinate of the cube.
+--- @param cz number | nil Centre Z coordinate of the cube.
+--- @param size number | nil Distance between opposide faces of the cube.
 --- @return V3DGeometry
 function v3d.create_debug_cube(cx, cy, cz, size) end
 
