@@ -204,10 +204,10 @@ local function tokenise(source)
 			i = comment_end + 1
 		elseif comment_end then
 			local comment = source:sub(i, comment_end)
-			if comment:sub(1, 3) == '---' then
+			if comment:sub(1, 4) == '--- ' then
 				table.insert(tokens, {
 					type = 'comment',
-					text = comment
+					text = '---' .. comment:sub(5)
 				})
 			end
 			i = comment_end + 1
@@ -245,6 +245,10 @@ end
 local function strip_whitespace(tokens)
 	for i = #tokens - 1, 2, -1 do
 		if tokens[i].type == 'whitespace' and (tokens[i - 1].type ~= 'word' or tokens[i + 1].type ~= 'word') then
+			table.remove(tokens, i)
+		elseif tokens[i].type == 'newline' and (tokens[i - 1].text:sub(-1) == ',' or tokens[i - 1].text:sub(-1) == '(') then
+			table.remove(tokens, i)
+		elseif tokens[i].type == 'newline' and (tokens[i + 1].text:sub(1, 1) == ')') then
 			table.remove(tokens, i)
 		end
 	end
@@ -442,7 +446,7 @@ end
 
 local content = table.concat(blocks, '\n')
 local len = #content
-content = reconstruct(rename_shorter(strip_whitespace(tokenise(content))))
+content = reconstruct(rename_shorter(strip_whitespace(tokenise(content)))):gsub('\n\n+', '\n')
 
 print(string.format('Minified length: %d / %d (%d%%)', #content, len, #content / len * 100 + 0.5))
 

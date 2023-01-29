@@ -1137,7 +1137,6 @@ end
 
 local function create_pipeline(options)
 	options = options or {}
-	--- @cast options V3DPipelineOptions
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
 	-- used by the #select below
