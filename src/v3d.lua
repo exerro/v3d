@@ -125,6 +125,14 @@ function v3d.create_debug_cube(cx, cy, cz, size) end
 function v3d.create_pipeline(options) end
 
 
+--- TODO
+--- @param texture_uniform string | nil TODO
+--- @param width_uniform string | nil TODO
+--- @param height_uniform string | nil TODO
+--- @return V3DFragmentShader
+function v3d.create_texture_sampler(texture_uniform, width_uniform, height_uniform) end
+
+
 --------------------------------------------------------------------------------
 --[ Framebuffers ]--------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -326,6 +334,7 @@ local V3DPipeline = {}
 --- @field u_instanceID integer
 --- Index of the triangle within the geometry currently being
 --- @field u_faceID integer
+--- TODO: fixed_colour, screen X/Y, depth (new & old)
 local V3DUniforms = {}
 
 --- A fragment shader runs for every pixel being drawn, accepting the
@@ -1312,6 +1321,27 @@ local function create_pipeline(options)
 	return pipeline
 end
 
+local function create_texture_sampler(texture_uniform, width_uniform, height_uniform)
+	local math_floor = math.floor
+
+	texture_uniform = texture_uniform or 'u_texture'
+	width_uniform = width_uniform or 'u_texture_width'
+	height_uniform = height_uniform or 'u_texture_height'
+
+	return function(uniforms, u, v)
+		local image = uniforms[texture_uniform]
+		local image_width = uniforms[width_uniform]
+		local image_height = uniforms[height_uniform]
+
+		local x = math_floor(u * image_width)
+		if x == image_width then x = image_width - 1 end
+		local y = math_floor(v * image_height)
+		if y == image_height then y = image_height - 1 end
+
+		return image[y + 1][x + 1]
+	end
+end
+
 
 --------------------------------------------------------------------------------
 --[ Library export ]------------------------------------------------------------
@@ -1332,5 +1362,6 @@ set_function('create_camera', create_camera)
 set_function('create_geometry', create_geometry)
 set_function('create_debug_cube', create_debug_cube)
 set_function('create_pipeline', create_pipeline)
+set_function('create_texture_sampler', create_texture_sampler)
 
 return v3d

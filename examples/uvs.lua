@@ -1,5 +1,5 @@
 
-shell.run '/v3d/build'
+-- shell.run '/v3d/build'
 local v3d = require '/v3d'
 
 local w, h = term.getSize()
@@ -9,12 +9,13 @@ local geometry = v3d.create_geometry(v3d.GEOMETRY_COLOUR_UV)
 local pipeline = v3d.create_pipeline {
 	interpolate_uvs = true,
 	cull_face = false,
-	fragment_shader = function(uniforms, u, v)
-		local a = math.floor(u * 6) % 2 == 1
-		local b = math.floor(v * 6) % 2 == 1
-		return a and (b and colours.purple or colours.blue) or (b and colours.cyan or colours.lightBlue)
-	end,
+	fragment_shader = v3d.create_texture_sampler(),
 }
+
+local image = paintutils.loadImage 'image.nfp'
+pipeline:set_uniform('u_texture', image)
+pipeline:set_uniform('u_texture_width', #image[1])
+pipeline:set_uniform('u_texture_height', #image)
 
 camera.z = 2
 
@@ -26,4 +27,5 @@ for i = 1, 100 do
 	fb:clear(1)
 	pipeline:render_geometry({ geometry }, fb, camera)
 	fb:blit_subpixel(term)
+	sleep(0.05)
 end
