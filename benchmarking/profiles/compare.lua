@@ -24,7 +24,11 @@ end
 
 profile.benchmark_options:add_permutation('library', libraries)
 profile.benchmark_options:add_permutation('library_flags', { {} })
-profile.benchmark_options:add_permutation('library_flags', { {}, { depth_test = false } }, function(dp) return dp.library.id == 'v3d' end)
+profile.benchmark_options:add_permutation('library_flags', {
+	{},
+	{ depth_test = false },
+	{ fragment_shader = true }
+}, function(dp) return dp.library.id == 'v3d' end)
 
 ----------------------------------------------------------------
 

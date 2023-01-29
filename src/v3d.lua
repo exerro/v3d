@@ -202,6 +202,8 @@ function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 --- @field zRotation number
 local V3DCamera = {}
 
+-- TODO: add setters for the fields!
+
 
 --------------------------------------------------------------------------------
 --[ Geometry ]------------------------------------------------------------------
@@ -318,13 +320,24 @@ local V3DPipeline = {}
 --- @see v3d.CULL_FRONT_FACE
 --- @alias V3DCullFace 1 | -1
 
+--- Pseudo-class listing the engine-provided uniform values for shaders.
+--- @class V3DUniforms: { [string]: unknown }
+--- Index of the geometry object currently being drawn
+--- @field u_instanceID integer
+--- Index of the triangle within the geometry currently being
+--- @field u_faceID integer
+local V3DUniforms = {}
+
 --- A fragment shader runs for every pixel being drawn, accepting the
 --- interpolated UV coordinates of that pixel if UV interpolation is enabled in
 --- the pipeline settings.
 --- The shader should return a value to be written directly to the framebuffer.
 --- Note: if `nil` is returned, no pixel is written, and the depth value is not
 --- updated for that pixel.
---- @alias V3DFragmentShader fun(uniforms: { [string]: unknown }, u: number, v: number): integer
+---
+--- `uniforms` is a table containing the values for all user-set uniforms, plus
+--- certain special values listed under [[@V3DUniforms]].
+--- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer
 
 --- TODO: Currently unused.
 --- @alias V3DVertexShader function
@@ -1122,10 +1135,9 @@ local function rasterize_triangle(
 end
 -- #endsection
 
---- @param options V3DPipelineOptions
 local function create_pipeline(options)
 	options = options or {}
-
+	--- @cast options V3DPipelineOptions
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
 	-- used by the #select below
@@ -1150,8 +1162,7 @@ local function create_pipeline(options)
 	-- #select-param interpolate_uvs opt_interpolate_uvs
 	-- #select-param enable_fs opt_fragment_shader
 
-	-- magical hacks to get around the language server!
-	select(1, pipeline).render_geometry = function(_, geometries, fb, camera, offset, count)
+	local function render_geometry(_, geometries, fb, camera, offset, count)
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
@@ -1191,14 +1202,20 @@ local function create_pipeline(options)
 		count = count or #geometries - offset + 1
 
 		for j = offset, offset + count - 1 do
+			uniforms.u_instanceID = j
+
 			local geometry = geometries[j]
 			if opt_interpolate_uvs and geometry.type == v3d.GEOMETRY_COLOUR then
 				error("Invalid geometry type: expected uvs for this pipeline", 2)
 				return
 			end
+			local faceID = 1
 			local poly_stride = geometry_poly_size(geometry.type)
 			local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
 			for i = 1, geometry.triangles * poly_stride, poly_stride do
+				uniforms.u_faceID = faceID
+				faceID = faceID + 1
+
 				local p0x = geometry[i]
 				local p0y = geometry[i + 1]
 				local p0z = geometry[i + 2]
@@ -1251,16 +1268,16 @@ local function create_pipeline(options)
 
 				if not cull_face then
 					p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-								, fyx * p0x + fyy * p0y + fyz * p0z
-								, fzx * p0x + fzy * p0y + fzz * p0z
+					              , fyx * p0x + fyy * p0y + fyz * p0z
+					              , fzx * p0x + fzy * p0y + fzz * p0z
 
 					p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-								, fyx * p1x + fyy * p1y + fyz * p1z
-								, fzx * p1x + fzy * p1y + fzz * p1z
+					              , fyx * p1x + fyy * p1y + fyz * p1z
+					              , fzx * p1x + fzy * p1y + fzz * p1z
 
 					p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-								, fyx * p2x + fyy * p2y + fyz * p2z
-								, fzx * p2x + fzy * p2y + fzz * p2z
+					              , fyx * p2x + fyy * p2y + fyz * p2z
+					              , fzx * p2x + fzy * p2y + fzz * p2z
 
 					-- TODO: make this split polygons
 					if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
@@ -1281,6 +1298,9 @@ local function create_pipeline(options)
 			end
 		end
 	end
+
+	-- magical hacks to get around the language server!
+	select(1, pipeline).render_geometry = render_geometry
 
 	select(1, pipeline).set_uniform = function(_, name, value)
 		uniforms[name] = value

@@ -1,7 +1,7 @@
 
 local v3d = require '/v3d'
 
-local framebuffer = v3d.create_framebuffer_subpixel(51, 19)
+local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
     depth_test = false,

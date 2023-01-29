@@ -3,7 +3,11 @@ local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
-local pipeline = v3d.create_pipeline()
+local pipeline = v3d.create_pipeline {
+    fragment_shader = function(uniforms)
+        return 2 ^ ((uniforms.u_instanceID - 1) * 8 + uniforms.u_faceID % 8)
+    end,
+}
 local geometry_list = {}
 
 -- Create two cubes, one large central one, and a smaller one to the side.

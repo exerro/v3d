@@ -16,6 +16,18 @@ capable 3D engine on top of a high performance 3D rasterization library.
 Check out the [Guides](https://github.com/exerro/v3d/wiki/Guides) and
 [API reference](https://github.com/exerro/v3d/wiki/API-Reference).
 
+## Benchmarking
+
+I've included a pretty capable suite of benchmarking tools. Use
+`v3d/benchmarking/run --help` for information.
+
+The benchmarks offer comparison to another rendering library, Pine3D. I'm
+planning on including C3D at some point too.
+
+Here's some sample output.
+
+![Sample benchmark result table](img/benchmarks.png)
+
 ## Rasterisation visualisation
 
 The library uses a custom rasterization algorithm. You can interactively play

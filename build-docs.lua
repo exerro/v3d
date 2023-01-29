@@ -44,6 +44,7 @@ end
 
 --- @class Class
 --- @field name string
+--- @field extends string | nil
 --- @field docstring string
 --- @field fields NameType[]
 --- @field methods Function[]
@@ -77,9 +78,14 @@ local function register_class(section)
 		error('Expected @class in section, got ' .. tostring(section[1]))
 	end
 
-	local class = get_class(table.remove(section, 1):sub(8))
+	local class_name, class_extends = table.remove(section, 1):match '^@class ([%w_]+)(:?.*)$'
+	local class = get_class(class_name)
 
 	class.docstring = table.concat(docstring, '\n')
+
+	if #class_extends > 0 then
+		class.extends = class_extends:gsub(':%s*', '', 1)
+	end
 
 	local field_docstring = {}
 
@@ -276,6 +282,13 @@ for i = 1, #classes do
 	h:write '---\n\n# `'
 	h:write(class.name)
 	h:write '`\n\n'
+
+	if class.extends then
+		h:write '## Extends `'
+		h:write(class.extends)
+		h:write '`\n\n'
+	end
+
 	h:write(docstring_to_markdown(class.docstring))
 	h:write '\n\n'
 

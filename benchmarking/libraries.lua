@@ -72,6 +72,9 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
 		depth_test = flags.depth_test,
 		depth_store = flags.depth_test,
+		fragment_shader = flags.fragment_shader and function()
+			return colours.red
+		end,
 	}
 	local v3d_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
 	local v3d_render = pipeline.render_geometry
