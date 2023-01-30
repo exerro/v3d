@@ -317,7 +317,8 @@ local V3DPipeline = {}
 --- @field u_instanceID integer
 --- Index of the triangle within the geometry currently being
 --- @field u_faceID integer
--- TODO: fixed_colour, screen X/Y, depth (new & old)
+--- Colour of the face being drawn, if provided
+--- @field u_face_colour integer | nil
 local V3DUniforms = {}
 
 --- A fragment shader runs for every pixel being drawn, accepting the
@@ -330,6 +331,7 @@ local V3DUniforms = {}
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
 -- TODO: support returning depth as 2nd param
+-- TODO: screen X/Y, depth (new & old)
 --- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer | nil
 
 --- TODO: Currently unused.
@@ -1201,13 +1203,11 @@ local function create_pipeline(options)
 				error("Invalid geometry type: expected uvs for this pipeline", 2)
 				return
 			end
+			local discard_colour = geometry.type == v3d.GEOMETRY_UV
 			local faceID = 1
 			local poly_stride = geometry_poly_size(geometry.type)
 			local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
 			for i = 1, geometry.triangles * poly_stride, poly_stride do
-				uniforms.u_faceID = faceID
-				faceID = faceID + 1
-
 				local p0x = geometry[i]
 				local p0y = geometry[i + 1]
 				local p0z = geometry[i + 2]
@@ -1218,6 +1218,15 @@ local function create_pipeline(options)
 				local p2y = geometry[i + poly_pos_stride + poly_pos_stride + 1]
 				local p2z = geometry[i + poly_pos_stride + poly_pos_stride + 2]
 				local colour = geometry[i + poly_pos_stride * 3]
+
+				-- prevent leaking invalid data when not using colour per face
+				if discard_colour then
+					colour = nil
+				end
+
+				uniforms.u_face_colour = colour
+				uniforms.u_faceID = faceID
+				faceID = faceID + 1
 
 				local p0u, p0v, p1u, p1v, p2u, p2v
 
@@ -1322,7 +1331,13 @@ local function create_texture_sampler(texture_uniform, width_uniform, height_uni
 		local y = math_floor(v * image_height)
 		if y == image_height then y = image_height - 1 end
 
-		return image[y + 1][x + 1]
+		local colour = image[y + 1][x + 1]
+
+		if colour == 0 then
+			return nil
+		end
+
+		return colour
 	end
 end
 

@@ -5,16 +5,20 @@ local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
     cull_face = false,
-    fragment_shader = function(uniforms)
-        if uniforms.u_faceID % 2 == 1 then
+    -- instruct V3D to interpolate the UV values
+    -- without this, they will always equal 0
+    interpolate_uvs = true,
+    fragment_shader = function(uniforms, u, v)
+        if math.sqrt((u - 0.3) ^ 2 + (v - 0.3) ^ 2) % 0.2 < 0.1 then
+            -- here, we're not inside the circle, so discard the pixel
             return nil
         end
-        return uniforms.u_face_colour * 2 ^ (uniforms.u_instanceID - 1)
+
+        return 2 ^ (1 + math.floor(uniforms.u_faceID / 2 + 0.5))
     end,
 }
 local geometry_list = {}
 geometry_list[1] = v3d.create_debug_cube()
-geometry_list[2] = v3d.create_debug_cube(-2, 0, 0, 0.5)
 
 while true do
     camera.yRotation = camera.yRotation + 0.04
