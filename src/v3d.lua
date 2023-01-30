@@ -21,23 +21,6 @@
 -- SOFTWARE.
 
 
---[[ TODO: example library usage
-
-local fb = v3d.create_framebuffer_subpixel(term.getSize())
-local camera = v3d.create_camera(math.pi / 7)
-local geometry = v3d.load_model('mymodel.obj'):expect_uvs()
-local texture = v3d.load_texture('myimage.idk')
-local pipeline = v3d.create_pipeline {
-	cull_face = v3d.CULL_BACK_FACE,
-	interpolate_uvs = true,
-	fragment_shader = v3d.create_texture_shader 'u_texture',
-}
-
-pipeline:set_uniform('u_texture', texture)
-pipeline:render_geometry(geometry, fb, camera)
-fb:blit_subpixel(term)
-]]
-
 -- #remove
 -- note: this code will be stripped out during the build process, thus removing
 --       the error
@@ -334,7 +317,7 @@ local V3DPipeline = {}
 --- @field u_instanceID integer
 --- Index of the triangle within the geometry currently being
 --- @field u_faceID integer
---- TODO: fixed_colour, screen X/Y, depth (new & old)
+-- TODO: fixed_colour, screen X/Y, depth (new & old)
 local V3DUniforms = {}
 
 --- A fragment shader runs for every pixel being drawn, accepting the
@@ -346,7 +329,8 @@ local V3DUniforms = {}
 ---
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
---- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer
+-- TODO: support returning depth as 2nd param
+--- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer | nil
 
 --- TODO: Currently unused.
 --- @alias V3DVertexShader function
