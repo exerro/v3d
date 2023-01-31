@@ -15,12 +15,14 @@ capable 3D engine on top of a high performance 3D rasterization library.
 
 ## [Guides](https://github.com/exerro/v3d/wiki/Guides)
 
-There are guides covering everything from the basics to advanced features and
-concepts.
+There are [guides](https://github.com/exerro/v3d/wiki/Guides) covering
+everything from the basics to advanced features and concepts.
 
-### [Installation](https://github.com/exerro/v3d/wiki/Installation)
+Here are a few you may be interested in.
 
-### [Quick Start](https://github.com/exerro/v3d/wiki/Quick-Start)
+* [Installation](https://github.com/exerro/v3d/wiki/Installation)
+* [Quick Start](https://github.com/exerro/v3d/wiki/Quick-Start)
+* [Hello Triangle](https://github.com/exerro/v3d/wiki/Hello-Triangle)
 
 ## [API reference](https://github.com/exerro/v3d/wiki/API-Reference)
 
