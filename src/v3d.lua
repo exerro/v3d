@@ -199,7 +199,24 @@ function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
 --- @field zRotation number
 local V3DCamera = {}
 
--- TODO: add setters for the fields!
+--- Set the position of the camera.
+--- @param x number | nil New X value, defaults to current value if nil.
+--- @param y number | nil New Y value, defaults to current value if nil.
+--- @param z number | nil New Z value, defaults to current value if nil.
+--- @return nil
+function V3DCamera:set_position(x, y, z) end
+
+--- Set the rotation of the camera.
+--- @param x number | nil New X rotation, defaults to current rotation if nil.
+--- @param y number | nil New Y rotation, defaults to current rotation if nil.
+--- @param z number | nil New Z rotation, defaults to current rotation if nil.
+--- @return nil
+function V3DCamera:set_rotation(x, y, z) end
+
+--- Set the field of view of the camera.
+--- @param fov number
+--- @return nil
+function V3DCamera:set_fov(fov) end
 
 
 --------------------------------------------------------------------------------
@@ -703,6 +720,22 @@ end
 --------------------------------------------------------------------------------
 
 
+local function camera_set_position(camera, x, y, z)
+	camera.x = x or camera.x
+	camera.y = y or camera.y
+	camera.z = z or camera.z
+end
+
+local function camera_set_rotation(camera, x, y, z)
+	camera.xRotation = x or camera.xRotation
+	camera.yRotation = y or camera.yRotation
+	camera.zRotation = z or camera.zRotation
+end
+
+local function camera_set_fov(camera, fov)
+	camera.fov = fov
+end
+
 local function create_camera(fov)
 	--- @type V3DCamera
 	local camera = {}
@@ -714,6 +747,10 @@ local function create_camera(fov)
 	camera.yRotation = 0
 	camera.xRotation = 0
 	camera.zRotation = 0
+
+	camera.set_position = camera_set_position
+	camera.set_rotation = camera_set_rotation
+	camera.set_fov = camera_set_fov
 
 	return camera
 end

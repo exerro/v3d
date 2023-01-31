@@ -340,7 +340,7 @@ local function create_v3d_wrapper(enable_validation)
 		local set_uniform_orig = pipeline.set_uniform
 		local get_uniform_orig = pipeline.get_uniform
 
-		function pipeline.render_geometry(self, geometry, camera, fb)
+		function pipeline.render_geometry(self, geometry, fb, camera)
 			-- TODO: validation
 
 			if capture then
@@ -353,11 +353,11 @@ local function create_v3d_wrapper(enable_validation)
 				table.insert(capture.instructions, {
 					description = string.format('pipeline_render_geometry(%s, [%s], %s, %s)',
 						resource_labels[self], table.concat(geom_names, ', '),
-						resource_labels[camera], resource_labels[fb])
+						resource_labels[fb], resource_labels[camera])
 				})
 			end
 
-			render_geometry_orig(self, geometry, camera, fb)
+			render_geometry_orig(self, geometry, fb, camera)
 		end
 
 		if label ~= nil then
@@ -723,7 +723,8 @@ local is_capturing = false
 local capture_ready = false
 local last_frame = currentTime()
 local fps_avg = 0
-local fps_samples = 10
+local frame_time_avg = 0
+local avg_samples = 10
 
 local function begin_frame()
 	v3d_wrapper.begin_frame()
@@ -750,23 +751,24 @@ end
 
 while true do
 	if filter == nil or event[1] == filter then
-		local ok
 		begin_frame()
-		ok, filter = coroutine.resume(program_co, table.unpack(event))
+		local start_time = currentTime()
+		local ok, err = coroutine.resume(program_co, table.unpack(event))
 		local this_frame = currentTime()
 		local delta_time = this_frame - last_frame
 		last_frame = this_frame
 
 		if finish_frame() then
 			capture_ready = is_capturing
-			fps_avg = (fps_avg * fps_samples + 1 / delta_time) / (fps_samples + 1)
+			fps_avg = (fps_avg * avg_samples + 1 / delta_time) / (avg_samples + 1)
+			frame_time_avg = (frame_time_avg * avg_samples + this_frame - start_time) / (avg_samples + 1)
 		end
 
 		if fps_enabled then
 			term.setBackgroundColour(fps_bc)
 			term.setTextColour(fps_fc)
 			term.setCursorPos(1, 1)
-			term.write(string.format('FPS: %.01f', fps_avg))
+			term.write(string.format('%.01ffps %.01fms <%.01ffps', fps_avg, frame_time_avg * 1000, 1 / frame_time_avg))
 		end
 
 		if capture_ready then
@@ -780,9 +782,11 @@ while true do
 		end
 
 		if not ok then
-			error(filter, 0)
+			error(err, 0)
 		elseif coroutine.status(program_co) == 'dead' then
 			break
+		else
+			filter = err
 		end
 	end
 
@@ -790,5 +794,7 @@ while true do
 
 	if event[1] == 'key' and event[2] == capture_key then
 		begin_capture()
+	elseif event[1] == 'terminate' then
+		break
 	end
 end
