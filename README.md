@@ -13,8 +13,16 @@ The library is low-level and minimal, aimed at developers wanting to write high
 performance 3D applications, or wanting to write a more general purpose and
 capable 3D engine on top of a high performance 3D rasterization library.
 
-Check out the [Guides](https://github.com/exerro/v3d/wiki/Guides) and
-[API reference](https://github.com/exerro/v3d/wiki/API-Reference).
+## [Guides](https://github.com/exerro/v3d/wiki/Guides)
+
+There are guides covering everything from the basics to advanced features and
+concepts.
+
+### [Installation](https://github.com/exerro/v3d/wiki/Installation)
+
+### [Quick Start](https://github.com/exerro/v3d/wiki/Quick-Start)
+
+## [API reference](https://github.com/exerro/v3d/wiki/API-Reference)
 
 ## Benchmarking
 

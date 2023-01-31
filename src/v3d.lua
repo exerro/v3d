@@ -64,34 +64,39 @@ local v3d = {
 --- `create_framebuffer_subpixel` instead.
 --- @param width integer
 --- @param height integer
+--- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
-function v3d.create_framebuffer(width, height) end
+function v3d.create_framebuffer(width, height, label) end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
 --- pixels, suitable for rendering subpixels.
 --- @param width integer
 --- @param height integer
+--- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
-function v3d.create_framebuffer_subpixel(width, height) end
+function v3d.create_framebuffer_subpixel(width, height, label) end
 
 --- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
 --- degrees.
 --- @param fov number | nil
+--- @param label string | nil Optional label for debugging
 --- @return V3DCamera
-function v3d.create_camera(fov) end
+function v3d.create_camera(fov, label) end
 
 --- Create an empty [[@V3DGeometry]] with no triangles.
 --- @param type V3DGeometryType
+--- @param label string | nil Optional label for debugging
 --- @return V3DGeometry
-function v3d.create_geometry(type) end
+function v3d.create_geometry(type, label) end
 
 --- Create a [[@V3DGeometry]] cube containing coloured triangles with UVs.
 --- @param cx number | nil Centre X coordinate of the cube.
 --- @param cy number | nil Centre Y coordinate of the cube.
 --- @param cz number | nil Centre Z coordinate of the cube.
 --- @param size number | nil Distance between opposide faces of the cube.
+--- @param label string | nil Optional label for debugging
 --- @return V3DGeometry
-function v3d.create_debug_cube(cx, cy, cz, size) end
+function v3d.create_debug_cube(cx, cy, cz, size, label) end
 
 --- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
 --- use defaults, and any field within the options can also be omitted to use
@@ -104,8 +109,9 @@ function v3d.create_debug_cube(cx, cy, cz, size) end
 --- }
 --- ```
 --- @param options V3DPipelineOptions | nil
+--- @param label string | nil Optional label for debugging
 --- @return V3DPipeline
-function v3d.create_pipeline(options) end
+function v3d.create_pipeline(options, label) end
 
 
 --- TODO
@@ -313,14 +319,16 @@ local V3DPipeline = {}
 
 --- Pseudo-class listing the engine-provided uniform values for shaders.
 --- @class V3DUniforms: { [string]: unknown }
---- Index of the geometry object currently being drawn
+--- Index of the geometry object currently being drawn.
 --- @field u_instanceID integer
---- Index of the triangle within the geometry currently being
+--- Index of the triangle within the geometry currently being drawn.
 --- @field u_faceID integer
---- Colour of the face being drawn, if provided
+--- Colour of the face being drawn, if provided.
 --- @field u_face_colour integer | nil
 local V3DUniforms = {}
 
+-- TODO: support returning depth as 2nd param
+-- TODO: screen X/Y, depth (new & old)
 --- A fragment shader runs for every pixel being drawn, accepting the
 --- interpolated UV coordinates of that pixel if UV interpolation is enabled in
 --- the pipeline settings.
@@ -330,8 +338,6 @@ local V3DUniforms = {}
 ---
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
--- TODO: support returning depth as 2nd param
--- TODO: screen X/Y, depth (new & old)
 --- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer | nil
 
 --- TODO: Currently unused.
