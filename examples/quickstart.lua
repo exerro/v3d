@@ -90,6 +90,15 @@ effect_pipeline:set_uniform('u_time', 0)
 effect_pipeline:set_uniform('u_centre_x', 0.3)
 effect_pipeline:set_uniform('u_centre_y', 0.4)
 
+-- Track when we want to draw the next frame.
+local next_frame_time = os.clock()
+
+-- Store the target framerate.
+local target_framerate = _HOST and _HOST:find 'Accelerated' and 100000 or 20
+
+-- Track when we last updated so we can rotate geometry at a fixed rate.
+local last_update_time = os.clock()
+
 -- Run a loop to repeatedly draw.
 while true do
 	-- Clear the framebuffer to black
@@ -111,15 +120,19 @@ while true do
 	framebuffer:blit_subpixel(term, 0, 0)
 
 	-- Wait a short amount of time.
-	sleep(0.05)
+	sleep(next_frame_time - os.clock())
+	next_frame_time = math.max(os.clock(), next_frame_time + 1 / target_framerate)
 
 	-- Rotate the cubes.
-	cube1:rotate_y(0.05)
-	cube2:rotate_y(0.04)
-	cube2:rotate_z(0.03)
+	local now = os.clock()
+	local dt = now - last_update_time
+	last_update_time = now
+	cube1:rotate_y(1.0 * dt)
+	cube2:rotate_y(0.8 * dt)
+	cube2:rotate_z(0.6 * dt)
 	
 	-- Update the time uniform for the effect pipeline.
-	local new_time = effect_pipeline:get_uniform 'u_time' + 0.05
+	local new_time = effect_pipeline:get_uniform 'u_time' + dt
 
 	-- If we've gone past a second, reset the animation from a new centre point.
 	if new_time >= 1 then
