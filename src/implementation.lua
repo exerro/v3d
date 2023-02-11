@@ -348,7 +348,7 @@ end
 
 
 --------------------------------------------------------------------------------
---[ Camera functions ]----------------------------------------------------------
+--[ Geometry functions ]--------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
@@ -940,7 +940,12 @@ end
 
 local function create_pipeline(options)
 	options = options or {}
+	--- @cast options V3DPipelineOptions
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
+	local opt_layout = options.layout
+	local opt_position_attribute = options.position_attribute or 'position'
+	local opt_interpolate_attribute = options.interpolate_attribute
+	local opt_colour_attribute = options.colour_attribute
 	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
 	-- used by the #select below
 	--- @diagnostic disable-next-line: unused-local
@@ -949,22 +954,26 @@ local function create_pipeline(options)
 	--- @diagnostic disable-next-line: unused-local
 	local opt_depth_test = options.depth_test == nil or options.depth_test
 	local opt_fragment_shader = options.fragment_shader or nil
-	local opt_interpolate_uvs = options.interpolate_uvs and opt_fragment_shader or false
-	local opt_vertex_shader = options.vertex_shader or nil
+
+	local vertex_stride = opt_layout.vertex_stride
+	local face_stride = opt_layout.face_stride
+	local position_local_offset = opt_layout:get_attribute(opt_position_attribute).offset or 0
+	local interpolate_local_offset = opt_interpolate_attribute and opt_layout:get_attribute(opt_interpolate_attribute).offset or 0
+	local colour_local_offset = opt_colour_attribute and opt_layout:get_attribute(opt_colour_attribute).offset or 0
 
 	--- @type V3DPipeline
 	local pipeline = {}
-
 	local uniforms = {}
 
 	local rasterize_triangle_fn = rasterize_triangle
 	-- #select rasterize_triangle_fn rasterize_triangle
 	-- #select-param depth_test opt_depth_test
 	-- #select-param depth_store opt_depth_store
-	-- #select-param interpolate_uvs opt_interpolate_uvs
+	-- #select-param interpolate_uvs opt_interpolate_attribute
 	-- #select-param enable_fs opt_fragment_shader
 
-	local function render_geometry(_, geometries, fb, camera, offset, count)
+	local function render_geometry(_, geometry, fb, camera)
+		--- @cast geometry V3DGeometry2
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
@@ -1000,109 +1009,103 @@ local function create_pipeline(options)
 		local fdy = -camera.y
 		local fdz = -camera.z
 
-		offset = offset or 1
-		count = count or #geometries - offset + 1
+		local position_index = position_local_offset + geometry.vertex_offset + 1
+		local interpolate_index = interpolate_local_offset + geometry.vertex_offset + 1
+		local colour_index = colour_local_offset + 1
+		local position_max_offset = geometry.vertex_offset + geometry.vertices * opt_layout.vertex_stride
 
-		for j = offset, offset + count - 1 do
-			uniforms.u_instanceID = j
+		local iteration = 0
 
-			local geometry = geometries[j]
-			if opt_interpolate_uvs and geometry.type == v3d.GEOMETRY_COLOUR then
-				error("Invalid geometry type: expected uvs for this pipeline", 2)
-				return
+		while position_index <= position_max_offset do
+			iteration = iteration + 1
+			local p0x = geometry[position_index]
+			local p0y = geometry[position_index + 1]
+			local p0z = geometry[position_index + 2]
+			position_index = position_index + vertex_stride
+			local p1x = geometry[position_index]
+			local p1y = geometry[position_index + 1]
+			local p1z = geometry[position_index + 2]
+			position_index = position_index + vertex_stride
+			local p2x = geometry[position_index]
+			local p2y = geometry[position_index + 1]
+			local p2z = geometry[position_index + 2]
+			position_index = position_index + vertex_stride
+			local colour
+
+			if opt_colour_attribute then
+				colour = geometry[colour_index]
+				colour_index = colour_index + face_stride
 			end
-			local discard_colour = geometry.type == v3d.GEOMETRY_UV
-			local faceID = 1
-			local poly_stride = geometry_poly_size(geometry.type)
-			local poly_pos_stride = geometry_poly_pos_stride(geometry.type)
-			for i = 1, geometry.triangles * poly_stride, poly_stride do
-				local p0x = geometry[i]
-				local p0y = geometry[i + 1]
-				local p0z = geometry[i + 2]
-				local p1x = geometry[i + poly_pos_stride]
-				local p1y = geometry[i + poly_pos_stride + 1]
-				local p1z = geometry[i + poly_pos_stride + 2]
-				local p2x = geometry[i + poly_pos_stride + poly_pos_stride]
-				local p2y = geometry[i + poly_pos_stride + poly_pos_stride + 1]
-				local p2z = geometry[i + poly_pos_stride + poly_pos_stride + 2]
-				local colour = geometry[i + poly_pos_stride * 3]
 
-				-- prevent leaking invalid data when not using colour per face
-				if discard_colour then
-					colour = nil
-				end
+			local p0u, p0v, p1u, p1v, p2u, p2v
 
-				uniforms.u_face_colour = colour
-				uniforms.u_faceID = faceID
-				faceID = faceID + 1
+			if opt_interpolate_attribute then
+				p0u = geometry[interpolate_index]
+				p0v = geometry[interpolate_index + 1]
+				interpolate_index = interpolate_index + vertex_stride
+				p1u = geometry[interpolate_index]
+				p1v = geometry[interpolate_index + 1]
+				interpolate_index = interpolate_index + vertex_stride
+				p2u = geometry[interpolate_index]
+				p2v = geometry[interpolate_index + 1]
+				interpolate_index = interpolate_index + vertex_stride
+			end
 
-				local p0u, p0v, p1u, p1v, p2u, p2v
+			p0x = p0x + fdx
+			p0y = p0y + fdy
+			p0z = p0z + fdz
 
-				if opt_interpolate_uvs then
-					p0u = geometry[i + 3]
-					p0v = geometry[i + 4]
-					p1u = geometry[i + 8]
-					p1v = geometry[i + 9]
-					p2u = geometry[i + 13]
-					p2v = geometry[i + 14]
-				end
+			p1x = p1x + fdx
+			p1y = p1y + fdy
+			p1z = p1z + fdz
 
-				p0x = p0x + fdx
-				p0y = p0y + fdy
-				p0z = p0z + fdz
+			p2x = p2x + fdx
+			p2y = p2y + fdy
+			p2z = p2z + fdz
 
-				p1x = p1x + fdx
-				p1y = p1y + fdy
-				p1z = p1z + fdz
+			local cull_face = false
 
-				p2x = p2x + fdx
-				p2y = p2y + fdy
-				p2z = p2z + fdz
+			if opt_cull_face then
+				local d1x = p1x - p0x
+				local d1y = p1y - p0y
+				local d1z = p1z - p0z
+				local d2x = p2x - p0x
+				local d2y = p2y - p0y
+				local d2z = p2z - p0z
+				local cx = d1y*d2z - d1z*d2y
+				local cy = d1z*d2x - d1x*d2z
+				local cz = d1x*d2y - d1y*d2x
+				local d = cx * p0x + cy * p0y + cz * p0z
+				cull_face = d * opt_cull_face > 0
+			end
 
-				local cull_face = false
+			if not cull_face then
+				p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
+								, fyx * p0x + fyy * p0y + fyz * p0z
+								, fzx * p0x + fzy * p0y + fzz * p0z
 
-				if opt_cull_face then
-					local d1x = p1x - p0x
-					local d1y = p1y - p0y
-					local d1z = p1z - p0z
-					local d2x = p2x - p0x
-					local d2y = p2y - p0y
-					local d2z = p2z - p0z
-					local cx = d1y*d2z - d1z*d2y
-					local cy = d1z*d2x - d1x*d2z
-					local cz = d1x*d2y - d1y*d2x
-					local d = cx * p0x + cy * p0y + cz * p0z
-					cull_face = d * opt_cull_face > 0
-				end
+				p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
+								, fyx * p1x + fyy * p1y + fyz * p1z
+								, fzx * p1x + fzy * p1y + fzz * p1z
 
-				if not cull_face then
-					p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-					              , fyx * p0x + fyy * p0y + fyz * p0z
-					              , fzx * p0x + fzy * p0y + fzz * p0z
+				p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
+								, fyx * p2x + fyy * p2y + fyz * p2z
+								, fzx * p2x + fzy * p2y + fzz * p2z
 
-					p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-					              , fyx * p1x + fyy * p1y + fyz * p1z
-					              , fzx * p1x + fzy * p1y + fzz * p1z
+				-- TODO: make this split polygons
+				if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
+					local p0w = -1 / p0z
+					local p1w = -1 / p1z
+					local p2w = -1 / p2z
 
-					p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-					              , fyx * p2x + fyy * p2y + fyz * p2z
-					              , fzx * p2x + fzy * p2y + fzz * p2z
+					p0x = pxd + p0x * scale_x * p0w
+					p0y = pyd + p0y * scale_y * p0w
+					p1x = pxd + p1x * scale_x * p1w
+					p1y = pyd + p1y * scale_y * p1w
+					p2x = pxd + p2x * scale_x * p2w
+					p2y = pyd + p2y * scale_y * p2w
 
-					-- TODO: make this split polygons
-					if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-						local p0w = -1 / p0z
-						local p1w = -1 / p1z
-						local p2w = -1 / p2z
-
-						p0x = pxd + p0x * scale_x * p0w
-						p0y = pyd + p0y * scale_y * p0w
-						p1x = pxd + p1x * scale_x * p1w
-						p1y = pyd + p1y * scale_y * p1w
-						p2x = pxd + p2x * scale_x * p2w
-						p2y = pyd + p2y * scale_y * p2w
-
-						rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
-					end
+					rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
 				end
 			end
 		end

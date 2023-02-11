@@ -381,7 +381,7 @@ end
 local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
 local sections = { {} }
 
-for line in io.lines(path .. 'src/library.lua') do
+for line in io.lines(path .. 'src/v3d.lua') do
 	table.insert(sections[#sections], line)
 end
 

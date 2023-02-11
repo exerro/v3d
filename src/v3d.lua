@@ -14,8 +14,6 @@
 -- TODO: use V3DTransform instead of V3DCamera
 
 
--- Note, this section just declares all the functions so the top of this file
--- can be used as an API reference. The implementations are below.
 --- @diagnostic disable: missing-return, unused-local
 
 --------------------------------------------------------------------------------
@@ -97,10 +95,11 @@ function v3d.create_debug_cube(cx, cy, cz, size, label) end
 --- Example usage:
 --- ```lua
 --- local pipeline = v3d.create_pipeline {
+--- 	layout = v3d.DEFAULT_LAYOUT,
 --- 	cull_face = false,
 --- }
 --- ```
---- @param options V3DPipelineOptions | nil
+--- @param options V3DPipelineOptions
 --- @param label string | nil Optional label for debugging
 --- @return V3DPipeline
 function v3d.create_pipeline(options, label) end
@@ -479,6 +478,17 @@ local V3DUniforms = {}
 --- features may lead to a performance gain, for example disabling depth testing
 --- or not using shaders.
 --- @class V3DPipelineOptions
+--- TODO
+--- @field layout V3DLayout
+--- TODO
+--- @field position_attribute string | nil
+--- TODO
+--- @field colour_attribute string | nil
+--- Name of the attribute to interpolate values across polygons being drawn.
+--- Only useful when using fragment shaders, and has a slight performance loss
+--- when used. Defaults to `nil`. Note: the associated attribute should have a
+--- size of two.
+--- @field interpolate_attribute string | nil
 --- Specify a face to cull (not draw), or false to disable face culling.
 --- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
 --- performance and should only be changed from the default when doing something
@@ -501,10 +511,6 @@ local V3DUniforms = {}
 --- need to enable UV interpolation using the `interpolate_uvs` setting.
 --- Slight performance loss when using fragment shaders.
 --- @field fragment_shader V3DFragmentShader | nil
---- Whether to interpolate UV values across polygons being drawn. Only useful
---- when using fragment shaders, and has a slight performance loss when used.
---- Defaults to `false`.
---- @field interpolate_uvs boolean | nil
 --- Aspect ratio of the pixels being drawn. For square pixels, this should be 1.
 --- For non-square pixels, like the ComputerCraft non-subpixel characters, this
 --- should be their width/height, for example 2/3 for non-subpixel characters.
@@ -514,14 +520,12 @@ local V3DUniforms = {}
 --- @field vertex_shader V3DVertexShader | nil
 local V3DPipelineOptions = {}
 
---- Draw a list of geometry objects to the framebuffer using the camera given.
---- @param geometries V3DGeometry[] List of geometry to draw.
+--- Draw geometry to the framebuffer using the camera given.
+--- @param geometry V3DGeometry2 List of geometry to draw.
 --- @param fb V3DFramebuffer Framebuffer to draw to.
 --- @param camera V3DCamera Camera from whose perspective objects should be drawn.
---- @param offset integer | nil Index of the first geometry in the list to draw. Defaults to 1.
---- @param count integer | nil Number of geometry objects to draw. Defaults to ~'all remaining'.
 --- @return nil
-function V3DPipeline:render_geometry(geometries, fb, camera, offset, count) end
+function V3DPipeline:render_geometry(geometry, fb, camera) end
 
 --- Set a uniform value which can be accessed from shaders.
 --- @param name string Name of the uniform. Shaders can access using `uniforms[name]`
