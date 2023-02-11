@@ -21,14 +21,6 @@
 -- SOFTWARE.
 
 
--- TODO: implement V3DLayout
---                 :add_vertex_attribute(name, size, is_numeric)
---                 :add_face_attribute(name, size, is_numeric)
---                 :get_vertex_offset()
---                 :get_vertex_stride()
---                 :get_face_stride()
---                 :get_attribute_offset(name)
---                 :get_attribute_size(name)
 -- TODO: implement V3DGeometryBuilder using V3DLayout
 --                 :translate(dx, dy, dz)
 --                 :scale(sx, sy, sz)
@@ -73,6 +65,8 @@ error 'Cannot use v3d source code, must use built library'
 --- @field GEOMETRY_UV V3DGeometryType
 --- Type of geometry that has both colour information and UV coordinates.
 --- @field GEOMETRY_COLOUR_UV V3DGeometryType
+--- TODO
+--- @field DEFAULT_LAYOUT V3DLayout
 local v3d = {
 	CULL_FRONT_FACE = -1,
 	CULL_BACK_FACE = 1,
@@ -98,6 +92,10 @@ function v3d.create_framebuffer(width, height, label) end
 --- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
 function v3d.create_framebuffer_subpixel(width, height, label) end
+
+--- Create an empty [[@V3DLayout]].
+--- @return V3DLayout
+function v3d.create_layout() end
 
 --- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
 --- degrees.
@@ -187,6 +185,56 @@ function V3DFramebuffer:blit_subpixel(term, dx, dy) end
 --- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
 --- @return nil
 function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
+
+
+--------------------------------------------------------------------------------
+--[ Layouts ]-------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- TODO
+--- @class V3DLayoutAttribute
+--- TODO
+--- @field name string
+--- TODO
+--- @field size integer
+--- TODO
+--- @field type 'vertex' | 'face'
+--- TODO
+--- @field is_numeric boolean
+--- TODO
+--- @field offset integer
+
+
+--- TODO
+--- @class V3DLayout
+--- TODO
+--- @field attributes V3DLayoutAttribute[]
+--- TODO
+--- @field private attribute_lookup { [string]: integer | nil }
+--- TODO
+--- @field vertex_stride integer
+--- TODO
+--- @field face_stride integer
+local V3DLayout = {}
+
+--- TODO
+--- @param name string
+--- @param size integer
+--- @param type 'vertex' | 'face'
+--- @param is_numeric boolean
+--- @return V3DLayout
+function V3DLayout:add_attribute(name, size, type, is_numeric) end
+
+--- TODO
+--- @param name string
+--- @return boolean
+function V3DLayout:has_attribute(name) end
+
+--- TODO
+--- @param name string
+--- @return V3DLayoutAttribute | nil
+function V3DLayout:get_attribute(name) end
 
 
 --------------------------------------------------------------------------------
@@ -735,6 +783,57 @@ end
 
 local function create_framebuffer_subpixel(width, height)
 	return create_framebuffer(width * 2, height * 3) -- multiply by subpixel dimensions
+end
+
+
+--------------------------------------------------------------------------------
+--[ Layout functions ]----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function layout_add_attribute(layout, name, size, type, is_numeric)
+	local attr = {}
+
+	attr.name = name
+	attr.size = size
+	attr.type = type
+	attr.is_numeric = is_numeric
+	attr.offset = type == 'vertex' and layout.vertex_stride or layout.face_stride
+
+	table.insert(layout.attributes, attr)
+	layout.attribute_lookup[name] = #layout.attributes
+
+	if type == 'vertex' then
+		layout.vertex_stride = layout.vertex_stride + size
+	else
+		layout.face_stride = layout.face_stride + size
+	end
+
+	return layout
+end
+
+local function layout_has_attribute(layout, name)
+	return layout.attribute_lookup[name] ~= nil
+end
+
+local function layout_get_attribute(layout, name)
+	local index = layout.attribute_lookup[name]
+	return index and layout.attributes[index]
+end
+
+local function create_layout()
+	local layout = {}
+
+	layout.attributes = {}
+	layout.attribute_lookup = {}
+	layout.vertex_stride = 0
+	layout.face_stride = 0
+
+	layout.add_attribute = layout_add_attribute
+	layout.has_attribute = layout_has_attribute
+	layout.get_attribute = layout_get_attribute
+
+	return layout
 end
 
 
@@ -1416,17 +1515,22 @@ end
 -- This purely exists to bypass the language server being too clever for itself.
 -- It's here so the LS can't work out what's going on so we keep the types and
 -- docstrings from the top of the file rather than adding weird shit from here.
-local function set_function(name, fn)
+local function set_library(name, fn)
 	local c = v3d
 	c[name] = fn
 end
 
-set_function('create_framebuffer', create_framebuffer)
-set_function('create_framebuffer_subpixel', create_framebuffer_subpixel)
-set_function('create_camera', create_camera)
-set_function('create_geometry', create_geometry)
-set_function('create_debug_cube', create_debug_cube)
-set_function('create_pipeline', create_pipeline)
-set_function('create_texture_sampler', create_texture_sampler)
+set_library('create_framebuffer', create_framebuffer)
+set_library('create_framebuffer_subpixel', create_framebuffer_subpixel)
+set_library('create_layout', create_layout)
+set_library('create_camera', create_camera)
+set_library('create_geometry', create_geometry)
+set_library('create_debug_cube', create_debug_cube)
+set_library('create_pipeline', create_pipeline)
+set_library('create_texture_sampler', create_texture_sampler)
+
+set_library('DEFAULT_LAYOUT', v3d.create_layout()
+	:add_attribute('position', 3, 'vertex', true)
+	:add_attribute('colour', 1, 'face', true))
 
 return v3d
