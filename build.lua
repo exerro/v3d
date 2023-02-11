@@ -181,10 +181,10 @@ local function tokenise(source)
 	local tokens = {}
 
 	while i <= #source do
-		local _, whitespace_end = source:find('^%s+', i)
-		local _, word_end = source:find('^[%w_]+', i)
+		local whitespace_end = select(2, source:find('^%s+', i))
+		local word_end = whitespace_end or select(2, source:find('^[%w_]+', i))
 		local multiline_comment = word_end or source:match('^%-%-%[(=*)%[', i)
-		local _, comment_end = source:find('^%-%-[^\n]*\n', i)
+		local comment_end = multiline_comment or select(2, source:find('^%-%-[^\n]*\n', i))
 		local string_char = comment_end or source:match('^[\'"]', i)
 		if whitespace_end then
 			local has_newline = source:sub(i, whitespace_end):find '\n'
@@ -250,6 +250,9 @@ local function strip_whitespace(tokens)
 			table.remove(tokens, i)
 		elseif tokens[i].type == 'newline' and (tokens[i + 1].text:sub(1, 1) == ')') then
 			table.remove(tokens, i)
+		end
+		if i % 10000 == 0 then
+			sleep(0)
 		end
 	end
 
@@ -379,7 +382,7 @@ local function rename_shorter(tokens)
 
 				push_scope()
 
-				if rename_parameters then
+				if rename_parameters and tokens[i] and tokens[i].text ~= '()' then
 					assert(tokens[i] and tokens[i].text == '(', tokens[i].text)
 					repeat
 						i = i + 1
@@ -444,9 +447,15 @@ end
 
 --------------------------------------------------------------------------------
 
+sleep(0)
+
 local content = table.concat(blocks, '\n')
 local len = #content
-content = reconstruct(rename_shorter(strip_whitespace(tokenise(content)))):gsub('\n\n+', '\n')
+local content_tokens = tokenise(content)
+sleep(0)
+local whitespace_free = strip_whitespace(content_tokens)
+sleep(0)
+content = reconstruct(rename_shorter(whitespace_free)):gsub('\n\n+', '\n')
 
 print(string.format('Minified length: %d / %d (%d%%)', #content, len, #content / len * 100 + 0.5))
 

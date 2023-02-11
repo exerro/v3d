@@ -21,6 +21,29 @@
 -- SOFTWARE.
 
 
+-- TODO: implement V3DLayout
+--                 :add_vertex_attribute(name, size, is_numeric)
+--                 :add_face_attribute(name, size, is_numeric)
+--                 :get_vertex_offset()
+--                 :get_vertex_stride()
+--                 :get_face_stride()
+--                 :get_attribute_offset(name)
+--                 :get_attribute_size(name)
+-- TODO: implement V3DGeometryBuilder using V3DLayout
+--                 :translate(dx, dy, dz)
+--                 :scale(sx, sy, sz)
+--                 :rotate_x(theta)
+--                 :rotate_y(theta)
+--                 :rotate_z(theta)
+--                 :insert(geometry_builder)
+--                 :build(layout, label)
+-- TODO: make pipelines use new V3DGeometry and layouts with ~existing interface
+-- TODO: allow pipelines to interpolate arbitrary attributes and pass arbitrary
+--       face attributes in to fragment shaders by runtime-loading function
+--       strings with pipeline-local modifications
+-- TODO: use V3DTransform instead of V3DCamera
+
+
 -- #remove
 -- note: this code will be stripped out during the build process, thus removing
 --       the error
