@@ -12,26 +12,36 @@ local camera = v3d.create_camera(nil, 'Camera')
 -- Move the camera to Z=2 so we are looking at the origin from a distance.
 camera:set_position(0, 0, 2)
 
+-- TODO
+local layout = v3d.create_layout()
+	:add_attribute('position', 3, 'vertex', true)
+	:add_attribute('uv', 2, 'vertex', true)
+	:add_attribute('colour', 3, 'face', false)
+
 -- Create a large cube at the origin.
-local cube1 = v3d.create_debug_cube(0, 0, 0, 1, 'Large cube')
+local cube1 = v3d.create_debug_cube(0, 0, 0, 1, 'Large cube'):cast(layout):build()
 
 -- Create a small cube at the origin.
-local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5, 'Small cube')
+local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5, 'Small cube'):cast(layout):build()
 
 -- Rotate the small cube pi radians.
-cube2:rotate_y(math.pi)
+-- cube2:rotate_y(math.pi)
 
 -- Create a default pipeline to draw the inner cube without using any shaders.
-local default_pipeline = v3d.create_pipeline()
+local default_pipeline = v3d.create_pipeline {
+	layout = layout,
+	colour_attribute = 'colour',
+}
 
 -- Create a second pipeline to draw the outer cube using a texture sampler
 -- shader.
 local transparent_pipeline = v3d.create_pipeline {
+	layout = layout,
 	-- Disable face culling so we can see the rear faces as well as the front
 	-- ones.
 	cull_face = false,
 	-- Instruct V3D to interpolate UV values for every pixel drawn.
-	interpolate_uvs = true,
+	interpolate_attribute = 'uv',
 	-- Provide a texture sampler as the fragment shader for this pipeline - each
 	-- pixel will be drawn by asking the texture sampler for the colour at the
 	-- corresponding UV value in the texture. The texture is set below.
@@ -41,10 +51,11 @@ local transparent_pipeline = v3d.create_pipeline {
 -- Create a third pipeline to render an effect over the outer cube using a
 -- fragment shader.
 local effect_pipeline = v3d.create_pipeline {
+	layout = layout,
 	-- Disable face culling for the same reason as above.
 	cull_face = false,
 	-- We need UVs to compute the effect.
-	interpolate_uvs = true,
+	interpolate_attribute = 'uv',
 	-- We define the effect in a custom fragment shader.
 	fragment_shader = function(uniforms, u, v)
 		local distance = math.sqrt((u - uniforms.u_centre_x) ^ 2 + (v - uniforms.u_centre_y) ^ 2)
@@ -106,15 +117,15 @@ while true do
 
 	-- Render the outer cube using the transparent pipeline so it's textured
 	-- using the window image we defined above.
-	transparent_pipeline:render_geometry({ cube1 }, framebuffer, camera)
+	transparent_pipeline:render_geometry(cube1, framebuffer, camera)
 
 	-- Draw the cube again but using the effect pipeline to draw expanding
 	-- circles in the transparent section of the glass.
-	effect_pipeline:render_geometry({ cube1 }, framebuffer, camera)
+	effect_pipeline:render_geometry(cube1, framebuffer, camera)
 
 	-- Render the inner cube using the default pipeline so it's textured with
 	-- a unique colour per triangle.
-	default_pipeline:render_geometry({ cube2 }, framebuffer, camera)
+	default_pipeline:render_geometry(cube2, framebuffer, camera)
 
 	-- Draw the framebuffer to the screen.
 	framebuffer:blit_subpixel(term, 0, 0)
@@ -127,9 +138,9 @@ while true do
 	local now = os.clock()
 	local dt = now - last_update_time
 	last_update_time = now
-	cube1:rotate_y(1.0 * dt)
-	cube2:rotate_y(0.8 * dt)
-	cube2:rotate_z(0.6 * dt)
+	-- cube1:rotate_y(1.0 * dt)
+	-- cube2:rotate_y(0.8 * dt)
+	-- cube2:rotate_z(0.6 * dt)
 	
 	-- Update the time uniform for the effect pipeline.
 	local new_time = effect_pipeline:get_uniform 'u_time' + dt

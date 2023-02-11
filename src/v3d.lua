@@ -7,7 +7,8 @@
 -- https://github.com/exerro/v3d/wiki/Installation#build-from-source).
 -- #end
 
--- TODO: make pipelines use new V3DGeometry and layouts with ~existing interface
+-- TODO: make V3DLayout immutable
+-- TODO: make V3DLayout and V3DGeometryBuilder be able to rename attributes
 -- TODO: allow pipelines to interpolate arbitrary attributes and pass arbitrary
 --       face attributes in to fragment shaders by runtime-loading function
 --       strings with pipeline-local modifications
@@ -28,14 +29,12 @@
 --- @field CULL_FRONT_FACE V3DCullFace
 --- Specify to cull (not draw) the back face (facing away from the camera).
 --- @field CULL_BACK_FACE V3DCullFace
---- Type of geometry that only has colour information and no UV coordinates.
---- @field GEOMETRY_COLOUR V3DGeometryType
---- Type of geometry that only has UV coordinates and no colour information.
---- @field GEOMETRY_UV V3DGeometryType
---- Type of geometry that has both colour information and UV coordinates.
---- @field GEOMETRY_COLOUR_UV V3DGeometryType
 --- TODO
 --- @field DEFAULT_LAYOUT V3DLayout
+--- TODO
+--- @field UV_LAYOUT V3DLayout
+--- TODO
+--- @field DEBUG_CUBE_LAYOUT V3DLayout
 local v3d = {}
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
@@ -66,27 +65,21 @@ function v3d.create_layout(label) end
 --- @return V3DGeometryBuilder
 function v3d.create_geometry_builder(layout) end
 
+--- Create a [[@V3DGeometryBuilder]] cube in the [[@v3d.DEBUG_CUBE_LAYOUT]]
+--- layout.
+--- @param cx number | nil Centre X coordinate of the cube.
+--- @param cy number | nil Centre Y coordinate of the cube.
+--- @param cz number | nil Centre Z coordinate of the cube.
+--- @param size number | nil Distance between opposide faces of the cube.
+--- @return V3DGeometryBuilder
+function v3d.create_debug_cube(cx, cy, cz, size) end
+
 --- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
 --- degrees.
 --- @param fov number | nil
 --- @param label string | nil Optional label for debugging
 --- @return V3DCamera
 function v3d.create_camera(fov, label) end
-
---- Create an empty [[@V3DGeometry]] with no triangles.
---- @param type V3DGeometryType
---- @param label string | nil Optional label for debugging
---- @return V3DGeometry
-function v3d.create_geometry(type, label) end
-
---- Create a [[@V3DGeometry]] cube containing coloured triangles with UVs.
---- @param cx number | nil Centre X coordinate of the cube.
---- @param cy number | nil Centre Y coordinate of the cube.
---- @param cz number | nil Centre Z coordinate of the cube.
---- @param size number | nil Distance between opposide faces of the cube.
---- @param label string | nil Optional label for debugging
---- @return V3DGeometry
-function v3d.create_debug_cube(cx, cy, cz, size, label) end
 
 --- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
 --- use defaults, and any field within the options can also be omitted to use
@@ -237,10 +230,6 @@ function V3DGeometry2:to_builder() end
 --- TODO
 --- @field layout V3DLayout
 --- TODO
---- @field vertices integer
---- TODO
---- @field faces integer
---- TODO
 --- @field private attribute_data { [string]: any[] }
 local V3DGeometryBuilder = {}
 
@@ -249,6 +238,12 @@ local V3DGeometryBuilder = {}
 --- @param data any[]
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:set_data(attribute_name, data) end
+
+--- TODO
+--- @param attribute_name string
+--- @param data any[]
+--- @return V3DGeometryBuilder
+function V3DGeometryBuilder:append_data(attribute_name, data) end
 
 --- TODO
 --- @param attribute_name string
@@ -275,7 +270,7 @@ function V3DGeometryBuilder:cast(layout) end
 
 --- TODO
 --- @param label string | nil
---- @return V3DGeometry
+--- @return V3DGeometry2
 function V3DGeometryBuilder:build(label) end
 
 
@@ -330,102 +325,6 @@ function V3DCamera:set_rotation(x, y, z) end
 --- @param fov number
 --- @return nil
 function V3DCamera:set_fov(fov) end
-
-
---------------------------------------------------------------------------------
---[ Geometry ]------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-
---- Describes whether geometry contains colour information, UV information, or
---- both.
---- @see v3d.GEOMETRY_COLOUR
---- @see v3d.GEOMETRY_UV
---- @see v3d.GEOMETRY_COLOUR_UV
---- @alias V3DGeometryType 1 | 2 | 3
-
-
---- Contains triangles.
---- @class V3DGeometry
---- Structure of the triangles contained within this geometry. This is fixed
---- upon creation and affects the kind of triangles you can add to the geometry.
---- @field type V3DGeometryType
---- Number of triangles contained within this geometry
---- @field triangles integer
-local V3DGeometry = {}
-
---- Add a triangle to this geometry using the 3 corner coordinates and a block
---- colour for the whole triangle.
----
---- Must only be used with [[@v3d.GEOMETRY_COLOUR]] typed geometry objects.
---- @param p0x number
---- @param p0y number
---- @param p0z number
---- @param p1x number
---- @param p1y number
---- @param p1z number
---- @param p2x number
---- @param p2y number
---- @param p2z number
---- @param colour integer
---- @return nil
-function V3DGeometry:add_colour_triangle(p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z, colour) end
-
---- Add a triangle to this geometry using the 3 corner coordinates with UVs.
----
---- Must only be used with [[@v3d.GEOMETRY_UV]] typed geometry objects.
---- @param p0x number
---- @param p0y number
---- @param p0z number
---- @param p0u number
---- @param p0v number
---- @param p1x number
---- @param p1y number
---- @param p1z number
---- @param p1u number
---- @param p1v number
---- @param p2x number
---- @param p2y number
---- @param p2z number
---- @param p2u number
---- @param p2v number
---- @return nil
-function V3DGeometry:add_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v) end
-
---- Add a triangle to this geometry using the 3 corner coordinates with UVs and
---- a block colour for the whole triangle.
----
---- Must only be used with [[@v3d.GEOMETRY_COLOUR_UV]] typed geometry objects.
---- @param p0x number
---- @param p0y number
---- @param p0z number
---- @param p0u number
---- @param p0v number
---- @param p1x number
---- @param p1y number
---- @param p1z number
---- @param p1u number
---- @param p1v number
---- @param p2x number
---- @param p2y number
---- @param p2z number
---- @param p2u number
---- @param p2v number
---- @param colour integer
---- @return nil
-function V3DGeometry:add_colour_uv_triangle(p0x, p0y, p0z, p0u, p0v, p1x, p1y, p1z, p1u, p1v, p2x, p2y, p2z, p2u, p2v, colour) end
-
---- Rotate every vertex position within this geometry counter-clockwise by theta
---- radians around the Y axis.
---- @param theta number
---- @return nil
-function V3DGeometry:rotate_y(theta) end
-
---- Rotate every vertex position within this geometry counter-clockwise by theta
---- radians around the Z axis.
---- @param theta number
---- @return nil
-function V3DGeometry:rotate_z(theta) end
 
 
 --------------------------------------------------------------------------------
@@ -516,8 +415,6 @@ local V3DUniforms = {}
 --- should be their width/height, for example 2/3 for non-subpixel characters.
 --- Defaults to `1`.
 --- @field pixel_aspect_ratio number | nil
---- TODO: Currently unused.
---- @field vertex_shader V3DVertexShader | nil
 local V3DPipelineOptions = {}
 
 --- Draw geometry to the framebuffer using the camera given.

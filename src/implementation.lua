@@ -361,14 +361,18 @@ local function geometry_to_builder(geometry)
 end
 
 local function geometry_builder_set_data(gb, attribute_name, data)
-	local attr = gb.layout:get_attribute(attribute_name)
-
 	gb.attribute_data[attribute_name] = data
 
-	if attr.type == 'face' and gb.faces == 0 then
-		gb.faces = #data / attr.size
-	elseif attr.type == 'vertex' and gb.vertices == 0 then
-		gb.vertices = #data / attr.size
+	return gb
+end
+
+local function geometry_builder_append_data(gb, attribute_name, data)
+	local existing_data = gb.attribute_data[attribute_name] or {}
+
+	gb.attribute_data[attribute_name] = existing_data
+
+	for i = 1, #data do
+		table.insert(existing_data, data[i])
 	end
 
 	return gb
@@ -379,11 +383,11 @@ local function geometry_builder_map(gb, attribute_name, fn)
 	local data = gb.attribute_data[attribute_name]
 
 	for i = 0, #data - 1, size do
-		local mapped = {}
+		local unmapped = {}
 		for j = 1, size do
-			mapped[j] = data[i + j]
+			unmapped[j] = data[i + j]
 		end
-		fn(mapped)
+		local mapped = fn(unmapped)
 		for j = 1, size do
 			data[i + j] = mapped[j]
 		end
@@ -425,12 +429,24 @@ local function geometry_builder_build(gb, label)
 	--- @type V3DLayout
 	local layout = gb.layout
 
-	geometry.faces = gb.faces
-	geometry.vertices = gb.vertices
 	geometry.layout = layout
-	geometry.vertex_offset = layout.face_stride * gb.faces
+	geometry.vertices = 0
+	geometry.faces = 0
 
 	geometry.to_builder = geometry_to_builder
+
+	for i = 1, #layout.attributes do
+		local attr = layout.attributes[i]
+		local data = gb.attribute_data[attr.name]
+
+		if attr.type == 'vertex' then
+			geometry.vertices = #data / attr.size
+		else
+			geometry.faces = #data / attr.size
+		end
+	end
+	
+	geometry.vertex_offset = layout.face_stride * geometry.faces
 
 	for i = 1, #layout.attributes do
 		local attr = layout.attributes[i]
@@ -442,10 +458,10 @@ local function geometry_builder_build(gb, label)
 		if attr.type == 'vertex' then
 			base_offset = base_offset + geometry.vertex_offset
 			stride = layout.vertex_stride
-			count = gb.vertices
+			count = geometry.vertices
 		else
 			stride = layout.face_stride
-			count = gb.faces
+			count = geometry.faces
 		end
 
 		for j = 0, count - 1 do
@@ -465,11 +481,10 @@ local function create_geometry_builder(layout)
 	local gb = {}
 
 	gb.layout = layout
-	gb.vertices = 0
-	gb.faces = 0
 	gb.attribute_data = {}
 	
 	gb.set_data = geometry_builder_set_data
+	gb.append_data = geometry_builder_append_data
 	gb.map = geometry_builder_map
 	gb.transform = geometry_builder_transform
 	gb.insert = geometry_builder_insert
@@ -478,6 +493,74 @@ local function create_geometry_builder(layout)
 
 	return gb
 end
+
+local function create_debug_cube(cx, cy, cz, size)
+	local s2 = (size or 1) / 2
+
+	cx = cx or 0
+	cy = cy or 0
+	cz = cz or 0
+
+	return create_geometry_builder(v3d.DEBUG_CUBE_LAYOUT)
+		:set_data('position', {
+			-s2,  s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -- front 1
+			-s2, -s2,  s2,  s2, -s2,  s2,  s2,  s2,  s2, -- front 2
+			 s2,  s2, -s2,  s2, -s2, -s2, -s2,  s2, -s2, -- back 1
+			 s2, -s2, -s2, -s2, -s2, -s2, -s2,  s2, -s2, -- back 2
+			-s2,  s2, -s2, -s2, -s2, -s2, -s2,  s2,  s2, -- left 1
+			-s2, -s2, -s2, -s2, -s2,  s2, -s2,  s2,  s2, -- left 2
+			 s2,  s2,  s2,  s2, -s2,  s2,  s2,  s2, -s2, -- right 1
+			 s2, -s2,  s2,  s2, -s2, -s2,  s2,  s2, -s2, -- right 2
+			-s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -s2, -- top 1
+			-s2,  s2,  s2,  s2,  s2,  s2,  s2,  s2, -s2, -- top 2
+			 s2, -s2, -s2,  s2, -s2,  s2, -s2, -s2, -s2, -- bottom 1
+			 s2, -s2,  s2, -s2, -s2,  s2, -s2, -s2, -s2, -- bottom 2
+		})
+		:set_data('uv', {
+			0, 0, 0, 1, 1, 0, -- front 1
+			0, 1, 1, 1, 1, 0, -- front 2
+			0, 0, 0, 1, 1, 0, -- back 1
+			0, 1, 1, 1, 1, 0, -- back 2
+			0, 0, 0, 1, 1, 0, -- left 1
+			0, 1, 1, 1, 1, 0, -- left 2
+			0, 0, 0, 1, 1, 0, -- right 1
+			0, 1, 1, 1, 1, 0, -- right 2
+			0, 0, 0, 1, 1, 0, -- top 1
+			0, 1, 1, 1, 1, 0, -- top 2
+			0, 0, 0, 1, 1, 0, -- bottom 1
+			0, 1, 1, 1, 1, 0, -- bottom 2
+		})
+		:set_data('colour', {
+			colours.blue, colours.cyan, -- front,
+			colours.brown, colours.yellow, -- back
+			colours.lightBlue, colours.pink, -- left
+			colours.red, colours.orange, -- right
+			colours.green, colours.lime, -- top
+			colours.purple, colours.magenta, -- bottom
+		})
+		:set_data('normal', {
+			 0,  0,  1,  0,  0,  1, -- front
+			 0,  0,  1,  0,  0, -1, -- back
+			-1,  0,  0, -1,  0,  0, -- left
+			 1,  0,  0,  1,  0,  0, -- right
+			 0,  1,  0,  0,  1,  0, -- top
+			 0, -1,  0,  0, -1,  0, -- bottom
+		})
+		:set_data('face_index', { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 })
+		:set_data('side_index', { 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 })
+		:set_data('side_name', {
+			'front', 'front',
+			'back', 'back',
+			'left', 'left',
+			'right', 'right',
+			'top', 'top',
+			'bottom', 'bottom',
+		})
+		:map('position', function(d)
+			return { d[1] + cx, d[2] + cy, d[3] + cz }
+		end)
+end
+
 
 
 --------------------------------------------------------------------------------
@@ -518,155 +601,6 @@ local function create_camera(fov)
 	camera.set_fov = camera_set_fov
 
 	return camera
-end
-
-
---------------------------------------------------------------------------------
---[ Geometry functions ]--------------------------------------------------------
---------------------------------------------------------------------------------
-
-
-local function geometry_poly_size(type)
-	if type == v3d.GEOMETRY_UV then
-		return 15
-	elseif type == v3d.GEOMETRY_COLOUR_UV then
-		return 16
-	else
-		return 10
-	end
-end
-
-local function geometry_poly_pos_stride(type)
-	if type == v3d.GEOMETRY_UV then
-		return 5
-	elseif type == v3d.GEOMETRY_COLOUR_UV then
-		return 5
-	else
-		return 3
-	end
-end
-
-local function geometry_add_triangle(geometry, ...)
-	local data = { ... }
-	local n = geometry_poly_size(geometry.type)
-
-	assert(n == #data, "Wrong data for adding triangle: " .. #data .. " ~= " .. n)
-
-	local idx = geometry.triangles * n
-	geometry.triangles = geometry.triangles + 1
-
-	for i = 1, n do
-		geometry[idx + i] = data[i]
-	end
-end
-
-local function geometry_rotate_z(geometry, theta)
-	local poly_stride = geometry_poly_size(geometry.type)
-	local pos_stride = geometry_poly_pos_stride(geometry.type)
-
-	local sT = math.sin(theta)
-	local cT = math.cos(theta)
-
-	for i = 1, geometry.triangles * poly_stride, poly_stride do
-		local x0, y0 = geometry[i], geometry[i + 1]
-		local x1, y1 = geometry[i + pos_stride], geometry[i + pos_stride + 1]
-		local x2, y2 = geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 1]
-		geometry[i], geometry[i + 1] = x0 * cT - y0 * sT, x0 * sT + y0 * cT
-		geometry[i + pos_stride], geometry[i + pos_stride + 1] = x1 * cT - y1 * sT, x1 * sT + y1 * cT
-		geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 1] = x2 * cT - y2 * sT, x2 * sT + y2 * cT
-	end
-end
-
-local function geometry_rotate_y(geometry, theta)
-	local poly_stride = geometry_poly_size(geometry.type)
-	local pos_stride = geometry_poly_pos_stride(geometry.type)
-
-	local sT = math.sin(theta)
-	local cT = math.cos(theta)
-
-	for i = 1, geometry.triangles * poly_stride, poly_stride do
-		local x0, z0 = geometry[i], geometry[i + 2]
-		local x1, z1 = geometry[i + pos_stride], geometry[i + pos_stride + 2]
-		local x2, z2 = geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 2]
-		geometry[i], geometry[i + 2] = x0 * cT - z0 * sT, x0 * sT + z0 * cT
-		geometry[i + pos_stride], geometry[i + pos_stride + 2] = x1 * cT - z1 * sT, x1 * sT + z1 * cT
-		geometry[i + pos_stride * 2], geometry[i + pos_stride * 2 + 2] = x2 * cT - z2 * sT, x2 * sT + z2 * cT
-	end
-end
-
-local function create_geometry(type)
-	--- @type V3DGeometry
-	local geometry = {}
-
-	geometry.type = type
-	geometry.triangles = 0
-	geometry.rotate_y = geometry_rotate_y
-	geometry.rotate_z = geometry_rotate_z
-
-	if type == v3d.GEOMETRY_COLOUR then
-		geometry.add_colour_triangle = geometry_add_triangle
-	elseif type == v3d.GEOMETRY_UV then
-		geometry.add_uv_triangle = geometry_add_triangle
-	elseif type == v3d.GEOMETRY_COLOUR_UV then
-		geometry.add_colour_uv_triangle = geometry_add_triangle
-	end
-
-	return geometry
-end
-
-local function create_debug_cube(cx, cy, cz, size)
-	local geometry = create_geometry(v3d.GEOMETRY_COLOUR_UV)
-	local s2 = (size or 1) / 2
-
-	cx = cx or 0
-	cy = cy or 0
-	cz = cz or 0
-
-	-- front
-	geometry:add_colour_uv_triangle(
-		-s2,  s2,  s2, 0, 0, -s2, -s2,  s2, 0, 1,  s2,  s2,  s2, 1, 0, colours.blue)
-	geometry:add_colour_uv_triangle(
-		-s2, -s2,  s2, 0, 1,  s2, -s2,  s2, 1, 1,  s2,  s2,  s2, 1, 0, colours.cyan)
-
-	-- back
-	geometry:add_colour_uv_triangle(
-		 s2,  s2, -s2, 0, 0,  s2, -s2, -s2, 0, 1, -s2,  s2, -s2, 1, 0, colours.brown)
-	geometry:add_colour_uv_triangle(
-		 s2, -s2, -s2, 0, 1, -s2, -s2, -s2, 1, 1, -s2,  s2, -s2, 1, 0, colours.yellow)
-
-	-- left
-	geometry:add_colour_uv_triangle(
-		-s2,  s2, -s2, 0, 0, -s2, -s2, -s2, 0, 1, -s2,  s2,  s2, 1, 0, colours.lightBlue)
-	geometry:add_colour_uv_triangle(
-		-s2, -s2, -s2, 0, 1, -s2, -s2,  s2, 1, 1, -s2,  s2,  s2, 1, 0, colours.pink)
-
-	-- right
-	geometry:add_colour_uv_triangle(
-		 s2,  s2,  s2, 0, 0,  s2, -s2,  s2, 0, 1,  s2,  s2, -s2, 1, 0, colours.red)
-	geometry:add_colour_uv_triangle(
-		 s2, -s2,  s2, 0, 1,  s2, -s2, -s2, 1, 1,  s2,  s2, -s2, 1, 0, colours.orange)
-
-	-- top
-	geometry:add_colour_uv_triangle(
-		-s2,  s2, -s2, 0, 0, -s2,  s2,  s2, 0, 1,  s2,  s2, -s2, 1, 0, colours.green)
-	geometry:add_colour_uv_triangle(
-		-s2,  s2,  s2, 0, 1,  s2,  s2,  s2, 1, 1,  s2,  s2, -s2, 1, 0, colours.lime)
-
-	-- bottom
-	geometry:add_colour_uv_triangle(
-		 s2, -s2, -s2, 0, 0,  s2, -s2,  s2, 0, 1, -s2, -s2, -s2, 1, 0, colours.purple)
-	geometry:add_colour_uv_triangle(
-		 s2, -s2,  s2, 0, 1, -s2, -s2,  s2, 1, 1, -s2, -s2, -s2, 1, 0, colours.magenta)
-
-	for i = 1, #geometry, 16 do
-		for j = i, i + 10, 5 do
-			geometry[j] = geometry[j] + cx
-			geometry[j + 1] = geometry[j + 1] + cy
-			geometry[j + 2] = geometry[j + 2] + cz
-		end
-	end
-
-	return geometry
 end
 
 
@@ -939,7 +873,6 @@ end
 -- #endsection
 
 local function create_pipeline(options)
-	options = options or {}
 	--- @cast options V3DPipelineOptions
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	local opt_layout = options.layout
@@ -1013,11 +946,11 @@ local function create_pipeline(options)
 		local interpolate_index = interpolate_local_offset + geometry.vertex_offset + 1
 		local colour_index = colour_local_offset + 1
 		local position_max_offset = geometry.vertex_offset + geometry.vertices * opt_layout.vertex_stride
-
-		local iteration = 0
+		local faceID = 0
 
 		while position_index <= position_max_offset do
-			iteration = iteration + 1
+			faceID = faceID + 1
+
 			local p0x = geometry[position_index]
 			local p0y = geometry[position_index + 1]
 			local p0z = geometry[position_index + 2]
@@ -1105,6 +1038,8 @@ local function create_pipeline(options)
 					p2x = pxd + p2x * scale_x * p2w
 					p2y = pyd + p2y * scale_y * p2w
 
+					uniforms.u_faceID = faceID
+					uniforms.u_face_colour = colour
 					rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
 				end
 			end
@@ -1171,9 +1106,8 @@ do
 	set_library('create_framebuffer_subpixel', create_framebuffer_subpixel)
 	set_library('create_layout', create_layout)
 	set_library('create_geometry_builder', create_geometry_builder)
-	set_library('create_camera', create_camera)
-	set_library('create_geometry', create_geometry)
 	set_library('create_debug_cube', create_debug_cube)
+	set_library('create_camera', create_camera)
 	set_library('create_pipeline', create_pipeline)
 	set_library('create_texture_sampler', create_texture_sampler)
 
@@ -1184,7 +1118,18 @@ do
 	set_library('GEOMETRY_COLOUR_UV', 3)
 	set_library('DEFAULT_LAYOUT', v3d.create_layout()
 		:add_attribute('position', 3, 'vertex', true)
-		:add_attribute('colour', 1, 'face', true))
+		:add_attribute('colour', 1, 'face', false))
+	set_library('UV_LAYOUT', v3d.create_layout()
+		:add_attribute('position', 3, 'vertex', true)
+		:add_attribute('uv', 2, 'vertex', true))
+	set_library('DEBUG_CUBE_LAYOUT', v3d.create_layout()
+		:add_attribute('position', 3, 'vertex', true)
+		:add_attribute('uv', 3, 'vertex', true)
+		:add_attribute('colour', 1, 'face', false)
+		:add_attribute('normal', 3, 'face', true)
+		:add_attribute('face_index', 1, 'face', false)
+		:add_attribute('side_index', 1, 'face', false)
+		:add_attribute('side_name', 1, 'face', false))
 end
 
 return v3d

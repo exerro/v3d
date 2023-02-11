@@ -7,6 +7,8 @@ local validation_enabled = true
 local capture_key = keys.f12
 local v3d_require_path = '/v3d'
 
+error 'v3dd is not updated to latest version of v3d'
+
 while args[1] and args[1]:sub(1, 1) == '-' do
 	local arg = table.remove(args, 1)
 

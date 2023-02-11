@@ -62,28 +62,10 @@ local layout = v3d.create_layout()
 
 local gb = v3d.create_geometry_builder(layout)
 
-assertEquals(0, gb.vertices)
-assertEquals(0, gb.faces)
-
 gb:set_data('position', { 1, 2, 3, 4, 5, 6, 7, 8, 9 })
-
-assertEquals(3, gb.vertices)
-assertEquals(0, gb.faces)
-
 gb:set_data('uv', { 11, 12, 14, 15, 17, 18 })
-
-assertEquals(3, gb.vertices)
-assertEquals(0, gb.faces)
-
 gb:set_data('colour', { 64, 128 })
-
-assertEquals(3, gb.vertices)
-assertEquals(2, gb.faces)
-
 gb:set_data('object_name', { 'a', 'b' })
-
-assertEquals(3, gb.vertices)
-assertEquals(2, gb.faces)
 
 local geometry = gb:build()
 local expected_data = { 64, 'a', 128, 'b', 1, 2, 3, 11, 12, 4, 5, 6, 14, 15, 7, 8, 9, 17, 18 }
@@ -91,6 +73,11 @@ local expected_data = { 64, 'a', 128, 'b', 1, 2, 3, 11, 12, 4, 5, 6, 14, 15, 7, 
 for i = 1, #expected_data do
 	assertEquals(expected_data[i], geometry[i])
 end
+
+assertEquals(layout, geometry.layout)
+assertEquals(3, geometry.vertices)
+assertEquals(2, geometry.faces)
+assertEquals(4, geometry.vertex_offset)
 
 -- map
 -- insert

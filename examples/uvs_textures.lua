@@ -4,11 +4,11 @@ local v3d = require '/v3d'
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
-    interpolate_uvs = true,
+	layout = v3d.UV_LAYOUT,
+    interpolate_attribute = 'uv',
     fragment_shader = v3d.create_texture_sampler(),
 }
-local geometry_list = {}
-geometry_list[1] = v3d.create_debug_cube()
+local cube = v3d.create_debug_cube():cast(v3d.UV_LAYOUT):build()
 
 term.setPaletteColour(colours.lightGrey, 0.4, 0.3, 0.2)
 term.setPaletteColour(colours.grey, 0.4, 0.33, 0.24)
@@ -27,7 +27,7 @@ pcall(function()
 		camera.x = s * distance
 		camera.z = c * distance
 		framebuffer:clear(colours.white)
-		pipeline:render_geometry(geometry_list, framebuffer, camera)
+		pipeline:render_geometry(cube, framebuffer, camera)
 		framebuffer:blit_subpixel(term)
 		sleep(0.05)
 	end

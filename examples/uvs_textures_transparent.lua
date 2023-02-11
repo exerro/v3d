@@ -4,12 +4,12 @@ local v3d = require '/v3d'
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
+	layout = v3d.UV_LAYOUT,
 	cull_face = false,
-    interpolate_uvs = true,
+    interpolate_attribute = 'uv',
     fragment_shader = v3d.create_texture_sampler(),
 }
-local geometry_list = {}
-geometry_list[1] = v3d.create_debug_cube()
+local cube = v3d.create_debug_cube():cast(v3d.UV_LAYOUT):build()
 
 local image = paintutils.loadImage 'transparent_example.nfp'
 pipeline:set_uniform('u_texture', image)
@@ -24,7 +24,7 @@ while true do
 	camera.x = s * distance
 	camera.z = c * distance
 	framebuffer:clear(colours.white)
-	pipeline:render_geometry(geometry_list, framebuffer, camera)
+	pipeline:render_geometry(cube, framebuffer, camera)
 	framebuffer:blit_subpixel(term)
 	sleep(0.05)
 end

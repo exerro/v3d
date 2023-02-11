@@ -2,6 +2,7 @@
 if fs.isDir 'v3d' then shell.run 'v3d/build' end
 package.path = "/" .. fs.getDir(shell.getRunningProgram()) .. "/?.lua;" .. package.path
 package.path = "/" .. fs.getDir(fs.getDir(shell.getRunningProgram())) .. "/?.lua;" .. package.path
+--- @type v3d
 local v3d = require '/v3d'
 local simplex = require 'util.simplex'
 --- @diagnostic disable-next-line: undefined-field
@@ -29,9 +30,14 @@ local PLANE_CAMERA_X_ROTATION_DELTA = math.atan(PLANE_CAMERA_UP_DISTANCE / PLANE
 local screen_width, screen_height = term.getSize()
 local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
 local camera = v3d.create_camera(math.pi / 6)
+local terrain_layout = v3d.create_layout()
+	:add_attribute('position', 3, 'vertex', true)
+	:add_attribute('uv', 2, 'vertex', true)
+	:add_attribute('colour', 1, 'face', false)
 local terrain_pipeline = v3d.create_pipeline {
-	interpolate_uvs = true,
-	fragment_shader = function(uniforms, u, v)
+	layout = terrain_layout,
+	interpolate_attribute = 'uv',
+	fragment_shader = function(_, u, v)
 		local mountain_threshold = MOUNTAIN_SCALER / 3 + u
 		if v > mountain_threshold then
 			local mountain_scalar = 1 / (MOUNTAIN_SCALER - mountain_threshold)
@@ -103,7 +109,7 @@ local function tesselate_face(cx, cz, divisions, gen_uvs)
 	local deltaX = (maxX - minX) / divisions
 	local deltaZ = (maxZ - minZ) / divisions
 
-	local geometry = v3d.create_geometry(v3d.GEOMETRY_COLOUR_UV)
+	local geometry = v3d.create_geometry_builder(terrain_layout)
 
 	local x = minX
 
@@ -121,15 +127,21 @@ local function tesselate_face(cx, cz, divisions, gen_uvs)
 			local u10, v10 = gen_uvs(x1, y10, z)
 			local u11, v11 = gen_uvs(x1, y11, z1)
 			local u01, v01 = gen_uvs(x, y01, z1)
-			geometry:add_colour_uv_triangle(x, y00, z, u00, v00, x, y01, z1, u01, v01, x1, y11, z1, u11, v11, colours.green)
-			geometry:add_colour_uv_triangle(x, y00, z, u00, v00, x1, y11, z1, u11, v11, x1, y10, z, u10, v10, colours.lime)
+			geometry:append_data('position', { x, y00, z, x, y01, z1, x1, y11, z1 })
+			geometry:append_data('uv', { u00, v00, u01, v01, u11, v11 })
+			geometry:append_data('colour', { colours.green })
+			geometry:append_data('position', { x, y00, z, x1, y11, z1, x1, y10, z })
+			geometry:append_data('uv', { u00, v00, u11, v11, u10, v10 })
+			geometry:append_data('colour', { colours.lime })
 			z = z + deltaZ
 		end
 
 		x = x + deltaX
 	end
 
-	return geometry
+	local a = geometry:build()
+	print(a.faces .. ';' .. a.vertices)
+	return a
 end
 
 local function draw()
@@ -154,7 +166,9 @@ local function draw()
 	end
 
 	framebuffer:clear(2 ^ 6)
-	terrain_pipeline:render_geometry(visible_chunks, framebuffer, camera)
+	for i = 1, #visible_chunks do
+		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, camera)
+	end
 	framebuffer:blit_subpixel(term)
 end
 

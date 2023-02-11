@@ -66,9 +66,11 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 --- @param v3d v3d
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local fb = v3d.create_framebuffer_subpixel(width, height)
-	local geom = v3d.create_geometry(v3d.GEOMETRY_COLOUR)
+	local gb = v3d.create_geometry_builder(v3d.DEFAULT_LAYOUT)
 	local camera = v3d.create_camera()
 	local pipeline = v3d.create_pipeline {
+		layout = v3d.DEFAULT_LAYOUT,
+		colour_attribute = not flags.fragment_shader and 'colour' or nil,
 		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
 		depth_test = flags.depth_test,
 		depth_store = flags.depth_test,
@@ -78,7 +80,6 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	}
 	local v3d_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
 	local v3d_render = pipeline.render_geometry
-	local geom_list = { geom }
 	local aspect = fb.width / fb.height
 
 	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
@@ -93,8 +94,11 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 
 	for i = 1, model_data.triangles do
 		local t = model_data[i]
-		geom:add_colour_triangle(t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2, t.colour)
+		gb:append_data('position', { t.x0, t.y0, t.z0, t.x1, t.y1, t.z1, t.x2, t.y2, t.z2 })
+		gb:append_data('colour', { t.colour })
 	end
+
+	local geom = gb:build()
 
 	local function clear_fn()
 		fb:clear(1)
@@ -102,7 +106,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	end
 
 	local function draw_fn()
-		v3d_render(pipeline, geom_list, fb, camera, 1, 1)
+		v3d_render(pipeline, geom, fb, camera)
 	end
 
 	local function present_fn()
