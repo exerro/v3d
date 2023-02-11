@@ -5,10 +5,8 @@ local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
 local sections = {}
 local section = nil
 
-for line in io.lines(path .. 'src/v3d.lua') do
-	if line:find '%-%-%- @diagnostic enable' then
-		break
-	elseif line:find '%-%-%- @diagnostic' then
+for line in io.lines(path .. 'src/library.lua') do
+	if line:find '%-%-%- @diagnostic' then
 		-- do nothing
 	elseif line:find '^%s*%-%-%- ' or line:find '^%s*%-%-%-$' then
 		if not section then
@@ -239,7 +237,8 @@ local function docstring_to_markdown(s)
 	end))
 end
 
-local h = assert(io.open('v3d-docs.md', 'w'))
+local OUTPUT_PATH = 'v3d/build/docs.md'
+local h = assert(io.open(OUTPUT_PATH, 'w'))
 
 h:write '\n# Index\n\n'
 
@@ -359,3 +358,8 @@ for i = 1, #classes do
 end
 
 h:close()
+
+term.write 'Wrote documentation to '
+term.setTextColour(colours.cyan)
+print(OUTPUT_PATH)
+term.setTextColour(colours.white)

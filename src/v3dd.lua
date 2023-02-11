@@ -3,7 +3,7 @@ local args = { ... }
 local fps_bc = colours.black
 local fps_fc = colours.white
 local fps_enabled = false
-local validation_enabled = false
+local validation_enabled = true
 local capture_key = keys.f12
 local v3d_require_path = '/v3d'
 
@@ -18,8 +18,8 @@ while args[1] and args[1]:sub(1, 1) == '-' do
 		fps_fc = colours[fps_fc] or error('Unknown colour \'' .. fps_fc .. '\'', 0)
 	elseif arg == '--show-fps' or arg == '--fps' or arg == '-f' then
 		fps_enabled = true
-	elseif arg == '--validation' or arg == '-v' then
-		validation_enabled = true
+	elseif arg == '--no-validation' or arg == '-V' then
+		validation_enabled = false
 	elseif arg == '--capture-key' or arg == '--key' or arg == '-k' then
 		capture_key = table.remove(args, 1) or error('Expected key name after --capture-key', 0)
 		capture_key = keys[capture_key] or error('Unknown key name \'' .. capture_key .. '\'', 0)

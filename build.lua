@@ -1,7 +1,4 @@
 
-local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
-local sections = { {} }
-
 local function permute(flags)
 	local r = { {} }
 
@@ -106,72 +103,6 @@ local function generate_section_permutations(section, flagset)
 	end
 
 	return r
-end
-
-for line in io.lines(path .. 'src/v3d.lua') do
-	if line:find '^%-%- #section [%w_ ]+$' then
-		local flags = {}
-		for flag in line:sub(12):gmatch "[%w_]+" do
-			table.insert(flags, flag)
-		end
-		assert(#flags > 0, 'Section with no flags')
-		table.insert(sections, { flags = flags })
-	elseif line:find '^%-%- #endsection' then
-		table.insert(sections, {})
-	else
-		table.insert(sections[#sections], line)
-	end
-end
-
-local blocks = {}
-
-for _, section in ipairs(sections) do
-	generate_section_selections(section)
-
-	if section.flags then
-		local function_name = section[1]:match 'function ([%w_]+)'
-
-		for _, flagset in ipairs(permute(section.flags)) do
-			local this_function_name = function_name
-
-			if function_name then
-				for i = 1, #section.flags do
-					if flagset[section.flags[i]] then
-						this_function_name = this_function_name .. '_' .. section.flags[i]
-					end
-				end
-			end
-
-			local s = generate_section_permutations(section, flagset)
-
-			if function_name then
-				s[1] = s[1]:gsub('function ' .. function_name, 'function ' .. this_function_name)
-			end
-
-			table.insert(s, 1, '-- section-flags: ')
-
-			for i = 1, #section.flags do
-				if i > 1 then
-					s[1] = s[1] .. ', '
-				end
-				s[1] = s[1] .. section.flags[i] .. ': ' .. tostring(flagset[section.flags[i]])
-			end
-
-			table.insert(blocks, table.concat(s, '\n'))
-		end
-	else
-		local removing = false
-
-		for i = 1, #section do
-			removing = removing and not section[i]:find '%s*%-%-%s*#end%s*$'
-			local should_remove = removing
-			removing = removing or section[i]:find '%s*%-%-%s*#remove%s*$'
-			if should_remove then
-				section[i] = ''
-			end
-		end
-		table.insert(blocks, table.concat(section, '\n'))
-	end
 end
 
 --------------------------------------------------------------------------------
@@ -447,6 +378,79 @@ end
 
 --------------------------------------------------------------------------------
 
+local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
+local sections = { {} }
+
+for line in io.lines(path .. 'src/library.lua') do
+	table.insert(sections[#sections], line)
+end
+
+for line in io.lines(path .. 'src/implementation.lua') do
+	if line:find '^%-%- #section [%w_ ]+$' then
+		local flags = {}
+		for flag in line:sub(12):gmatch "[%w_]+" do
+			table.insert(flags, flag)
+		end
+		assert(#flags > 0, 'Section with no flags')
+		table.insert(sections, { flags = flags })
+	elseif line:find '^%-%- #endsection' then
+		table.insert(sections, {})
+	else
+		table.insert(sections[#sections], line)
+	end
+end
+
+local blocks = {}
+
+for _, section in ipairs(sections) do
+	generate_section_selections(section)
+
+	if section.flags then
+		local function_name = section[1]:match 'function ([%w_]+)'
+
+		for _, flagset in ipairs(permute(section.flags)) do
+			local this_function_name = function_name
+
+			if function_name then
+				for i = 1, #section.flags do
+					if flagset[section.flags[i]] then
+						this_function_name = this_function_name .. '_' .. section.flags[i]
+					end
+				end
+			end
+
+			local s = generate_section_permutations(section, flagset)
+
+			if function_name then
+				s[1] = s[1]:gsub('function ' .. function_name, 'function ' .. this_function_name)
+			end
+
+			table.insert(s, 1, '-- section-flags: ')
+
+			for i = 1, #section.flags do
+				if i > 1 then
+					s[1] = s[1] .. ', '
+				end
+				s[1] = s[1] .. section.flags[i] .. ': ' .. tostring(flagset[section.flags[i]])
+			end
+
+			table.insert(blocks, table.concat(s, '\n'))
+		end
+	else
+		local removing = false
+
+		for i = 1, #section do
+			removing = removing and not section[i]:find '%s*%-%-%s*#end%s*$'
+			local should_remove = removing
+			removing = removing or section[i]:find '%s*%-%-%s*#remove%s*$'
+			if should_remove then
+				section[i] = ''
+			end
+		end
+		table.insert(blocks, table.concat(section, '\n'))
+	end
+end
+
 sleep(0)
 
 local content = table.concat(blocks, '\n')
@@ -459,6 +463,17 @@ content = reconstruct(rename_shorter(whitespace_free)):gsub('\n\n+', '\n')
 
 print(string.format('Minified length: %d / %d (%d%%)', #content, len, #content / len * 100 + 0.5))
 
-local h = assert(io.open('v3d.lua', 'w'))
+local license_text = ''
+for line in io.lines(path .. 'LICENSE') do
+	if line ~= '' then line = ' ' .. line end
+	license_text = license_text .. '--' .. line .. '\n'
+end
+
+local h = assert(io.open(path .. 'build/v3d.lua', 'w'))
+h:write(license_text)
+h:write '---@diagnostic disable: duplicate-doc-field, duplicate-set-field, duplicate-doc-alias'
 h:write(content)
 h:close()
+
+fs.delete('/v3d.lua')
+fs.copy(path .. 'build/v3d.lua', '/v3d.lua')
