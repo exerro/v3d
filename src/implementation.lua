@@ -118,7 +118,7 @@ local function framebuffer_clear(fb, colour, clear_depth)
 	local fb_colour = fb.colour
 	local fb_depth = fb.depth
 	for i = 1, fb.width * fb.height do
-		fb_colour[i] = colour
+		fb_colour[i] = colour or 1
 	end
 	if clear_depth ~= false then
 		for i = 1, fb.width * fb.height do

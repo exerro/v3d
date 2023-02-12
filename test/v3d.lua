@@ -12,6 +12,109 @@ local function assertEquals(expected, actual)
 end
 
 --------------------------------------------------------------------------------
+--[[ Framebuffers ]]------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+local fb = v3d.create_framebuffer(5, 3)
+
+assertEquals(5, fb.width)
+assertEquals(3, fb.height)
+assertEquals(15, #fb.colour)
+assertEquals(15, #fb.depth)
+
+for i = 1, 15 do
+	assertEquals(1, fb.colour[i])
+	assertEquals(0, fb.depth[i])
+end
+
+fb:clear()
+
+for i = 1, 15 do
+	assertEquals(1, fb.colour[i])
+	assertEquals(0, fb.depth[i])
+end
+
+fb:clear(2)
+
+for i = 1, 15 do
+	assertEquals(2, fb.colour[i])
+	assertEquals(0, fb.depth[i])
+end
+
+fb:clear_depth(0.5)
+
+for i = 1, 15 do
+	assertEquals(2, fb.colour[i])
+	assertEquals(0.5, fb.depth[i])
+end
+
+fb:clear(4, false)
+
+for i = 1, 15 do
+	assertEquals(4, fb.colour[i])
+	assertEquals(0.5, fb.depth[i])
+end
+
+fb:clear(8, true)
+
+for i = 1, 15 do
+	assertEquals(8, fb.colour[i])
+	assertEquals(0, fb.depth[i])
+end
+
+local fb2 = v3d.create_framebuffer_subpixel(2, 2)
+
+assertEquals(4, fb2.width)
+assertEquals(6, fb2.height)
+
+-- (1, 0) all orange
+fb2.colour[3] = 2
+fb2.colour[4] = 2
+fb2.colour[7] = 2
+fb2.colour[8] = 2
+fb2.colour[11] = 2
+fb2.colour[12] = 2
+-- (0, 1) mixed two colours
+fb2.colour[13] = 4
+fb2.colour[14] = 8
+fb2.colour[17] = 8
+fb2.colour[18] = 4
+fb2.colour[21] = 4
+fb2.colour[22] = 8
+-- (1, 1) mixed 3 colours  abcdcc
+fb2.colour[15] = 16
+fb2.colour[16] = 32
+fb2.colour[19] = 64
+fb2.colour[20] = 128
+fb2.colour[23] = 128
+fb2.colour[24] = 128
+
+local actions = {
+	{ 'setCursorPos', 2, 3 },
+	{ 'blit', string.char(32, 32), '00', '01' },
+	{ 'setCursorPos', 2, 4 },
+	{ 'blit', string.char(153, 135), '26', '37' },
+}
+
+local fake_term = setmetatable({}, {
+	__index = function(_, fn_name)
+		return function(...)
+			local expected = table.remove(actions, 1)
+			local params = { ... }
+			assertEquals(expected[1], fn_name)
+			assertEquals(#expected - 1, #params)
+
+			for i = 1, #params do
+				assertEquals(expected[i + 1], params[i])
+			end
+		end
+	end
+})
+
+fb2:blit_subpixel(fake_term, 1, 2)
+fb2:blit_subpixel(term)
+
+--------------------------------------------------------------------------------
 --[[ Layouts ]]-----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
