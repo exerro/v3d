@@ -19,10 +19,10 @@ local layout = v3d.create_layout()
 	:add_attribute('colour', 3, 'face', false)
 
 -- Create a large cube at the origin.
-local cube1 = v3d.create_debug_cube(0, 0, 0, 1, 'Large cube'):cast(layout):build()
+local cube1 = v3d.create_debug_cube(0, 0, 0, 1):cast(layout):build('Large cube')
 
 -- Create a small cube at the origin.
-local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5, 'Small cube'):cast(layout):build()
+local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5):cast(layout):build('Small cube')
 
 -- Rotate the small cube pi radians.
 -- cube2:rotate_y(math.pi)

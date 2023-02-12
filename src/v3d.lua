@@ -56,9 +56,8 @@ function v3d.create_framebuffer(width, height, label) end
 function v3d.create_framebuffer_subpixel(width, height, label) end
 
 --- Create an empty [[@V3DLayout]].
---- @param label string | nil Optional label for debugging
 --- @return V3DLayout
-function v3d.create_layout(label) end
+function v3d.create_layout() end
 
 --- Create an empty [[@V3DGeometryBuilder]] with the given layout.
 --- @param layout V3DLayout
