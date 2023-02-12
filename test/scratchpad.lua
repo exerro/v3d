@@ -8,20 +8,25 @@ local camera = v3d.create_camera()
 local layout = v3d.create_layout()
     :add_attribute('position', 3, 'vertex', true)
     :add_attribute('uv', 2, 'vertex', true)
+    :add_attribute('b', 4, 'vertex', true)
     -- :add_attribute('colour', 1, 'face', false)
 local pipeline = v3d.create_pipeline {
     -- cull_face = v3d.CULL_FRONT_FACE,
     -- depth_test = false,
     layout = layout,
     position_attribute = 'position',
-    interpolate_attribute = 'uv',
+    interpolate_attributes = { 'uv' },
+    pack_attributes = true,
     -- colour_attribute = 'colour',
-    fragment_shader = function(uniforms, u, v)
-        if uniforms.u_faceID % 2 == 1 then
-            return nil
+    fragment_shader = function(uniforms, va)
+        local index = 1
+        local b = va.uv
+        for i = 2, 2 do
+            if b[i] > b[index] then
+                index = i
+            end
         end
-		return 2 ^ (math.min(math.floor(u * 4), 3) * 4 + math.min(math.floor(v * 4), 3))
-		-- return colours.red
+        return ({ colours.red, colours.green, colours.blue, colours.yellow })[index]
 	end,
 }
 local h = assert(io.open('/v3d/build/pipeline_source.lua', 'w'))
@@ -32,6 +37,7 @@ if not pipeline.render_geometry then
 end
 local geometry = v3d.create_debug_cube()
     :cast(layout)
+    :set_data('b', { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 })
     :build()
 
 while true do

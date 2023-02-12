@@ -370,13 +370,13 @@ local V3DUniforms = {}
 ---
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
---- @alias V3DFragmentShader fun(uniforms: V3DUniforms, u: number, v: number): integer | nil
+--- @alias V3DFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
 
 --- TODO: Currently unused.
 --- @alias V3DVertexShader function
 
---- Pipeline options describe the settings used to create a pipeline. Every
---- field is optional and has a sensible default. Not using or disabling
+--- Pipeline options describe the settings used to create a pipeline. Most
+--- fields are optional and have a sensible default. Not using or disabling
 --- features may lead to a performance gain, for example disabling depth testing
 --- or not using shaders.
 --- @class V3DPipelineOptions
@@ -386,11 +386,12 @@ local V3DUniforms = {}
 --- @field position_attribute string | nil
 --- TODO
 --- @field colour_attribute string | nil
---- Name of the attribute to interpolate values across polygons being drawn.
+--- Names of the attributes to interpolate values across polygons being drawn.
 --- Only useful when using fragment shaders, and has a slight performance loss
---- when used. Defaults to `nil`. Note: the associated attribute should have a
---- size of two.
---- @field interpolate_attribute string | nil
+--- when used. Defaults to `nil`.
+--- @field interpolate_attributes string[] | nil
+--- TODO
+--- @field pack_attributes boolean | nil
 --- Specify a face to cull (not draw), or false to disable face culling.
 --- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
 --- performance and should only be changed from the default when doing something

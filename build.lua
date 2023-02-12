@@ -62,7 +62,7 @@ local function tokenise(source)
 			local _, string_end = source:find('%]' .. ('='):rep(#multiline_string) .. '%]', i)
 			table.insert(tokens, {
 				type = 'string',
-				text = source:sub(i, string_end)
+				text = source:sub(i, string_end):gsub('\n%s+', '\n')
 			})
 			i = string_end + 1
 		else

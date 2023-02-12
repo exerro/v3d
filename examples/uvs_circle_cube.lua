@@ -8,7 +8,7 @@ local pipeline = v3d.create_pipeline {
     cull_face = false,
     -- instruct V3D to interpolate the UV values
     -- without this, they will always equal 0
-    interpolate_attribute = 'uv',
+    interpolate_attributes = { 'uv' },
     fragment_shader = function(uniforms, u, v)
         if math.sqrt((u - 0.3) ^ 2 + (v - 0.3) ^ 2) % 0.2 < 0.1 then
             -- here, we're not inside the circle, so discard the pixel

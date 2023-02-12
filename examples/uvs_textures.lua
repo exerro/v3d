@@ -5,7 +5,7 @@ local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
 	layout = v3d.UV_LAYOUT,
-    interpolate_attribute = 'uv',
+    interpolate_attributes = { 'uv' },
     fragment_shader = v3d.create_texture_sampler(),
 }
 local cube = v3d.create_debug_cube():cast(v3d.UV_LAYOUT):build()

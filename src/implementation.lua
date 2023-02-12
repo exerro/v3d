@@ -610,22 +610,22 @@ end
 
 
 local RASTERIZE_FLAT_TRIANGLE_SOURCE = [[
-for baseIndex = _pflat_it_a, _pflat_it_b, fb_width do
-	local columnMinX = math_ceil(_pflat_triLeftX)
-	local columnMaxX = math_ceil(_pflat_triRightX)
+for base_index = _pflat_it_a, _pflat_it_b, fb_width do
+	local column_min_x = math_ceil(_pflat_tri_left_x)
+	local column_max_x = math_ceil(_pflat_tri_right_x)
 
 	-- #marker ROW_CALCULATIONS
 
-	if columnMinX < 0 then columnMinX = 0 end
-	if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
+	if column_min_x < 0 then column_min_x = 0 end
+	if column_max_x > fb_width_m1 then column_max_x = fb_width_m1 end
 
-	for x = columnMinX, columnMaxX do
-		local index = baseIndex + x
+	for x = column_min_x, column_max_x do
+		local index = base_index + x
 		-- #marker PIXEL_DRAW_ADVANCE
 	end
 
-	_pflat_triLeftX = _pflat_triLeftX + _pflat_triLeftGradientX
-	_pflat_triRightX = _pflat_triRightX + _pflat_triRightGradientX
+	_pflat_tri_left_x = _pflat_tri_left_x + _pflat_tri_left_gradient_x
+	_pflat_tri_right_x = _pflat_tri_right_x + _pflat_tri_right_gradient_x
 	-- #marker ROW_ADVANCE
 end
 ]]
@@ -644,50 +644,50 @@ if pMx > _ptri_p1x then
 	-- #marker MIDPOINT_SWAP
 end
 
-local rowTopMin = math_floor(_ptri_p0y + 0.5)
-local rowBottomMin = math_floor(_ptri_p1y + 0.5)
-local rowTopMax = rowBottomMin - 1
-local rowBottomMax = math_ceil(_ptri_p2y - 0.5)
+local row_top_min = math_floor(_ptri_p0y + 0.5)
+local row_bottom_min = math_floor(_ptri_p1y + 0.5)
+local row_top_max = row_bottom_min - 1
+local row_bottom_max = math_ceil(_ptri_p2y - 0.5)
 
-if rowTopMin < 0 then rowTopMin = 0 end
-if rowBottomMin < 0 then rowBottomMin = 0 end
-if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
-if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
+if row_top_min < 0 then row_top_min = 0 end
+if row_bottom_min < 0 then row_bottom_min = 0 end
+if row_top_max > fb_height_m1 then row_top_max = fb_height_m1 end
+if row_bottom_max > fb_height_m1 then row_bottom_max = fb_height_m1 end
 
-if rowTopMin <= rowTopMax then
+if row_top_min <= row_top_max then
 	local tri_delta_y = _ptri_p1y - _ptri_p0y
-	local _pflat_triLeftGradientX = (pMx - _ptri_p0x) / tri_delta_y
-	local _pflat_triRightGradientX = (_ptri_p1x - _ptri_p0x) / tri_delta_y
-	local tri_projection = rowTopMin + 0.5 - _ptri_p0y
-	local _pflat_triLeftX = _ptri_p0x + _pflat_triLeftGradientX * tri_projection - 0.5
-	local _pflat_triRightX = _ptri_p0x + _pflat_triRightGradientX * tri_projection - 1.5
+	local _pflat_tri_left_gradient_x = (pMx - _ptri_p0x) / tri_delta_y
+	local _pflat_tri_right_gradient_x = (_ptri_p1x - _ptri_p0x) / tri_delta_y
+	local tri_projection = row_top_min + 0.5 - _ptri_p0y
+	local _pflat_tri_left_x = _ptri_p0x + _pflat_tri_left_gradient_x * tri_projection - 0.5
+	local _pflat_tri_right_x = _ptri_p0x + _pflat_tri_right_gradient_x * tri_projection - 1.5
 	-- #marker TOP_HALF_CALCULATIONS
 
-	local _pflat_it_a, _pflat_it_b = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1
+	local _pflat_it_a, _pflat_it_b = row_top_min * fb_width + 1, row_top_max * fb_width + 1
 
 	-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
 end
 
-if rowBottomMin <= rowBottomMax then
+if row_bottom_min <= row_bottom_max then
 	local tri_delta_y = _ptri_p2y - _ptri_p1y
-	local _pflat_triLeftGradientX = (_ptri_p2x - pMx) / tri_delta_y
-	local _pflat_triRightGradientX = (_ptri_p2x - _ptri_p1x) / tri_delta_y
-	local tri_projection = rowBottomMin + 0.5 - _ptri_p1y
-	local _pflat_triLeftX = pMx + _pflat_triLeftGradientX * tri_projection - 0.5
-	local _pflat_triRightX = _ptri_p1x + _pflat_triRightGradientX * tri_projection - 1.5
+	local _pflat_tri_left_gradient_x = (_ptri_p2x - pMx) / tri_delta_y
+	local _pflat_tri_right_gradient_x = (_ptri_p2x - _ptri_p1x) / tri_delta_y
+	local tri_projection = row_bottom_min + 0.5 - _ptri_p1y
+	local _pflat_tri_left_x = pMx + _pflat_tri_left_gradient_x * tri_projection - 0.5
+	local _pflat_tri_right_x = _ptri_p1x + _pflat_tri_right_gradient_x * tri_projection - 1.5
 	-- #marker BOTTOM_HALF_CALCULATIONS
 
-	local _pflat_it_a, _pflat_it_b = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1
+	local _pflat_it_a, _pflat_it_b = row_bottom_min * fb_width + 1, row_bottom_max * fb_width + 1
 
 	-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
 end
 ]]
 
 local RENDER_GEOMETRY_SOURCE = [[
-local uniforms, opt_fragment_shader = ...
+local upvalue_uniforms, upvalue_opt_fragment_shader = ...
 return function(_, geometry, fb, camera)
-	local uniforms = uniforms
-	local opt_fragment_shader = opt_fragment_shader
+	local uniforms = upvalue_uniforms
+	local opt_fragment_shader = upvalue_opt_fragment_shader
 	local math = math
 	local math_sin, math_cos = math.sin, math.cos
 	local math_ceil, math_floor = math.ceil, math.floor
@@ -727,9 +727,11 @@ return function(_, geometry, fb, camera)
 	local vertex_offset = geometry.vertex_offset
 	local face_offset = 0
 
+	-- #marker FRAGMENT_PACKED_PARAMS
+
 	for faceID = 1, math.max(geometry.faces, geometry.vertices / 3) do
 		-- #marker POSITION_ASSIGNMENT
-		-- #marker INTERPOLATE_ASSIGNMENT
+		-- #marker ATTRIBUTE_ASSIGNMENT
 		-- #marker COLOUR_ASSIGNMENT
 		-- #marker INCREMENT_OFFSETS
 
@@ -756,34 +758,18 @@ return function(_, geometry, fb, camera)
 
 			-- TODO: make this split polygons
 			if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-				local p0w = -1 / p0z
-				local p1w = -1 / p1z
-				local p2w = -1 / p2z
-
-				p0x = pxd + p0x * p0w
-				p0y = pyd + p0y * p0w
-				p1x = pxd + p1x * p1w
-				p1y = pyd + p1y * p1w
-				p2x = pxd + p2x * p2w
-				p2y = pyd + p2y * p2w
-
 				uniforms.u_faceID = faceID
 				uniforms.u_face_colour = colour
-				local _ptri_p0x = p0x
-				local _ptri_p0y = p0y
-				local _ptri_p0w = p0w
-				local _ptri_p0u = p0u
-				local _ptri_p0v = p0v
-				local _ptri_p1x = p1x
-				local _ptri_p1y = p1y
-				local _ptri_p1w = p1w
-				local _ptri_p1u = p1u
-				local _ptri_p1v = p1v
-				local _ptri_p2x = p2x
-				local _ptri_p2y = p2y
-				local _ptri_p2w = p2w
-				local _ptri_p2u = p2u
-				local _ptri_p2v = p2v
+				local _ptri_p0w = -1 / p0z
+				local _ptri_p0x = pxd + p0x * _ptri_p0w
+				local _ptri_p0y = pyd + p0y * _ptri_p0w
+				local _ptri_p1w = -1 / p1z
+				local _ptri_p1x = pxd + p1x * _ptri_p1w
+				local _ptri_p1y = pyd + p1y * _ptri_p1w
+				local _ptri_p2w = -1 / p2z
+				local _ptri_p2x = pxd + p2x * _ptri_p2w
+				local _ptri_p2y = pyd + p2y * _ptri_p2w
+				-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT
 				-- #marker RASTERIZE_TRIANGLE_SOURCE
 			end
 		end
@@ -795,7 +781,8 @@ local function create_pipeline(options)
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	local opt_layout = options.layout
 	local opt_position_attribute = options.position_attribute or 'position'
-	local opt_interpolate_attribute = options.interpolate_attribute
+	local opt_interpolate_attributes = options.interpolate_attributes
+	local opt_pack_attributes = options.pack_attributes
 	local opt_colour_attribute = options.colour_attribute
 	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
 	local opt_depth_store = options.depth_store == nil or options.depth_store
@@ -808,6 +795,21 @@ local function create_pipeline(options)
 	local pipeline_source = RENDER_GEOMETRY_SOURCE
 		:gsub('-- #marker RASTERIZE_TRIANGLE_SOURCE', RASTERIZE_TRIANGLE_SOURCE)
 		:gsub('-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE', RASTERIZE_FLAT_TRIANGLE_SOURCE)
+
+	if opt_pack_attributes then -- FRAGMENT_PACKED_PARAMS
+		local fpp = ''
+		for _, attribute in ipairs(opt_interpolate_attributes) do
+			fpp = fpp .. 'local fs_va_params_' .. attribute .. '={}\n'
+		end
+		fpp = fpp .. 'local fs_va_params = {'
+		for _, attribute in ipairs(opt_interpolate_attributes) do
+			fpp = fpp .. attribute .. '=' .. 'fs_va_params_' .. attribute .. ','
+		end
+		fpp = fpp .. '}\n'
+		pipeline_source = pipeline_source:gsub('-- #marker FRAGMENT_PACKED_PARAMS', fpp)
+	else
+		pipeline_source = pipeline_source:gsub('-- #marker FRAGMENT_PACKED_PARAMS', '')
+	end
 
 	do -- opt_pixel_aspect_ratio
 		pipeline_source = pipeline_source:gsub('opt_pixel_aspect_ratio', opt_pixel_aspect_ratio)
@@ -829,19 +831,23 @@ local function create_pipeline(options)
 		)
 	end
 
-	if opt_interpolate_attribute then -- INTERPOLATE_ASSIGNMENT
-		local uv_base_offset = opt_layout:get_attribute(opt_interpolate_attribute).offset
-		pipeline_source = pipeline_source:gsub(
-			'-- #marker INTERPOLATE_ASSIGNMENT',
-			'local p0u=geometry[vertex_offset+' .. (uv_base_offset + 1) .. ']\n' ..
-			'local p0v=geometry[vertex_offset+' .. (uv_base_offset + 2) .. ']\n' ..
-			'local p1u=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride + 1) .. ']\n' ..
-			'local p1v=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride + 2) .. ']\n' ..
-			'local p2u=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride * 2 + 1) .. ']\n' ..
-			'local p2v=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride * 2 + 2) .. ']\n'
-		)
+	if opt_interpolate_attributes then -- ATTRIBUTE_ASSIGNMENT
+		local aa = ''
+
+		for _, attribute in ipairs(opt_interpolate_attributes) do
+			local attr = opt_layout:get_attribute(attribute)
+			local base_offset = attr.offset
+
+			for i = 1, attr.size do
+				aa = aa .. 'local p0_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + i) .. ']\n'
+				        .. 'local p1_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride + i) .. ']\n'
+				        .. 'local p2_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
+			end
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker ATTRIBUTE_ASSIGNMENT', aa)
 	else
-		pipeline_source = pipeline_source:gsub('-- #marker INTERPOLATE_ASSIGNMENT', '')
+		pipeline_source = pipeline_source:gsub('-- #marker ATTRIBUTE_ASSIGNMENT', '')
 	end
 
 	if opt_colour_attribute then -- COLOUR_ASSIGNMENT
@@ -854,7 +860,7 @@ local function create_pipeline(options)
 		pipeline_source = pipeline_source:gsub('-- #marker COLOUR_ASSIGNMENT', 'local colour=1')
 	end
 
-	do -- *_offset
+	do -- INCREMENT_OFFSETS
 		pipeline_source = pipeline_source:gsub(
 			'-- #marker INCREMENT_OFFSETS',
 			'vertex_offset = vertex_offset + ' .. (opt_layout.vertex_stride * 3) .. '\n' ..
@@ -879,40 +885,62 @@ local function create_pipeline(options)
 		pipeline_source = pipeline_source:gsub('-- #marker FACE_CULLING', 'cull_face = false')
 	end
 
-	do -- VERTEX_ORDERING
-		local result
+	if opt_interpolate_attributes then -- RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT
+		local rtvpd = ''
 
-		if opt_interpolate_attribute then
-			result = 'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p0u, _ptri_p0v, _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v = _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v, _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p0u, _ptri_p0v end\n' ..
-			         'if _ptri_p1y > _ptri_p2y then _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v, _ptri_p2x, _ptri_p2y, _ptri_p2w, _ptri_p2u, _ptri_p2v = _ptri_p2x, _ptri_p2y, _ptri_p2w, _ptri_p2u, _ptri_p2v, _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v end\n' ..
-			         'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p0u, _ptri_p0v, _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v = _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p1u, _ptri_p1v, _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p0u, _ptri_p0v end\n'
-		elseif opt_depth_store or opt_depth_test then
-			result = 'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p1x, _ptri_p1y, _ptri_p1w = _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p0x, _ptri_p0y, _ptri_p0w end\n' ..
-			         'if _ptri_p1y > _ptri_p2y then _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p2x, _ptri_p2y, _ptri_p2w = _ptri_p2x, _ptri_p2y, _ptri_p2w, _ptri_p1x, _ptri_p1y, _ptri_p1w end\n' ..
-			         'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p0w, _ptri_p1x, _ptri_p1y, _ptri_p1w = _ptri_p1x, _ptri_p1y, _ptri_p1w, _ptri_p0x, _ptri_p0y, _ptri_p0w end\n'
-		else
-			result = 'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p1x, _ptri_p1y = _ptri_p1x, _ptri_p1y, _ptri_p0x, _ptri_p0y end\n' ..
-			         'if _ptri_p1y > _ptri_p2y then _ptri_p1x, _ptri_p1y, _ptri_p2x, _ptri_p2y = _ptri_p2x, _ptri_p2y, _ptri_p1x, _ptri_p1y end\n' ..
-			         'if _ptri_p0y > _ptri_p1y then _ptri_p0x, _ptri_p0y, _ptri_p1x, _ptri_p1y = _ptri_p1x, _ptri_p1y, _ptri_p0x, _ptri_p0y end\n'
+		for _, attribute in ipairs(opt_interpolate_attributes) do
+			for i = 1, opt_layout:get_attribute(attribute).size do
+				rtvpd = rtvpd .. 'local _ptri_p0_va_' .. attribute .. (i - 1) .. '=p0_va_' .. attribute .. (i - 1) .. '\n'
+				              .. 'local _ptri_p1_va_' .. attribute .. (i - 1) .. '=p1_va_' .. attribute .. (i - 1) .. '\n'
+				              .. 'local _ptri_p2_va_' .. attribute .. (i - 1) .. '=p2_va_' .. attribute .. (i - 1) .. '\n'
+			end
 		end
 
-		pipeline_source = pipeline_source:gsub('-- #marker VERTEX_ORDERING', result)
+		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT', rtvpd)
+	else
+		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT', '')
+	end
+
+	do -- VERTEX_ORDERING
+		local params = '_ptri_pAx,_ptri_pAy,_ptri_pBx,_ptri_pBy'
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			params = params .. ',_ptri_pAw,_ptri_pBw'
+		end
+
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					params = params .. ',_ptri_pA_va_' .. attribute .. (i - 1)
+					                .. ',_ptri_pB_va_' .. attribute .. (i - 1)
+				end
+			end
+		end
+
+		local vo = 'if _ptri_p0y > _ptri_p1y then ' .. params:gsub('A', 0):gsub('B', 1) .. '=' .. params:gsub('A', 1):gsub('B', 0) .. ' end\n'
+		        .. 'if _ptri_p1y > _ptri_p2y then ' .. params:gsub('A', 1):gsub('B', 2) .. '=' .. params:gsub('A', 2):gsub('B', 1) .. ' end\n'
+		        .. 'if _ptri_p0y > _ptri_p1y then ' .. params:gsub('A', 0):gsub('B', 1) .. '=' .. params:gsub('A', 1):gsub('B', 0) .. ' end\n'
+
+		pipeline_source = pipeline_source:gsub('-- #marker VERTEX_ORDERING', vo)
 	end
 
 	do -- MIDPOINT_CALCULATION, MIDPOINT_SWAP
 		local calculation = ''
 		local swap = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
 			calculation = calculation .. 'local pMw = _ptri_p0w * (1 - f) + _ptri_p2w * f\n'
 			swap = swap .. 'pMw, _ptri_p1w = _ptri_p1w, pMw\n'
 		end
 
-		if opt_interpolate_attribute then
-			calculation = calculation .. 'local pMu = (_ptri_p0u * _ptri_p0w * (1 - f) + _ptri_p2u * _ptri_p2w * f) / pMw\n'
-			calculation = calculation .. 'local pMv = (_ptri_p0v * _ptri_p0w * (1 - f) + _ptri_p2v * _ptri_p2w * f) / pMw\n'
-			swap = swap .. 'pMu, _ptri_p1u = _ptri_p1u, pMu\n'
-			swap = swap .. 'pMv, _ptri_p1v = _ptri_p1v, pMv\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					calculation = calculation .. 'local pM_va_' .. s .. ' = (_ptri_p0_va_' ..s .. ' * _ptri_p0w * (1 - f) + _ptri_p2_va_' .. s .. ' * _ptri_p2w * f) / pMw\n'
+					swap = swap .. 'pM_va_' .. s .. ', _ptri_p1_va_' .. s .. ' = _ptri_p1_va_' .. s .. ', pM_va_' .. s .. '\n'
+				end
+			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker MIDPOINT_CALCULATION', calculation)
@@ -920,40 +948,62 @@ local function create_pipeline(options)
 	end
 
 	do -- ROW_CALCULATIONS
-		local calculations = ''
+		local rc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
-			calculations = calculations .. 'local rowTotalDeltaX = _pflat_triRightX - _pflat_triLeftX + 1\n'
-			                            .. 'local rowDeltaW = (_pflat_triRightW - _pflat_triLeftW) / rowTotalDeltaX\n'
-			                            .. 'local rowLeftW = _pflat_triLeftW + (columnMinX - _pflat_triLeftX) * rowDeltaW\n'
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			rc = rc .. 'local row_total_delta_x = _pflat_tri_right_x - _pflat_tri_left_x + 1\n'
+			                            .. 'local row_delta_w = (_pflat_tri_right_w - _pflat_tri_left_w) / row_total_delta_x\n'
+			                            .. 'local row_left_w = _pflat_tri_left_w + (column_min_x - _pflat_tri_left_x) * row_delta_w\n'
 		end
 
-		if opt_interpolate_attribute then
-			calculations = calculations .. 'local rowDeltaU = (_pflat_triRightUW - _pflat_triLeftUW) / rowTotalDeltaX\n'
-			                            .. 'local rowLeftU = _pflat_triLeftUW + (columnMinX - _pflat_triLeftX) * rowDeltaU\n'
-			                            .. 'local rowDeltaV = (_pflat_triRightVW - _pflat_triLeftVW) / rowTotalDeltaX\n'
-			                            .. 'local rowLeftV = _pflat_triLeftVW + (columnMinX - _pflat_triLeftX) * rowDeltaV\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					rc = rc .. 'local row_delta_va_' .. s .. ' = (_pflat_tri_right_va_' .. s .. '_w - _pflat_tri_left_va_' .. s .. '_w) / row_total_delta_x\n'
+					        .. 'local row_left_va_' .. s .. ' = _pflat_tri_left_va_' .. s .. '_w + (column_min_x - _pflat_tri_left_x) * row_delta_va_' .. s .. '\n'
+				end
+			end
 		end
 
-		pipeline_source = pipeline_source:gsub('-- #marker ROW_CALCULATIONS', calculations)
+		pipeline_source = pipeline_source:gsub('-- #marker ROW_CALCULATIONS', rc)
 	end
 
 	do -- PIXEL_DRAW_ADVANCE
 		local pda = ''
 
-		if opt_interpolate_attribute then
-			pda = pda .. 'local u = rowLeftU / rowLeftW\n'
-			          .. 'local v = rowLeftV / rowLeftW\n'
-		else
-			pda = pda .. 'local u, v = 0, 0\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					pda = pda .. 'local fs_p_va_' .. s .. ' = row_left_va_' .. s .. ' / row_left_w\n'
+				end
+			end
 		end
 
 		if opt_depth_test then
-			pda = pda .. 'if rowLeftW > fb_depth[index] then\n'
+			pda = pda .. 'if row_left_w > fb_depth[index] then\n'
 		end
 
 		if opt_fragment_shader then
-			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms, u, v)\n'
+			local fs_va_params = ''
+
+			if opt_pack_attributes then
+				fs_va_params = fs_va_params .. ',fs_va_params'
+				for _, attribute in ipairs(opt_interpolate_attributes) do
+					for i = 1, opt_layout:get_attribute(attribute).size do
+						pda = pda .. 'fs_va_params_' .. attribute .. '[' .. i .. ']=fs_p_va_' .. attribute .. (i - 1) .. '\n'
+					end
+				end
+			else
+				for _, attribute in ipairs(opt_interpolate_attributes) do
+					for i = 1, opt_layout:get_attribute(attribute).size do
+						fs_va_params = fs_va_params .. ',fs_p_va_' .. attribute .. (i - 1)
+					end
+				end
+			end
+
+			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms' .. fs_va_params .. ')\n'
 			          .. 'if fs_colour ~= nil then\n'
 			          .. 'fb_colour[index] = fs_colour\n'
 		else
@@ -961,7 +1011,7 @@ local function create_pipeline(options)
 		end
 
 		if opt_depth_store then
-			pda = pda .. 'fb_depth[index] = rowLeftW\n'
+			pda = pda .. 'fb_depth[index] = row_left_w\n'
 		end
 
 		if opt_fragment_shader then
@@ -972,13 +1022,17 @@ local function create_pipeline(options)
 			pda = pda .. 'end\n'
 		end
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
-			pda = pda .. 'rowLeftW = rowLeftW + rowDeltaW\n'
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			pda = pda .. 'row_left_w = row_left_w + row_delta_w\n'
 		end
 
-		if opt_interpolate_attribute then
-			pda = pda .. 'rowLeftU = rowLeftU + rowDeltaU\n'
-			          .. 'rowLeftV = rowLeftV + rowDeltaV\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					pda = pda .. 'row_left_va_' .. s .. '=row_left_va_' .. s .. ' + row_delta_va_' .. s .. '\n'
+				end
+			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker PIXEL_DRAW_ADVANCE', pda)
@@ -987,16 +1041,19 @@ local function create_pipeline(options)
 	do -- ROW_ADVANCE
 		local ra = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
-			ra = ra .. '_pflat_triLeftW = _pflat_triLeftW + _pflat_triLeftGradientW\n'
-			        .. '_pflat_triRightW = _pflat_triRightW + _pflat_triRightGradientW\n'
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			ra = ra .. '_pflat_tri_left_w = _pflat_tri_left_w + _pflat_tri_left_gradient_w\n'
+			        .. '_pflat_tri_right_w = _pflat_tri_right_w + _pflat_tri_right_gradient_w\n'
 		end
 
-		if opt_interpolate_attribute then
-			ra = ra .. '_pflat_triLeftUW = _pflat_triLeftUW + _pflat_triLeftGradientUW\n'
-			        .. '_pflat_triRightUW = _pflat_triRightUW + _pflat_triRightGradientUW\n'
-			        .. '_pflat_triLeftVW = _pflat_triLeftVW + _pflat_triLeftGradientVW\n'
-			        .. '_pflat_triRightVW = _pflat_triRightVW + _pflat_triRightGradientVW\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					ra = ra .. '_pflat_tri_left_va_' .. s .. '_w = _pflat_tri_left_va_' .. s .. '_w + _pflat_tri_left_gradient_va_' .. s .. '_w\n'
+					        .. '_pflat_tri_right_va_' .. s .. '_w = _pflat_tri_right_va_' .. s .. '_w + _pflat_tri_right_gradient_va_' .. s .. '_w\n'
+				end
+			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker ROW_ADVANCE', ra)
@@ -1005,22 +1062,23 @@ local function create_pipeline(options)
 	do -- TOP_HALF_CALCULATIONS
 		local thc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
-			thc = thc .. 'local _pflat_triLeftGradientW = (pMw - _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientW = (_ptri_p1w - _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftW = _ptri_p0w + _pflat_triLeftGradientW * tri_projection\n'
-			          .. 'local _pflat_triRightW = _ptri_p0w + _pflat_triRightGradientW * tri_projection\n'
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			thc = thc .. 'local _pflat_tri_left_gradient_w = (pMw - _ptri_p0w) / tri_delta_y\n'
+			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p1w - _ptri_p0w) / tri_delta_y\n'
+			          .. 'local _pflat_tri_left_w = _ptri_p0w + _pflat_tri_left_gradient_w * tri_projection\n'
+			          .. 'local _pflat_tri_right_w = _ptri_p0w + _pflat_tri_right_gradient_w * tri_projection\n'
 		end
 
-		if opt_interpolate_attribute then
-			thc = thc .. 'local _pflat_triLeftGradientUW = (pMu * pMw - _ptri_p0u * _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientUW = (_ptri_p1u * _ptri_p1w - _ptri_p0u * _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftGradientVW = (pMv * pMw - _ptri_p0v * _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientVW = (_ptri_p1v * _ptri_p1w - _ptri_p0v * _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftUW = _ptri_p0u * _ptri_p0w + _pflat_triLeftGradientUW * tri_projection\n'
-			          .. 'local _pflat_triRightUW = _ptri_p0u * _ptri_p0w + _pflat_triRightGradientUW * tri_projection\n'
-			          .. 'local _pflat_triLeftVW = _ptri_p0v * _ptri_p0w + _pflat_triLeftGradientVW * tri_projection\n'
-			          .. 'local _pflat_triRightVW = _ptri_p0v * _ptri_p0w + _pflat_triRightGradientVW * tri_projection\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					thc = thc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (pM_va_' .. s .. ' * pMw - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
+					          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p1_va_' .. s .. ' * _ptri_p1w - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
+					          .. 'local _pflat_tri_left_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
+					          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
+				end
+			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker TOP_HALF_CALCULATIONS', thc)
@@ -1029,22 +1087,23 @@ local function create_pipeline(options)
 	do -- BOTTOM_HALF_CALCULATIONS
 		local bhc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
-			bhc = bhc .. 'local _pflat_triLeftGradientW = (_ptri_p2w - pMw) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientW = (_ptri_p2w - _ptri_p1w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftW = pMw + _pflat_triLeftGradientW * tri_projection\n'
-			          .. 'local _pflat_triRightW = _ptri_p1w + _pflat_triRightGradientW * tri_projection\n'
+		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+			bhc = bhc .. 'local _pflat_tri_left_gradient_w = (_ptri_p2w - pMw) / tri_delta_y\n'
+			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p2w - _ptri_p1w) / tri_delta_y\n'
+			          .. 'local _pflat_tri_left_w = pMw + _pflat_tri_left_gradient_w * tri_projection\n'
+			          .. 'local _pflat_tri_right_w = _ptri_p1w + _pflat_tri_right_gradient_w * tri_projection\n'
 		end
 
-		if opt_interpolate_attribute then
-			bhc = bhc .. 'local _pflat_triLeftGradientUW = (_ptri_p2u * _ptri_p2w - pMu * pMw) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientUW = (_ptri_p2u * _ptri_p2w - _ptri_p1u * _ptri_p1w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftGradientVW = (_ptri_p2v * _ptri_p2w - pMv * pMw) / tri_delta_y\n'
-			          .. 'local _pflat_triRightGradientVW = (_ptri_p2v * _ptri_p2w - _ptri_p1v * _ptri_p1w) / tri_delta_y\n'
-			          .. 'local _pflat_triLeftUW = pMu * pMw + _pflat_triLeftGradientUW * tri_projection\n'
-			          .. 'local _pflat_triRightUW = _ptri_p1u * _ptri_p1w + _pflat_triRightGradientUW * tri_projection\n'
-			          .. 'local _pflat_triLeftVW = pMv * pMw + _pflat_triLeftGradientVW * tri_projection\n'
-			          .. 'local _pflat_triRightVW = _ptri_p1v * _ptri_p1w + _pflat_triRightGradientVW * tri_projection\n'
+		if opt_interpolate_attributes then
+			for _, attribute in ipairs(opt_interpolate_attributes) do
+				for i = 1, opt_layout:get_attribute(attribute).size do
+					local s = attribute .. (i - 1)
+					bhc = bhc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - pM_va_' .. s .. ' * pMw) / tri_delta_y\n'
+					          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - _ptri_p1_va_' .. s .. ' * _ptri_p1w) / tri_delta_y\n'
+					          .. 'local _pflat_tri_left_va_' .. s .. '_w = pM_va_' .. s .. ' * pMw + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
+					          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p1_va_' .. s .. ' * _ptri_p1w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
+				end
+			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker BOTTOM_HALF_CALCULATIONS', bhc)
