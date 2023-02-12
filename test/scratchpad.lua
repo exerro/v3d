@@ -9,18 +9,23 @@ local layout = v3d.create_layout()
     :add_attribute('position', 3, 'vertex', true)
     :add_attribute('uv', 2, 'vertex', true)
     :add_attribute('b', 4, 'vertex', true)
+    :add_attribute('face_index', 1, 'face', false)
+    :add_attribute('colour', 1, 'face', false)
     -- :add_attribute('colour', 1, 'face', false)
 local pipeline = v3d.create_pipeline {
     -- cull_face = v3d.CULL_FRONT_FACE,
     -- depth_test = false,
     layout = layout,
     position_attribute = 'position',
-    interpolate_attributes = { 'uv' },
+    attributes = { 'face_index', 'uv', 'colour' },
     pack_attributes = true,
     -- colour_attribute = 'colour',
-    fragment_shader = function(uniforms, va)
+    fragment_shader = function(_, attr)
+        if attr.face_index[1] % 2 == 1 then
+            return attr.colour[1]
+        end
         local index = 1
-        local b = va.uv
+        local b = attr.uv
         for i = 2, 2 do
             if b[i] > b[index] then
                 index = i

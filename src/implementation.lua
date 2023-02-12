@@ -729,7 +729,7 @@ return function(_, geometry, fb, camera)
 
 	-- #marker FRAGMENT_PACKED_PARAMS
 
-	for faceID = 1, math.max(geometry.faces, geometry.vertices / 3) do
+	for _ = 1, geometry.vertices, 3 do
 		-- #marker POSITION_ASSIGNMENT
 		-- #marker ATTRIBUTE_ASSIGNMENT
 		-- #marker COLOUR_ASSIGNMENT
@@ -758,8 +758,6 @@ return function(_, geometry, fb, camera)
 
 			-- TODO: make this split polygons
 			if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-				uniforms.u_faceID = faceID
-				uniforms.u_face_colour = colour
 				local _ptri_p0w = -1 / p0z
 				local _ptri_p0x = pxd + p0x * _ptri_p0w
 				local _ptri_p0y = pyd + p0y * _ptri_p0w
@@ -769,7 +767,7 @@ return function(_, geometry, fb, camera)
 				local _ptri_p2w = -1 / p2z
 				local _ptri_p2x = pxd + p2x * _ptri_p2w
 				local _ptri_p2y = pyd + p2y * _ptri_p2w
-				-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT
+				-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
 				-- #marker RASTERIZE_TRIANGLE_SOURCE
 			end
 		end
@@ -781,16 +779,37 @@ local function create_pipeline(options)
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	local opt_layout = options.layout
 	local opt_position_attribute = options.position_attribute or 'position'
-	local opt_interpolate_attributes = options.interpolate_attributes
-	local opt_pack_attributes = options.pack_attributes
+	local opt_attributes = options.attributes or {}
+	local opt_pack_attributes = options.pack_attributes ~= false
 	local opt_colour_attribute = options.colour_attribute
 	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
-	local opt_depth_store = options.depth_store == nil or options.depth_store
-	local opt_depth_test = options.depth_test == nil or options.depth_test
+	local opt_depth_store = options.depth_store ~= false
+	local opt_depth_test = options.depth_test ~= false
 	local opt_fragment_shader = options.fragment_shader or nil
 
 	local pipeline = {}
 	local uniforms = {}
+
+	local geometry_face_attributes = {}
+	local geometry_vertex_attributes = {}
+	local interpolate_attributes = {}
+	local attributes = {}
+
+	for _, attribute_name in ipairs(opt_attributes) do
+		local attribute = opt_layout:get_attribute(attribute_name)
+		local attr = {}
+		attr.name = attribute.name
+		attr.size = attribute.size
+		attr.type = attribute.type
+
+		if attribute.type == 'vertex' then
+			table.insert(geometry_vertex_attributes, attribute)
+			table.insert(interpolate_attributes, attr)
+		else
+			table.insert(geometry_face_attributes, attribute)
+		end
+		table.insert(attributes, attr)
+	end
 
 	local pipeline_source = RENDER_GEOMETRY_SOURCE
 		:gsub('-- #marker RASTERIZE_TRIANGLE_SOURCE', RASTERIZE_TRIANGLE_SOURCE)
@@ -798,12 +817,12 @@ local function create_pipeline(options)
 
 	if opt_pack_attributes then -- FRAGMENT_PACKED_PARAMS
 		local fpp = ''
-		for _, attribute in ipairs(opt_interpolate_attributes) do
-			fpp = fpp .. 'local fs_va_params_' .. attribute .. '={}\n'
+		for _, attr in ipairs(attributes) do
+			fpp = fpp .. 'local fs_params_' .. attr.name .. '={}\n'
 		end
-		fpp = fpp .. 'local fs_va_params = {'
-		for _, attribute in ipairs(opt_interpolate_attributes) do
-			fpp = fpp .. attribute .. '=' .. 'fs_va_params_' .. attribute .. ','
+		fpp = fpp .. 'local fs_params = {'
+		for _, attr in ipairs(attributes) do
+			fpp = fpp .. attr.name .. '=' .. 'fs_params_' .. attr.name .. ','
 		end
 		fpp = fpp .. '}\n'
 		pipeline_source = pipeline_source:gsub('-- #marker FRAGMENT_PACKED_PARAMS', fpp)
@@ -831,23 +850,33 @@ local function create_pipeline(options)
 		)
 	end
 
-	if opt_interpolate_attributes then -- ATTRIBUTE_ASSIGNMENT
+	do -- ATTRIBUTE_ASSIGNMENT
 		local aa = ''
 
-		for _, attribute in ipairs(opt_interpolate_attributes) do
-			local attr = opt_layout:get_attribute(attribute)
+		for _, attr in ipairs(geometry_vertex_attributes) do
 			local base_offset = attr.offset
 
 			for i = 1, attr.size do
-				aa = aa .. 'local p0_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + i) .. ']\n'
-				        .. 'local p1_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride + i) .. ']\n'
-				        .. 'local p2_va_' .. attribute .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
+				aa = aa .. 'local p0_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + i) .. ']\n'
+				        .. 'local p1_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride + i) .. ']\n'
+				        .. 'local p2_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
+			end
+		end
+
+		for _, attr in ipairs(geometry_face_attributes) do
+			local base_offset = attr.offset
+
+			for i = 1, attr.size do
+				if opt_pack_attributes then
+					aa = aa .. 'fs_params_' .. attr.name .. '[' .. i .. ']'
+				else
+					aa = aa .. 'local fa_' .. attr.name .. (i - 1)
+				end
+				aa = aa .. '=geometry[face_offset+' .. (base_offset + i) .. ']\n'
 			end
 		end
 
 		pipeline_source = pipeline_source:gsub('-- #marker ATTRIBUTE_ASSIGNMENT', aa)
-	else
-		pipeline_source = pipeline_source:gsub('-- #marker ATTRIBUTE_ASSIGNMENT', '')
 	end
 
 	if opt_colour_attribute then -- COLOUR_ASSIGNMENT
@@ -885,35 +914,31 @@ local function create_pipeline(options)
 		pipeline_source = pipeline_source:gsub('-- #marker FACE_CULLING', 'cull_face = false')
 	end
 
-	if opt_interpolate_attributes then -- RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT
+	do -- RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
 		local rtvpd = ''
 
-		for _, attribute in ipairs(opt_interpolate_attributes) do
-			for i = 1, opt_layout:get_attribute(attribute).size do
-				rtvpd = rtvpd .. 'local _ptri_p0_va_' .. attribute .. (i - 1) .. '=p0_va_' .. attribute .. (i - 1) .. '\n'
-				              .. 'local _ptri_p1_va_' .. attribute .. (i - 1) .. '=p1_va_' .. attribute .. (i - 1) .. '\n'
-				              .. 'local _ptri_p2_va_' .. attribute .. (i - 1) .. '=p2_va_' .. attribute .. (i - 1) .. '\n'
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				rtvpd = rtvpd .. 'local _ptri_p0_va_' .. attr.name .. (i - 1) .. '=p0_va_' .. attr.name .. (i - 1) .. '\n'
+				              .. 'local _ptri_p1_va_' .. attr.name .. (i - 1) .. '=p1_va_' .. attr.name .. (i - 1) .. '\n'
+				              .. 'local _ptri_p2_va_' .. attr.name .. (i - 1) .. '=p2_va_' .. attr.name .. (i - 1) .. '\n'
 			end
 		end
 
-		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT', rtvpd)
-	else
-		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_VA_PARAM_DEFAULT', '')
+		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT', rtvpd)
 	end
 
 	do -- VERTEX_ORDERING
 		local params = '_ptri_pAx,_ptri_pAy,_ptri_pBx,_ptri_pBy'
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			params = params .. ',_ptri_pAw,_ptri_pBw'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					params = params .. ',_ptri_pA_va_' .. attribute .. (i - 1)
-					                .. ',_ptri_pB_va_' .. attribute .. (i - 1)
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				params = params .. ',_ptri_pA_va_' .. attr.name .. (i - 1)
+				                .. ',_ptri_pB_va_' .. attr.name .. (i - 1)
 			end
 		end
 
@@ -928,18 +953,16 @@ local function create_pipeline(options)
 		local calculation = ''
 		local swap = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			calculation = calculation .. 'local pMw = _ptri_p0w * (1 - f) + _ptri_p2w * f\n'
 			swap = swap .. 'pMw, _ptri_p1w = _ptri_p1w, pMw\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					calculation = calculation .. 'local pM_va_' .. s .. ' = (_ptri_p0_va_' ..s .. ' * _ptri_p0w * (1 - f) + _ptri_p2_va_' .. s .. ' * _ptri_p2w * f) / pMw\n'
-					swap = swap .. 'pM_va_' .. s .. ', _ptri_p1_va_' .. s .. ' = _ptri_p1_va_' .. s .. ', pM_va_' .. s .. '\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				calculation = calculation .. 'local pM_va_' .. s .. ' = (_ptri_p0_va_' ..s .. ' * _ptri_p0w * (1 - f) + _ptri_p2_va_' .. s .. ' * _ptri_p2w * f) / pMw\n'
+				swap = swap .. 'pM_va_' .. s .. ', _ptri_p1_va_' .. s .. ' = _ptri_p1_va_' .. s .. ', pM_va_' .. s .. '\n'
 			end
 		end
 
@@ -950,19 +973,17 @@ local function create_pipeline(options)
 	do -- ROW_CALCULATIONS
 		local rc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			rc = rc .. 'local row_total_delta_x = _pflat_tri_right_x - _pflat_tri_left_x + 1\n'
-			                            .. 'local row_delta_w = (_pflat_tri_right_w - _pflat_tri_left_w) / row_total_delta_x\n'
-			                            .. 'local row_left_w = _pflat_tri_left_w + (column_min_x - _pflat_tri_left_x) * row_delta_w\n'
+			        .. 'local row_delta_w = (_pflat_tri_right_w - _pflat_tri_left_w) / row_total_delta_x\n'
+			        .. 'local row_left_w = _pflat_tri_left_w + (column_min_x - _pflat_tri_left_x) * row_delta_w\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					rc = rc .. 'local row_delta_va_' .. s .. ' = (_pflat_tri_right_va_' .. s .. '_w - _pflat_tri_left_va_' .. s .. '_w) / row_total_delta_x\n'
-					        .. 'local row_left_va_' .. s .. ' = _pflat_tri_left_va_' .. s .. '_w + (column_min_x - _pflat_tri_left_x) * row_delta_va_' .. s .. '\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				rc = rc .. 'local row_delta_va_' .. s .. ' = (_pflat_tri_right_va_' .. s .. '_w - _pflat_tri_left_va_' .. s .. '_w) / row_total_delta_x\n'
+				        .. 'local row_left_va_' .. s .. ' = _pflat_tri_left_va_' .. s .. '_w + (column_min_x - _pflat_tri_left_x) * row_delta_va_' .. s .. '\n'
 			end
 		end
 
@@ -972,12 +993,10 @@ local function create_pipeline(options)
 	do -- PIXEL_DRAW_ADVANCE
 		local pda = ''
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					pda = pda .. 'local fs_p_va_' .. s .. ' = row_left_va_' .. s .. ' / row_left_w\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				pda = pda .. 'local fs_p_va_' .. s .. ' = row_left_va_' .. s .. ' / row_left_w\n'
 			end
 		end
 
@@ -986,24 +1005,29 @@ local function create_pipeline(options)
 		end
 
 		if opt_fragment_shader then
-			local fs_va_params = ''
+			local fs_params = ''
 
 			if opt_pack_attributes then
-				fs_va_params = fs_va_params .. ',fs_va_params'
-				for _, attribute in ipairs(opt_interpolate_attributes) do
-					for i = 1, opt_layout:get_attribute(attribute).size do
-						pda = pda .. 'fs_va_params_' .. attribute .. '[' .. i .. ']=fs_p_va_' .. attribute .. (i - 1) .. '\n'
+				fs_params = fs_params .. ',fs_params'
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						pda = pda .. 'fs_params_' .. attr.name .. '[' .. i .. ']=fs_p_va_' .. attr.name .. (i - 1) .. '\n'
 					end
 				end
 			else
-				for _, attribute in ipairs(opt_interpolate_attributes) do
-					for i = 1, opt_layout:get_attribute(attribute).size do
-						fs_va_params = fs_va_params .. ',fs_p_va_' .. attribute .. (i - 1)
+				for _, attr in ipairs(attributes) do
+					for i = 1, attr.size do
+						if attr.type == 'vertex' then
+							fs_params = fs_params .. ',fs_p_va_'
+						else
+							fs_params = fs_params .. ',fa_'
+						end
+						fs_params = fs_params .. attr.name .. (i - 1)
 					end
 				end
 			end
 
-			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms' .. fs_va_params .. ')\n'
+			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms' .. fs_params .. ')\n'
 			          .. 'if fs_colour ~= nil then\n'
 			          .. 'fb_colour[index] = fs_colour\n'
 		else
@@ -1022,16 +1046,14 @@ local function create_pipeline(options)
 			pda = pda .. 'end\n'
 		end
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			pda = pda .. 'row_left_w = row_left_w + row_delta_w\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					pda = pda .. 'row_left_va_' .. s .. '=row_left_va_' .. s .. ' + row_delta_va_' .. s .. '\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				pda = pda .. 'row_left_va_' .. s .. '=row_left_va_' .. s .. ' + row_delta_va_' .. s .. '\n'
 			end
 		end
 
@@ -1041,18 +1063,16 @@ local function create_pipeline(options)
 	do -- ROW_ADVANCE
 		local ra = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			ra = ra .. '_pflat_tri_left_w = _pflat_tri_left_w + _pflat_tri_left_gradient_w\n'
 			        .. '_pflat_tri_right_w = _pflat_tri_right_w + _pflat_tri_right_gradient_w\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					ra = ra .. '_pflat_tri_left_va_' .. s .. '_w = _pflat_tri_left_va_' .. s .. '_w + _pflat_tri_left_gradient_va_' .. s .. '_w\n'
-					        .. '_pflat_tri_right_va_' .. s .. '_w = _pflat_tri_right_va_' .. s .. '_w + _pflat_tri_right_gradient_va_' .. s .. '_w\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				ra = ra .. '_pflat_tri_left_va_' .. s .. '_w = _pflat_tri_left_va_' .. s .. '_w + _pflat_tri_left_gradient_va_' .. s .. '_w\n'
+				        .. '_pflat_tri_right_va_' .. s .. '_w = _pflat_tri_right_va_' .. s .. '_w + _pflat_tri_right_gradient_va_' .. s .. '_w\n'
 			end
 		end
 
@@ -1062,22 +1082,20 @@ local function create_pipeline(options)
 	do -- TOP_HALF_CALCULATIONS
 		local thc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			thc = thc .. 'local _pflat_tri_left_gradient_w = (pMw - _ptri_p0w) / tri_delta_y\n'
 			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p1w - _ptri_p0w) / tri_delta_y\n'
 			          .. 'local _pflat_tri_left_w = _ptri_p0w + _pflat_tri_left_gradient_w * tri_projection\n'
 			          .. 'local _pflat_tri_right_w = _ptri_p0w + _pflat_tri_right_gradient_w * tri_projection\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					thc = thc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (pM_va_' .. s .. ' * pMw - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
-					          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p1_va_' .. s .. ' * _ptri_p1w - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
-					          .. 'local _pflat_tri_left_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
-					          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				thc = thc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (pM_va_' .. s .. ' * pMw - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
+				          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p1_va_' .. s .. ' * _ptri_p1w - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
+				          .. 'local _pflat_tri_left_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
+				          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
 			end
 		end
 
@@ -1087,22 +1105,20 @@ local function create_pipeline(options)
 	do -- BOTTOM_HALF_CALCULATIONS
 		local bhc = ''
 
-		if opt_depth_test or opt_depth_store or opt_interpolate_attributes then
+		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
 			bhc = bhc .. 'local _pflat_tri_left_gradient_w = (_ptri_p2w - pMw) / tri_delta_y\n'
 			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p2w - _ptri_p1w) / tri_delta_y\n'
 			          .. 'local _pflat_tri_left_w = pMw + _pflat_tri_left_gradient_w * tri_projection\n'
 			          .. 'local _pflat_tri_right_w = _ptri_p1w + _pflat_tri_right_gradient_w * tri_projection\n'
 		end
 
-		if opt_interpolate_attributes then
-			for _, attribute in ipairs(opt_interpolate_attributes) do
-				for i = 1, opt_layout:get_attribute(attribute).size do
-					local s = attribute .. (i - 1)
-					bhc = bhc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - pM_va_' .. s .. ' * pMw) / tri_delta_y\n'
-					          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - _ptri_p1_va_' .. s .. ' * _ptri_p1w) / tri_delta_y\n'
-					          .. 'local _pflat_tri_left_va_' .. s .. '_w = pM_va_' .. s .. ' * pMw + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
-					          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p1_va_' .. s .. ' * _ptri_p1w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
-				end
+		for _, attr in ipairs(interpolate_attributes) do
+			for i = 1, attr.size do
+				local s = attr.name .. (i - 1)
+				bhc = bhc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - pM_va_' .. s .. ' * pMw) / tri_delta_y\n'
+				          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - _ptri_p1_va_' .. s .. ' * _ptri_p1w) / tri_delta_y\n'
+				          .. 'local _pflat_tri_left_va_' .. s .. '_w = pM_va_' .. s .. ' * pMw + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
+				          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p1_va_' .. s .. ' * _ptri_p1w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
 			end
 		end
 

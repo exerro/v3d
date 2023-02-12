@@ -9,9 +9,6 @@
 
 -- TODO: make V3DLayout immutable
 -- TODO: make V3DLayout and V3DGeometryBuilder be able to rename attributes
--- TODO: allow pipelines to interpolate arbitrary attributes and pass arbitrary
---       face attributes in to fragment shaders by runtime-loading function
---       strings with pipeline-local modifications
 -- TODO: use V3DTransform instead of V3DCamera
 
 
@@ -351,16 +348,10 @@ local V3DPipeline = {}
 
 --- Pseudo-class listing the engine-provided uniform values for shaders.
 --- @class V3DUniforms: { [string]: unknown }
---- Index of the geometry object currently being drawn.
---- @field u_instanceID integer
---- Index of the triangle within the geometry currently being drawn.
---- @field u_faceID integer
---- Colour of the face being drawn, if provided.
---- @field u_face_colour integer | nil
 local V3DUniforms = {}
 
 -- TODO: support returning depth as 2nd param
--- TODO: screen X/Y, depth (new & old)
+-- TODO: screen X/Y, depth (new & old), face index
 --- A fragment shader runs for every pixel being drawn, accepting the
 --- interpolated UV coordinates of that pixel if UV interpolation is enabled in
 --- the pipeline settings.
@@ -389,7 +380,7 @@ local V3DUniforms = {}
 --- Names of the attributes to interpolate values across polygons being drawn.
 --- Only useful when using fragment shaders, and has a slight performance loss
 --- when used. Defaults to `nil`.
---- @field interpolate_attributes string[] | nil
+--- @field attributes string[] | nil
 --- TODO
 --- @field pack_attributes boolean | nil
 --- Specify a face to cull (not draw), or false to disable face culling.

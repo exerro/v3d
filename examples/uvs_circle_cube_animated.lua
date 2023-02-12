@@ -8,7 +8,8 @@ local pipeline = v3d.create_pipeline {
     cull_face = v3d.CULL_FRONT_FACE,
     -- instruct V3D to interpolate the UV values
     -- without this, they will always equal 0
-    interpolate_attributes = { 'uv' },
+	attributes = { 'uv' },
+	pack_attributes = false,
     fragment_shader = function(uniforms, u, v)
         local cx = 0.5 + math.sin(-uniforms.t * 3) * 0.2
         local cy = 0.5 + math.cos(-uniforms.t * 3) * 0.2

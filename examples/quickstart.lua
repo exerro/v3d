@@ -41,7 +41,8 @@ local transparent_pipeline = v3d.create_pipeline {
 	-- ones.
 	cull_face = false,
 	-- Instruct V3D to interpolate UV values for every pixel drawn.
-	interpolate_attributes = { 'uv' },
+	attributes = { 'uv' },
+	pack_attributes = false,
 	-- Provide a texture sampler as the fragment shader for this pipeline - each
 	-- pixel will be drawn by asking the texture sampler for the colour at the
 	-- corresponding UV value in the texture. The texture is set below.
@@ -55,7 +56,8 @@ local effect_pipeline = v3d.create_pipeline {
 	-- Disable face culling for the same reason as above.
 	cull_face = false,
 	-- We need UVs to compute the effect.
-	interpolate_attributes = { 'uv' },
+	attributes = { 'uv' },
+	pack_attributes = false,
 	-- We define the effect in a custom fragment shader.
 	fragment_shader = function(uniforms, u, v)
 		local distance = math.sqrt((u - uniforms.u_centre_x) ^ 2 + (v - uniforms.u_centre_y) ^ 2)

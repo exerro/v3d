@@ -3,22 +3,27 @@ local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
+local layout = v3d.create_layout()
+    :add_attribute('position', 3, 'vertex', true)
+    :add_attribute('uv', 2, 'vertex', true)
+    :add_attribute('face_index', 1, 'face', false)
 local pipeline = v3d.create_pipeline {
-    layout = v3d.UV_LAYOUT,
+    layout = layout,
     cull_face = false,
     -- instruct V3D to interpolate the UV values
     -- without this, they will always equal 0
-    interpolate_attributes = { 'uv' },
-    fragment_shader = function(uniforms, u, v)
+	attributes = { 'uv', 'face_index' },
+	pack_attributes = false,
+    fragment_shader = function(uniforms, u, v, fi)
         if math.sqrt((u - 0.3) ^ 2 + (v - 0.3) ^ 2) % 0.2 < 0.1 then
             -- here, we're not inside the circle, so discard the pixel
             return nil
         end
 
-        return 2 ^ (1 + math.floor(uniforms.u_faceID / 2 + 0.5))
+        return 2 ^ (1 + math.floor(fi / 2))
     end,
 }
-local cube = v3d.create_debug_cube():cast(v3d.UV_LAYOUT):build()
+local cube = v3d.create_debug_cube():cast(layout):build()
 
 while true do
     camera.yRotation = camera.yRotation + 0.04

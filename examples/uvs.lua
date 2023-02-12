@@ -5,7 +5,8 @@ local fb = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera(math.pi / 4)
 local pipeline = v3d.create_pipeline {
 	layout = v3d.UV_LAYOUT,
-	interpolate_attribute = 'uv',
+	attributes = { 'uv' },
+	pack_attributes = false,
 	cull_face = false,
 	fragment_shader = function(_, u, v)
 		return 2 ^ (math.min(math.floor(u * 4), 3) * 4 + math.min(math.floor(v * 4), 3))

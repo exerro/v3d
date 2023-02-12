@@ -36,7 +36,8 @@ local terrain_layout = v3d.create_layout()
 	:add_attribute('colour', 1, 'face', false)
 local terrain_pipeline = v3d.create_pipeline {
 	layout = terrain_layout,
-	interpolate_attributes = { 'uv' },
+	attributes = { 'uv' },
+	pack_attributes = false,
 	fragment_shader = function(_, u, v)
 		local mountain_threshold = MOUNTAIN_SCALER / 3 + u
 		if v > mountain_threshold then
