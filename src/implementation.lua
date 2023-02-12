@@ -352,6 +352,22 @@ local function layout_add_face_attribute(layout, name, size)
 	return layout_add_attribute(layout, name, size, 'face', false)
 end
 
+local function layout_drop_attribute(layout, attribute)
+	if not layout:has_attribute(attribute) then return layout end
+	local attribute_name = attribute.name or attribute
+
+	local new_layout = v3d.create_layout()
+
+	for i = 1, #layout.attributes do
+		local attr = layout.attributes[i]
+		if attr.name ~= attribute_name then
+			new_layout = layout_add_attribute(new_layout, attr.name, attr.size, attr.type, attr.is_numeric)
+		end
+	end
+
+	return new_layout
+end
+
 local function layout_has_attribute(layout, attribute)
 	if type(attribute) == 'table' then
 		local index = layout.attribute_lookup[attribute.name]
@@ -380,6 +396,7 @@ local function create_layout()
 	layout.add_attribute = layout_add_attribute
 	layout.add_vertex_attribute = layout_add_vertex_attribute
 	layout.add_face_attribute = layout_add_face_attribute
+	layout.drop_attribute = layout_drop_attribute
 	layout.has_attribute = layout_has_attribute
 	layout.get_attribute = layout_get_attribute
 

@@ -7,8 +7,8 @@
 -- https://github.com/exerro/v3d/wiki/Installation#build-from-source).
 -- #end
 
--- TODO: make V3DLayout and V3DGeometryBuilder be able to rename attributes
 -- TODO: use V3DTransform instead of V3DCamera
+-- TODO: make V3DGeometryBuilder be able to splice attributes
 
 
 --- @diagnostic disable: missing-return, unused-local
@@ -40,6 +40,7 @@ local v3d = {}
 --- @param width integer
 --- @param height integer
 --- @param label string | nil Optional label for debugging
+--- @nodiscard
 --- @return V3DFramebuffer
 function v3d.create_framebuffer(width, height, label) end
 
@@ -48,15 +49,18 @@ function v3d.create_framebuffer(width, height, label) end
 --- @param width integer
 --- @param height integer
 --- @param label string | nil Optional label for debugging
+--- @nodiscard
 --- @return V3DFramebuffer
 function v3d.create_framebuffer_subpixel(width, height, label) end
 
 --- Create an empty [[@V3DLayout]].
+--- @nodiscard
 --- @return V3DLayout
 function v3d.create_layout() end
 
 --- Create an empty [[@V3DGeometryBuilder]] with the given layout.
 --- @param layout V3DLayout
+--- @nodiscard
 --- @return V3DGeometryBuilder
 function v3d.create_geometry_builder(layout) end
 
@@ -66,6 +70,7 @@ function v3d.create_geometry_builder(layout) end
 --- @param cy number | nil Centre Y coordinate of the cube.
 --- @param cz number | nil Centre Z coordinate of the cube.
 --- @param size number | nil Distance between opposide faces of the cube.
+--- @nodiscard
 --- @return V3DGeometryBuilder
 function v3d.create_debug_cube(cx, cy, cz, size) end
 
@@ -73,6 +78,7 @@ function v3d.create_debug_cube(cx, cy, cz, size) end
 --- degrees.
 --- @param fov number | nil
 --- @param label string | nil Optional label for debugging
+--- @nodiscard
 --- @return V3DCamera
 function v3d.create_camera(fov, label) end
 
@@ -89,6 +95,7 @@ function v3d.create_camera(fov, label) end
 --- ```
 --- @param options V3DPipelineOptions
 --- @param label string | nil Optional label for debugging
+--- @nodiscard
 --- @return V3DPipeline
 function v3d.create_pipeline(options, label) end
 
@@ -97,6 +104,7 @@ function v3d.create_pipeline(options, label) end
 --- @param texture_uniform string | nil TODO
 --- @param width_uniform string | nil TODO
 --- @param height_uniform string | nil TODO
+--- @nodiscard
 --- @return V3DFragmentShader
 function v3d.create_texture_sampler(texture_uniform, width_uniform, height_uniform) end
 
@@ -209,6 +217,12 @@ function V3DLayout:add_vertex_attribute(name, size, is_numeric) end
 --- @nodiscard
 --- @return V3DLayout
 function V3DLayout:add_face_attribute(name, size) end
+
+--- TODO
+--- @param attribute string | V3DLayoutAttribute
+--- @nodiscard
+--- @return V3DLayout
+function V3DLayout:drop_attribute(attribute) end
 
 --- TODO
 --- @param attribute string | V3DLayoutAttribute
