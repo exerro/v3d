@@ -1,29 +1,35 @@
 
 shell.run '/v3d/build'
 
---- @type v3d
 local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local layout = v3d.create_layout()
     :add_attribute('position', 3, 'vertex', true)
-    -- :add_attribute('uv', 2, 'vertex', true)
-    :add_attribute('colour', 1, 'face', false)
+    :add_attribute('uv', 2, 'vertex', true)
+    -- :add_attribute('colour', 1, 'face', false)
 local pipeline = v3d.create_pipeline {
-    cull_face = v3d.CULL_FRONT_FACE,
+    -- cull_face = v3d.CULL_FRONT_FACE,
     -- depth_test = false,
     layout = layout,
     position_attribute = 'position',
-    -- interpolate_attribute = 'uv',
-    colour_attribute = 'colour',
-    -- fragment_shader = function(_, u, v)
-	-- 	return 2 ^ (math.min(math.floor(u * 4), 3) * 4 + math.min(math.floor(v * 4), 3))
-	-- end,
+    interpolate_attribute = 'uv',
+    -- colour_attribute = 'colour',
+    fragment_shader = function(uniforms, u, v)
+        if uniforms.u_faceID % 2 == 1 then
+            return nil
+        end
+		return 2 ^ (math.min(math.floor(u * 4), 3) * 4 + math.min(math.floor(v * 4), 3))
+		-- return colours.red
+	end,
 }
 local h = assert(io.open('/v3d/build/pipeline_source.lua', 'w'))
 h:write(pipeline.source)
 h:close()
+if not pipeline.render_geometry then
+    error(pipeline.source_error)
+end
 local geometry = v3d.create_debug_cube()
     :cast(layout)
     :build()

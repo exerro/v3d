@@ -445,7 +445,7 @@ local function geometry_builder_build(gb, label)
 			geometry.faces = #data / attr.size
 		end
 	end
-	
+
 	geometry.vertex_offset = layout.face_stride * geometry.faces
 
 	for i = 1, #layout.attributes do
@@ -482,7 +482,7 @@ local function create_geometry_builder(layout)
 
 	gb.layout = layout
 	gb.attribute_data = {}
-	
+
 	gb.set_data = geometry_builder_set_data
 	gb.append_data = geometry_builder_append_data
 	gb.map = geometry_builder_map
@@ -609,294 +609,20 @@ end
 --------------------------------------------------------------------------------
 
 
--- #section depth_test depth_store interpolate_uvs enable_fs
-local function rasterize_triangle(
-	fb_colour, fb_depth,
-	fb_width, fb_height_m1,
-	p0x, p0y, p0w, p0u, p0v,
-	p1x, p1y, p1w, p1u, p1v,
-	p2x, p2y, p2w, p2u, p2v,
-	fixed_colour,
-	fragment_shader, pipeline_uniforms)
-	local math_ceil = math.ceil
-	local math_floor = math.floor
-	local fb_width_m1 = fb_width - 1
-
-	-- see: https://github.com/exerro/v3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
-	-- there's an explanation of the algorithm there
-	-- this code has been heavily microoptimised so won't perfectly resemble that
-	-- this has also had depth testing and UV interpolation added in, so good
-	-- luck understanding anything here :/
-
-	-- #if depth_test depth_store interpolate_uvs
-	-- #if interpolate_uvs
-	if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end
-	if p1y > p2y then p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v = p2x, p2y, p2w, p2u, p2v, p1x, p1y, p1w, p1u, p1v end
-	if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end
-	-- #else
-	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
-	if p1y > p2y then p1x, p1y, p1w, p2x, p2y, p2w = p2x, p2y, p2w, p1x, p1y, p1w end
-	if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end
-	-- #end
-	-- #else
-	if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end
-	if p1y > p2y then p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y end
-	if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end
-	-- #end
-	if p0y == p2y then return end -- skip early if we have a perfectly flat triangle
-
-	local f = (p1y - p0y) / (p2y - p0y)
-	local pMx = p0x * (1 - f) + p2x * f
-	-- #if depth_test depth_store interpolate_uvs
-	local pMw = p0w * (1 - f) + p2w * f
-	-- #end
-	-- #if interpolate_uvs
-	local pMu = (p0u * p0w * (1 - f) + p2u * p2w * f) / pMw
-	local pMv = (p0v * p0w * (1 - f) + p2v * p2w * f) / pMw
-	-- #end
-
-	if pMx > p1x then
-		pMx, p1x = p1x, pMx
-		-- #if depth_test depth_store interpolate_uvs
-		pMw, p1w = p1w, pMw
-		-- #end
-		-- #if interpolate_uvs
-		pMu, p1u = p1u, pMu
-		pMv, p1v = p1v, pMv
-		-- #end
-	end
-
-	local rowTopMin = math_floor(p0y + 0.5)
-	local rowBottomMin = math_floor(p1y + 0.5)
-	local rowTopMax = rowBottomMin - 1
-	local rowBottomMax = math_ceil(p2y - 0.5)
-
-	if rowTopMin < 0 then rowTopMin = 0 end
-	if rowBottomMin < 0 then rowBottomMin = 0 end
-	if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
-	if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
-
-	local function rasterise_flat_triangle(
-		triLeftGradientX, triRightGradientX,
-		triLeftGradientW, triRightGradientW,
-		triLeftGradientUW, triRightGradientUW,
-		triLeftGradientVW, triRightGradientVW,
-		triLeftX, triRightX,
-		triLeftW, triRightW,
-		triLeftUW, triRightUW,
-		triLeftVW, triRightVW,
-		it_a, it_b
-	)
-		for baseIndex = it_a, it_b, fb_width do
-			local columnMinX = math_ceil(triLeftX)
-			local columnMaxX = math_ceil(triRightX)
-			-- #if depth_test depth_store interpolate_uvs
-			local rowTotalDeltaX = triRightX - triLeftX + 1 -- 'cause of awkward optimisations above
-			local rowDeltaW = (triRightW - triLeftW) / rowTotalDeltaX
-			local rowLeftW = triLeftW + (columnMinX - triLeftX) * rowDeltaW
-			-- #end
-			-- #if interpolate_uvs
-			local rowDeltaU = (triRightUW - triLeftUW) / rowTotalDeltaX
-			local rowLeftU = triLeftUW + (columnMinX - triLeftX) * rowDeltaU
-			local rowDeltaV = (triRightVW - triLeftVW) / rowTotalDeltaX
-			local rowLeftV = triLeftVW + (columnMinX - triLeftX) * rowDeltaV
-			-- #end
-
-			if columnMinX < 0 then columnMinX = 0 end
-			if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
-
-			for x = columnMinX, columnMaxX do
-				local index = baseIndex + x
-
-				local u, v = 0, 0
-				-- #if interpolate_uvs
-				u = rowLeftU / rowLeftW
-				v = rowLeftV / rowLeftW
-				-- #end
-
-				-- #if depth_test
-				if rowLeftW > fb_depth[index] then
-					-- #if enable_fs
-					local fs_colour = fragment_shader(pipeline_uniforms, u, v)
-					if fs_colour ~= nil then
-						fb_colour[index] = fs_colour
-						-- #if depth_store
-						fb_depth[index] = rowLeftW
-						-- #end
-					end
-					-- #else
-					fb_colour[index] = fixed_colour
-					-- #if depth_store
-					fb_depth[index] = rowLeftW
-					-- #end
-					-- #end
-				end
-				-- #else
-				-- #if enable_fs
-				local fs_colour = fragment_shader(pipeline_uniforms, 0, 0)
-				if fs_colour ~= 0 then
-					fb_colour[index] = fs_colour
-					-- #if depth_store
-					fb_depth[index] = rowLeftW
-					-- #end
-				end
-				-- #else
-				fb_colour[index] = fixed_colour
-				-- #if depth_store
-				fb_depth[index] = rowLeftW
-				-- #end
-				-- #end
-				-- #end
-
-				-- #if depth_test depth_store interpolate_uvs
-				rowLeftW = rowLeftW + rowDeltaW
-				-- #end
-				-- #if interpolate_uvs
-				rowLeftU = rowLeftU + rowDeltaU
-				rowLeftV = rowLeftV + rowDeltaV
-				-- #end
-			end
-
-			triLeftX = triLeftX + triLeftGradientX
-			triRightX = triRightX + triRightGradientX
-			-- #if depth_test depth_store interpolate_uvs
-			triLeftW = triLeftW + triLeftGradientW
-			triRightW = triRightW + triRightGradientW
-			-- #end
-			-- #if interpolate_uvs
-			triLeftUW = triLeftUW + triLeftGradientUW
-			triRightUW = triRightUW + triRightGradientUW
-			triLeftVW = triLeftVW + triLeftGradientVW
-			triRightVW = triRightVW + triRightGradientVW
-			-- #end
-		end
-	end
-
-	if rowTopMin <= rowTopMax then
-		local triDeltaY = p1y - p0y
-		local triLeftGradientX = (pMx - p0x) / triDeltaY
-		local triRightGradientX = (p1x - p0x) / triDeltaY
-		local triLeftGradientW, triRightGradientW
-		-- #if depth_test depth_store interpolate_uvs
-		triLeftGradientW = (pMw - p0w) / triDeltaY
-		triRightGradientW = (p1w - p0w) / triDeltaY
-		-- #end
-		local triLeftGradientUW, triRightGradientUW
-		local triLeftGradientVW, triRightGradientVW
-		-- #if interpolate_uvs
-		triLeftGradientUW = (pMu * pMw - p0u * p0w) / triDeltaY
-		triRightGradientUW = (p1u * p1w - p0u * p0w) / triDeltaY
-		triLeftGradientVW = (pMv * pMw - p0v * p0w) / triDeltaY
-		triRightGradientVW = (p1v * p1w - p0v * p0w) / triDeltaY
-		-- #end
-
-		local triProjection = rowTopMin + 0.5 - p0y
-		local triLeftX = p0x + triLeftGradientX * triProjection - 0.5
-		local triRightX = p0x + triRightGradientX * triProjection - 1.5
-		local triLeftW, triRightW
-		-- #if depth_test depth_store interpolate_uvs
-		triLeftW = p0w + triLeftGradientW * triProjection
-		triRightW = p0w + triRightGradientW * triProjection
-		-- #end
-		local triLeftUW, triRightUW
-		local triLeftVW, triRightVW
-		-- #if interpolate_uvs
-		triLeftUW = p0u * p0w + triLeftGradientUW * triProjection
-		triRightUW = p0u * p0w + triRightGradientUW * triProjection
-		triLeftVW = p0v * p0w + triLeftGradientVW * triProjection
-		triRightVW = p0v * p0w + triRightGradientVW * triProjection
-		-- #end
-
-		local it_a, it_b = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1
-
-		rasterise_flat_triangle(
-			triLeftGradientX, triRightGradientX,
-			triLeftGradientW, triRightGradientW,
-			triLeftGradientUW, triRightGradientUW,
-			triLeftGradientVW, triRightGradientVW,
-			triLeftX, triRightX,
-			triLeftW, triRightW,
-			triLeftUW, triRightUW,
-			triLeftVW, triRightVW,
-			it_a, it_b)
-	end
-
-	if rowBottomMin <= rowBottomMax then
-		local triDeltaY = p2y - p1y
-		local triLeftGradientX = (p2x - pMx) / triDeltaY
-		local triRightGradientX = (p2x - p1x) / triDeltaY
-		local triLeftGradientW, triRightGradientW
-		-- #if depth_test depth_store interpolate_uvs
-		triLeftGradientW = (p2w - pMw) / triDeltaY
-		triRightGradientW = (p2w - p1w) / triDeltaY
-		-- #end
-		local triLeftGradientUW, triRightGradientUW
-		local triLeftGradientVW, triRightGradientVW
-		-- #if interpolate_uvs
-		triLeftGradientUW = (p2u * p2w - pMu * pMw) / triDeltaY
-		triRightGradientUW = (p2u * p2w - p1u * p1w) / triDeltaY
-		triLeftGradientVW = (p2v * p2w - pMv * pMw) / triDeltaY
-		triRightGradientVW = (p2v * p2w - p1v * p1w) / triDeltaY
-		-- #end
-
-		local triProjection = rowBottomMin + 0.5 - p1y
-		local triLeftX = pMx + triLeftGradientX * triProjection - 0.5
-		local triRightX = p1x + triRightGradientX * triProjection - 1.5
-		local triLeftW, triRightW
-		-- #if depth_test depth_store interpolate_uvs
-		triLeftW = pMw + triLeftGradientW * triProjection
-		triRightW = p1w + triRightGradientW * triProjection
-		-- #end
-		local triLeftUW, triRightUW
-		local triLeftVW, triRightVW
-		-- #if interpolate_uvs
-		triLeftUW = pMu * pMw + triLeftGradientUW * triProjection
-		triRightUW = p1u * p1w + triRightGradientUW * triProjection
-		triLeftVW = pMv * pMw + triLeftGradientVW * triProjection
-		triRightVW = p1v * p1w + triRightGradientVW * triProjection
-		-- #end
-
-		local it_a, it_b = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1
-
-		rasterise_flat_triangle(
-			triLeftGradientX, triRightGradientX,
-			triLeftGradientW, triRightGradientW,
-			triLeftGradientUW, triRightGradientUW,
-			triLeftGradientVW, triRightGradientVW,
-			triLeftX, triRightX,
-			triLeftW, triRightW,
-			triLeftUW, triRightUW,
-			triLeftVW, triRightVW,
-			it_a, it_b)
-	end
-end
--- #endsection
-
 local create_render_geometry_source
 -- #quote
 local function create_render_geometry(
 	uniforms,
-	opt_pixel_aspect_ratio,
-	opt_layout,
-	opt_colour_attribute,
-	opt_cull_face,
-	opt_depth_store,
-	opt_depth_test,
-	opt_fragment_shader,
-	rasterize_triangle_fn
+	opt_fragment_shader
 )
-	local vertex_stride = opt_layout.vertex_stride
-	local face_stride = opt_layout.face_stride
-	local colour_local_offset = opt_colour_attribute and opt_layout:get_attribute(opt_colour_attribute).offset or 0
-
+	local opt_pixel_aspect_ratio -- inlined during codegen
 	return function(_, geometry, fb, camera)
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
 		local pxs = pyd
 		local pys = -pyd
-		local fb_colour, fb_width = fb.colour, fb.width
-		local fb_depth = fb.depth
+		local fb_colour, fb_depth, fb_width = fb.colour, fb.depth, fb.width
 		local fb_height_m1 = fb.height - 1
 		local math_sin, math_cos = math.sin, math.cos
 
@@ -912,12 +638,12 @@ local function create_render_geometry(
 		scale_x = scale_x * pxs
 		scale_y = scale_y * pys
 
-		local fxx = cosY*cosZ+sinX*sinY*sinZ
-		local fxy = cosX*sinZ
-		local fxz = -sinY*cosZ + sinX*cosY*sinZ
-		local fyx = -cosY*sinZ + sinX*sinY*cosZ
-		local fyy = cosX*cosZ
-		local fyz = sinY*sinZ + sinX*cosY*cosZ
+		local fxx = (cosY*cosZ+sinX*sinY*sinZ)*scale_x
+		local fxy = (cosX*sinZ)*scale_x
+		local fxz = (-sinY*cosZ + sinX*cosY*sinZ)*scale_x
+		local fyx = (-cosY*sinZ + sinX*sinY*cosZ)*scale_y
+		local fyy = (cosX*cosZ)*scale_y
+		local fyz = (sinY*sinZ + sinX*cosY*cosZ)*scale_y
 		local fzx = cosX*sinY
 		local fzy = -sinX
 		local fzz = cosX*cosY
@@ -925,48 +651,169 @@ local function create_render_geometry(
 		local fdy = -camera.y
 		local fdz = -camera.z
 
+		-- these are used by code inserted with the `-- #marker` sections
+		--- @diagnostic disable-next-line: unused-local
 		local vertex_offset = geometry.vertex_offset
-		local vertex_offset_limit = vertex_offset + vertex_stride * geometry.vertices
-		local colour_index = colour_local_offset + 1
-		local faceID = 0
-		
+		--- @diagnostic disable-next-line: unused-local
+		local face_offset = 0
+
 		local p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z
 		local p0u, p0v, p1u, p1v, p2u, p2v
-		local p0vs, p1vs, p2vs = {}, {}, {}
 		local colour
 
-		while vertex_offset < vertex_offset_limit do
-			faceID = faceID + 1
+		local math = math
+		local function rasterize_triangle(
+			p0x, p0y, p0w, p0u, p0v,
+			p1x, p1y, p1w, p1u, p1v,
+			p2x, p2y, p2w, p2u, p2v)
+			-- localising upvalues results in a slight performance gain
+			local fb_colour = fb_colour
+			local fb_depth = fb_depth
+			local fb_width = fb_width
+			local fb_height_m1 = fb_height_m1
+			local uniforms = uniforms
+			local opt_fragment_shader = opt_fragment_shader
+			local math_ceil = math.ceil
+			local math_floor = math.floor
+			local fb_width_m1 = fb_width - 1
 
-			-- #marker POSITION_ASSIGNMENT
-			-- #marker INTERPOLATE_ASSIGNMENT
+			-- see: https://github.com/exerro/v3d/blob/main/raster_visuals/src/main/kotlin/me/exerro/raster_visuals/rasterize.kt
+			-- there's an explanation of the algorithm there
+			-- this code has been heavily microoptimised so won't perfectly resemble that
+			-- this has also had depth testing and UV interpolation added in, so good
+			-- luck understanding anything here :/
 
-			if opt_colour_attribute then
-				colour = geometry[colour_index]
-				colour_index = colour_index + face_stride
+			-- #marker VERTEX_ORDERING
+			if p0y == p2y then return end -- skip early if we have a perfectly flat triangle
+
+			local f = (p1y - p0y) / (p2y - p0y)
+			local pMx = p0x * (1 - f) + p2x * f
+
+			-- #marker MIDPOINT_CALCULATION
+
+			if pMx > p1x then
+				pMx, p1x = p1x, pMx
+				-- #marker MIDPOINT_SWAP
 			end
 
-			vertex_offset = vertex_offset + vertex_stride * 3
+			local rowTopMin = math_floor(p0y + 0.5)
+			local rowBottomMin = math_floor(p1y + 0.5)
+			local rowTopMax = rowBottomMin - 1
+			local rowBottomMax = math_ceil(p2y - 0.5)
+
+			if rowTopMin < 0 then rowTopMin = 0 end
+			if rowBottomMin < 0 then rowBottomMin = 0 end
+			if rowTopMax > fb_height_m1 then rowTopMax = fb_height_m1 end
+			if rowBottomMax > fb_height_m1 then rowBottomMax = fb_height_m1 end
+
+			local function rasterize_flat_triangle(
+				triLeftGradientX, triRightGradientX,
+				triLeftGradientW, triRightGradientW,
+				triLeftGradientUW, triRightGradientUW,
+				triLeftGradientVW, triRightGradientVW,
+				triLeftX, triRightX,
+				triLeftW, triRightW,
+				triLeftUW, triRightUW,
+				triLeftVW, triRightVW,
+				it_a, it_b
+			)
+				-- localising upvalues results in a slight performance gain
+				--- @diagnostic disable-next-line: unused-local
+				local colour = colour
+				for baseIndex = it_a, it_b, fb_width do
+					local columnMinX = math_ceil(triLeftX)
+					local columnMaxX = math_ceil(triRightX)
+
+					-- #marker ROW_CALCULATIONS
+
+					if columnMinX < 0 then columnMinX = 0 end
+					if columnMaxX > fb_width_m1 then columnMaxX = fb_width_m1 end
+
+					for x = columnMinX, columnMaxX do
+						--- @diagnostic disable-next-line: unused-local
+						local index = baseIndex + x
+						-- #marker PIXEL_DRAW_ADVANCE
+					end
+
+					triLeftX = triLeftX + triLeftGradientX
+					triRightX = triRightX + triRightGradientX
+					-- #marker ROW_ADVANCE
+				end
+			end
+
+			if rowTopMin <= rowTopMax then
+				local triDeltaY = p1y - p0y
+				local triLeftGradientX = (pMx - p0x) / triDeltaY
+				local triRightGradientX = (p1x - p0x) / triDeltaY
+				local triLeftGradientW, triRightGradientW
+				local triProjection = rowTopMin + 0.5 - p0y
+				local triLeftX = p0x + triLeftGradientX * triProjection - 0.5
+				local triRightX = p0x + triRightGradientX * triProjection - 1.5
+				local triLeftW, triRightW
+				local triLeftGradientUW, triRightGradientUW
+				local triLeftGradientVW, triRightGradientVW
+				local triLeftUW, triRightUW
+				local triLeftVW, triRightVW
+				-- #marker TOP_HALF_CALCULATIONS
+
+				local it_a, it_b = rowTopMin * fb_width + 1, rowTopMax * fb_width + 1
+
+				rasterize_flat_triangle(
+					triLeftGradientX, triRightGradientX,
+					triLeftGradientW, triRightGradientW,
+					triLeftGradientUW, triRightGradientUW,
+					triLeftGradientVW, triRightGradientVW,
+					triLeftX, triRightX,
+					triLeftW, triRightW,
+					triLeftUW, triRightUW,
+					triLeftVW, triRightVW,
+					it_a, it_b)
+			end
+
+			if rowBottomMin <= rowBottomMax then
+				local triDeltaY = p2y - p1y
+				local triLeftGradientX = (p2x - pMx) / triDeltaY
+				local triRightGradientX = (p2x - p1x) / triDeltaY
+				local triLeftGradientW, triRightGradientW
+				local triProjection = rowBottomMin + 0.5 - p1y
+				local triLeftX = pMx + triLeftGradientX * triProjection - 0.5
+				local triRightX = p1x + triRightGradientX * triProjection - 1.5
+				local triLeftW, triRightW
+				local triLeftGradientUW, triRightGradientUW
+				local triLeftGradientVW, triRightGradientVW
+				local triLeftUW, triRightUW
+				local triLeftVW, triRightVW
+				-- #marker BOTTOM_HALF_CALCULATIONS
+
+				local it_a, it_b = rowBottomMin * fb_width + 1, rowBottomMax * fb_width + 1
+
+				rasterize_flat_triangle(
+					triLeftGradientX, triRightGradientX,
+					triLeftGradientW, triRightGradientW,
+					triLeftGradientUW, triRightGradientUW,
+					triLeftGradientVW, triRightGradientVW,
+					triLeftX, triRightX,
+					triLeftW, triRightW,
+					triLeftUW, triRightUW,
+					triLeftVW, triRightVW,
+					it_a, it_b)
+			end
+		end
+
+		for faceID = 1, math.max(geometry.faces, geometry.vertices / 3) do
+			-- #marker POSITION_ASSIGNMENT
+			-- #marker INTERPOLATE_ASSIGNMENT
+			-- #marker COLOUR_ASSIGNMENT
+
+			-- #marker INCREMENT_OFFSETS
 
 			p0x = p0x + fdx; p0y = p0y + fdy; p0z = p0z + fdz
 			p1x = p1x + fdx; p1y = p1y + fdy; p1z = p1z + fdz
 			p2x = p2x + fdx; p2y = p2y + fdy; p2z = p2z + fdz
 
-			local cull_face = false
+			local cull_face
 
-			if opt_cull_face then
-				local d1x = p1x - p0x
-				local d1y = p1y - p0y
-				local d1z = p1z - p0z
-				local d2x = p2x - p0x
-				local d2y = p2y - p0y
-				local d2z = p2z - p0z
-				local cx = d1y*d2z - d1z*d2y
-				local cy = d1z*d2x - d1x*d2z
-				local cz = d1x*d2y - d1y*d2x
-				local d = cx * p0x + cy * p0y + cz * p0z
-				cull_face = d * opt_cull_face > 0
-			end
+			-- #marker FACE_CULLING
 
 			if not cull_face then
 				p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
@@ -987,16 +834,16 @@ local function create_render_geometry(
 					local p1w = -1 / p1z
 					local p2w = -1 / p2z
 
-					p0x = pxd + p0x * scale_x * p0w
-					p0y = pyd + p0y * scale_y * p0w
-					p1x = pxd + p1x * scale_x * p1w
-					p1y = pyd + p1y * scale_y * p1w
-					p2x = pxd + p2x * scale_x * p2w
-					p2y = pyd + p2y * scale_y * p2w
+					p0x = pxd + p0x * p0w
+					p0y = pyd + p0y * p0w
+					p1x = pxd + p1x * p1w
+					p1y = pyd + p1y * p1w
+					p2x = pxd + p2x * p2w
+					p2y = pyd + p2y * p2w
 
 					uniforms.u_faceID = faceID
 					uniforms.u_face_colour = colour
-					rasterize_triangle_fn(fb_colour, fb_depth, fb_width, fb_height_m1, p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v, colour, opt_fragment_shader, uniforms)
+					rasterize_triangle(p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v)
 				end
 			end
 		end
@@ -1019,13 +866,6 @@ local function create_pipeline(options)
 	local opt_depth_test = options.depth_test == nil or options.depth_test
 	local opt_fragment_shader = options.fragment_shader or nil
 
-	local rasterize_triangle_fn = rasterize_triangle
-	-- #select rasterize_triangle_fn rasterize_triangle
-	-- #select-param depth_test opt_depth_test
-	-- #select-param depth_store opt_depth_store
-	-- #select-param interpolate_uvs opt_interpolate_attribute
-	-- #select-param enable_fs opt_fragment_shader
-
 	local pipeline = {}
 	local uniforms = {}
 
@@ -1034,7 +874,12 @@ local function create_pipeline(options)
 	-- #end
 	local pipeline_source = create_render_geometry_source
 
-	do
+	do -- opt_pixel_aspect_ratio
+		pipeline_source = pipeline_source:gsub('local opt_pixel_aspect_ratio', '')
+		pipeline_source = pipeline_source:gsub('opt_pixel_aspect_ratio', opt_pixel_aspect_ratio)
+	end
+
+	do -- opt_position_attribute
 		local position_base_offset = opt_layout:get_attribute(opt_position_attribute).offset
 		pipeline_source = pipeline_source:gsub(
 			'-- #marker POSITION_ASSIGNMENT',
@@ -1065,19 +910,218 @@ local function create_pipeline(options)
 		pipeline_source = pipeline_source:gsub('-- #marker INTERPOLATE_ASSIGNMENT', '')
 	end
 
-	pipeline.source = pipeline_source
+	if opt_colour_attribute then
+		local colour_base_offset = opt_layout:get_attribute(opt_colour_attribute).offset
+		pipeline_source = pipeline_source:gsub(
+			'-- #marker COLOUR_ASSIGNMENT',
+			'colour=geometry[face_offset+' .. (colour_base_offset + 1) .. ']\n'
+		)
+	else
+		pipeline_source = pipeline_source:gsub('-- #marker COLOUR_ASSIGNMENT', 'colour=1')
+	end
 
-	pipeline.render_geometry = assert(load(pipeline_source, 'pipeline source'))(
-		uniforms,
-		opt_pixel_aspect_ratio,
-		opt_layout,
-		opt_colour_attribute,
-		opt_cull_face,
-		opt_depth_store,
-		opt_depth_test,
-		opt_fragment_shader,
-		rasterize_triangle_fn
-	)
+	do -- *_offset
+		pipeline_source = pipeline_source:gsub(
+			'-- #marker INCREMENT_OFFSETS',
+			'vertex_offset = vertex_offset + ' .. (opt_layout.vertex_stride * 3) .. '\n' ..
+			'face_offset = face_offset + ' .. opt_layout.face_stride)
+	end
+
+	if opt_cull_face then
+		pipeline_source = pipeline_source:gsub(
+			'-- #marker FACE_CULLING',
+			'local d1x = p1x - p0x\n' ..
+			'local d1y = p1y - p0y\n' ..
+			'local d1z = p1z - p0z\n' ..
+			'local d2x = p2x - p0x\n' ..
+			'local d2y = p2y - p0y\n' ..
+			'local d2z = p2z - p0z\n' ..
+			'local cx = d1y*d2z - d1z*d2y\n' ..
+			'local cy = d1z*d2x - d1x*d2z\n' ..
+			'local cz = d1x*d2y - d1y*d2x\n' ..
+			'local d = cx * p0x + cy * p0y + cz * p0z\n' ..
+			'cull_face = d * ' .. opt_cull_face .. ' > 0\n')
+	else
+		pipeline_source = pipeline_source:gsub('-- #marker FACE_CULLING', 'cull_face = false')
+	end
+
+	do -- VERTEX_ORDERING
+		local result
+
+		if opt_interpolate_attribute then
+			result = 'if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end\n' ..
+			         'if p1y > p2y then p1x, p1y, p1w, p1u, p1v, p2x, p2y, p2w, p2u, p2v = p2x, p2y, p2w, p2u, p2v, p1x, p1y, p1w, p1u, p1v end\n' ..
+			         'if p0y > p1y then p0x, p0y, p0w, p0u, p0v, p1x, p1y, p1w, p1u, p1v = p1x, p1y, p1w, p1u, p1v, p0x, p0y, p0w, p0u, p0v end\n'
+		elseif opt_depth_store or opt_depth_test then
+			result = 'if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end\n' ..
+			         'if p1y > p2y then p1x, p1y, p1w, p2x, p2y, p2w = p2x, p2y, p2w, p1x, p1y, p1w end\n' ..
+			         'if p0y > p1y then p0x, p0y, p0w, p1x, p1y, p1w = p1x, p1y, p1w, p0x, p0y, p0w end\n'
+		else
+			result = 'if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end\n' ..
+			         'if p1y > p2y then p1x, p1y, p2x, p2y = p2x, p2y, p1x, p1y end\n' ..
+			         'if p0y > p1y then p0x, p0y, p1x, p1y = p1x, p1y, p0x, p0y end\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker VERTEX_ORDERING', result)
+	end
+
+	do -- MIDPOINT_CALCULATION, MIDPOINT_SWAP
+		local calculation = ''
+		local swap = ''
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			calculation = calculation .. 'local pMw = p0w * (1 - f) + p2w * f\n'
+			swap = swap .. 'pMw, p1w = p1w, pMw\n'
+		end
+
+		if opt_interpolate_attribute then
+			calculation = calculation .. 'local pMu = (p0u * p0w * (1 - f) + p2u * p2w * f) / pMw\n'
+			calculation = calculation .. 'local pMv = (p0v * p0w * (1 - f) + p2v * p2w * f) / pMw\n'
+			swap = swap .. 'pMu, p1u = p1u, pMu\n'
+			swap = swap .. 'pMv, p1v = p1v, pMv\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker MIDPOINT_CALCULATION', calculation)
+		                                 :gsub('-- #marker MIDPOINT_SWAP', swap)
+	end
+
+	do -- ROW_CALCULATIONS
+		local calculations = ''
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			calculations = calculations .. 'local rowTotalDeltaX = triRightX - triLeftX + 1\n'
+			                            .. 'local rowDeltaW = (triRightW - triLeftW) / rowTotalDeltaX\n'
+			                            .. 'local rowLeftW = triLeftW + (columnMinX - triLeftX) * rowDeltaW\n'
+		end
+
+		if opt_interpolate_attribute then
+			calculations = calculations .. 'local rowDeltaU = (triRightUW - triLeftUW) / rowTotalDeltaX\n'
+			                            .. 'local rowLeftU = triLeftUW + (columnMinX - triLeftX) * rowDeltaU\n'
+			                            .. 'local rowDeltaV = (triRightVW - triLeftVW) / rowTotalDeltaX\n'
+			                            .. 'local rowLeftV = triLeftVW + (columnMinX - triLeftX) * rowDeltaV\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker ROW_CALCULATIONS', calculations)
+	end
+
+	do -- PIXEL_DRAW_ADVANCE
+		local pda = ''
+
+		if opt_interpolate_attribute then
+			pda = pda .. 'local u = rowLeftU / rowLeftW\n'
+			          .. 'local v = rowLeftV / rowLeftW\n'
+		else
+			pda = pda .. 'local u, v = 0, 0\n'
+		end
+
+		if opt_depth_test then
+			pda = pda .. 'if rowLeftW > fb_depth[index] then\n'
+		end
+
+		if opt_fragment_shader then
+			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms, u, v)\n'
+			          .. 'if fs_colour ~= nil then\n'
+			          .. 'fb_colour[index] = fs_colour\n'
+		else
+			pda = pda .. 'fb_colour[index] = colour\n'
+		end
+
+		if opt_depth_store then
+			pda = pda .. 'fb_depth[index] = rowLeftW\n'
+		end
+
+		if opt_fragment_shader then
+			pda = pda .. 'end\n'
+		end
+
+		if opt_depth_test then
+			pda = pda .. 'end\n'
+		end
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			pda = pda .. 'rowLeftW = rowLeftW + rowDeltaW\n'
+		end
+
+		if opt_interpolate_attribute then
+			pda = pda .. 'rowLeftU = rowLeftU + rowDeltaU\n'
+			          .. 'rowLeftV = rowLeftV + rowDeltaV\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker PIXEL_DRAW_ADVANCE', pda)
+	end
+
+	do -- ROW_ADVANCE
+		local ra = ''
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			ra = ra .. 'triLeftW = triLeftW + triLeftGradientW\n'
+			        .. 'triRightW = triRightW + triRightGradientW\n'
+		end
+
+		if opt_interpolate_attribute then
+			ra = ra .. 'triLeftUW = triLeftUW + triLeftGradientUW\n'
+			        .. 'triRightUW = triRightUW + triRightGradientUW\n'
+			        .. 'triLeftVW = triLeftVW + triLeftGradientVW\n'
+			        .. 'triRightVW = triRightVW + triRightGradientVW\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker ROW_ADVANCE', ra)
+	end
+
+	do -- TOP_HALF_CALCULATIONS
+		local thc = ''
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			thc = thc .. 'triLeftGradientW = (pMw - p0w) / triDeltaY\n'
+			          .. 'triRightGradientW = (p1w - p0w) / triDeltaY\n'
+			          .. 'triLeftW = p0w + triLeftGradientW * triProjection\n'
+			          .. 'triRightW = p0w + triRightGradientW * triProjection\n'
+		end
+
+		if opt_interpolate_attribute then
+			thc = thc .. 'triLeftGradientUW = (pMu * pMw - p0u * p0w) / triDeltaY\n'
+			          .. 'triRightGradientUW = (p1u * p1w - p0u * p0w) / triDeltaY\n'
+			          .. 'triLeftGradientVW = (pMv * pMw - p0v * p0w) / triDeltaY\n'
+			          .. 'triRightGradientVW = (p1v * p1w - p0v * p0w) / triDeltaY\n'
+			          .. 'triLeftUW = p0u * p0w + triLeftGradientUW * triProjection\n'
+			          .. 'triRightUW = p0u * p0w + triRightGradientUW * triProjection\n'
+			          .. 'triLeftVW = p0v * p0w + triLeftGradientVW * triProjection\n'
+			          .. 'triRightVW = p0v * p0w + triRightGradientVW * triProjection\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker TOP_HALF_CALCULATIONS', thc)
+	end
+
+	do -- BOTTOM_HALF_CALCULATIONS
+		local bhc = ''
+
+		if opt_depth_test or opt_depth_store or opt_interpolate_attribute then
+			bhc = bhc .. 'triLeftGradientW = (p2w - pMw) / triDeltaY\n'
+			          .. 'triRightGradientW = (p2w - p1w) / triDeltaY\n'
+			          .. 'triLeftW = pMw + triLeftGradientW * triProjection\n'
+			          .. 'triRightW = p1w + triRightGradientW * triProjection\n'
+		end
+
+		if opt_interpolate_attribute then
+			bhc = bhc .. 'triLeftGradientUW = (p2u * p2w - pMu * pMw) / triDeltaY\n'
+			          .. 'triRightGradientUW = (p2u * p2w - p1u * p1w) / triDeltaY\n'
+			          .. 'triLeftGradientVW = (p2v * p2w - pMv * pMw) / triDeltaY\n'
+			          .. 'triRightGradientVW = (p2v * p2w - p1v * p1w) / triDeltaY\n'
+			          .. 'triLeftUW = pMu * pMw + triLeftGradientUW * triProjection\n'
+			          .. 'triRightUW = p1u * p1w + triRightGradientUW * triProjection\n'
+			          .. 'triLeftVW = pMv * pMw + triLeftGradientVW * triProjection\n'
+			          .. 'triRightVW = p1v * p1w + triRightGradientVW * triProjection\n'
+		end
+
+		pipeline_source = pipeline_source:gsub('-- #marker BOTTOM_HALF_CALCULATIONS', bhc)
+	end
+
+	local f, err = load(pipeline_source, 'pipeline source')
+
+	pipeline.source = pipeline_source
+	pipeline.source_error = err
+
+	pipeline.render_geometry = f and f(uniforms, opt_fragment_shader)
 
 	pipeline.set_uniform = function(_, name, value)
 		uniforms[name] = value

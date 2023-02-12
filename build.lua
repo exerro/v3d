@@ -484,7 +484,7 @@ while true do
 	local section = 'local ' .. name .. '_source = [[local ' .. params:gsub('%s', '') .. '=...\n'
 	             .. reconstruct(strip_whitespace(tokenise(inner_content)))
 	             .. ']]'
-	
+
 	content = content:sub(1, s - 1) .. section .. content:sub(fef + 1)
 end
 

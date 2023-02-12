@@ -341,6 +341,8 @@ function V3DCamera:set_fov(fov) end
 --- @class V3DPipeline
 --- TODO
 --- @field source string
+--- TODO
+--- @field source_error string | nil
 local V3DPipeline = {}
 
 --- Specifies which face to cull, either the front or back face.
@@ -442,3 +444,7 @@ function V3DPipeline:get_uniform(name) end
 -- We're now done with the declarations!
 --- @diagnostic enable: missing-return, unused-local
 --------------------------------------------------------------------------------
+
+-- #remove
+return v3d
+-- #end
