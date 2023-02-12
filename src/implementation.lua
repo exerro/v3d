@@ -114,12 +114,23 @@ end
 --------------------------------------------------------------------------------
 
 
-local function framebuffer_clear(fb, colour)
+local function framebuffer_clear(fb, colour, clear_depth)
 	local fb_colour = fb.colour
 	local fb_depth = fb.depth
 	for i = 1, fb.width * fb.height do
 		fb_colour[i] = colour
-		fb_depth[i] = 0
+	end
+	if clear_depth ~= false then
+		for i = 1, fb.width * fb.height do
+			fb_depth[i] = 0
+		end
+	end
+end
+
+local function framebuffer_clear_depth(fb, depth)
+	local fb_depth = fb.depth
+	for i = 1, fb.width * fb.height do
+		fb_depth[i] = depth
 	end
 end
 
@@ -283,6 +294,7 @@ local function create_framebuffer(width, height)
 	fb.colour = {}
 	fb.depth = {}
 	fb.clear = framebuffer_clear
+	fb.clear_depth = framebuffer_clear_depth
 	fb.blit_subpixel = framebuffer_blit_subpixel
 	fb.blit_subpixel_depth = framebuffer_blit_subpixel_depth
 
@@ -310,20 +322,46 @@ local function layout_add_attribute(layout, name, size, type, is_numeric)
 	attr.is_numeric = is_numeric
 	attr.offset = type == 'vertex' and layout.vertex_stride or layout.face_stride
 
-	table.insert(layout.attributes, attr)
-	layout.attribute_lookup[name] = #layout.attributes
+	--- @type table
+	local new_layout = v3d.create_layout()
 
-	if type == 'vertex' then
-		layout.vertex_stride = layout.vertex_stride + size
-	else
-		layout.face_stride = layout.face_stride + size
+	for i = 1, #layout.attributes do
+		new_layout.attributes[i] = layout.attributes[i]
+		new_layout.attribute_lookup[layout.attributes[i].name] = i
 	end
 
-	return layout
+	table.insert(new_layout.attributes, attr)
+	new_layout.attribute_lookup[name] = #new_layout.attributes
+
+	if type == 'vertex' then
+		new_layout.vertex_stride = layout.vertex_stride + size
+		new_layout.face_stride = layout.face_stride
+	else
+		new_layout.vertex_stride = layout.vertex_stride
+		new_layout.face_stride = layout.face_stride + size
+	end
+
+	return new_layout
 end
 
-local function layout_has_attribute(layout, name)
-	return layout.attribute_lookup[name] ~= nil
+local function layout_add_vertex_attribute(layout, name, size, is_numeric)
+	return layout_add_attribute(layout, name, size, 'vertex', is_numeric)
+end
+
+local function layout_add_face_attribute(layout, name, size)
+	return layout_add_attribute(layout, name, size, 'face', false)
+end
+
+local function layout_has_attribute(layout, attribute)
+	if type(attribute) == 'table' then
+		local index = layout.attribute_lookup[attribute.name]
+		if not index then return false end
+		return layout.attributes[index].size == attribute.size
+		   and layout.attributes[index].type == attribute.type
+		   and layout.attributes[index].is_numeric == attribute.is_numeric
+	end
+
+	return layout.attribute_lookup[attribute] ~= nil
 end
 
 local function layout_get_attribute(layout, name)
@@ -331,7 +369,7 @@ local function layout_get_attribute(layout, name)
 	return index and layout.attributes[index]
 end
 
-local function create_layout(label)
+local function create_layout()
 	local layout = {}
 
 	layout.attributes = {}
@@ -340,6 +378,8 @@ local function create_layout(label)
 	layout.face_stride = 0
 
 	layout.add_attribute = layout_add_attribute
+	layout.add_vertex_attribute = layout_add_vertex_attribute
+	layout.add_face_attribute = layout_add_face_attribute
 	layout.has_attribute = layout_has_attribute
 	layout.get_attribute = layout_get_attribute
 
@@ -560,7 +600,6 @@ local function create_debug_cube(cx, cy, cz, size)
 			return { d[1] + cx, d[2] + cy, d[3] + cz }
 		end)
 end
-
 
 
 --------------------------------------------------------------------------------
@@ -1200,19 +1239,19 @@ do
 	set_library('GEOMETRY_UV', 2)
 	set_library('GEOMETRY_COLOUR_UV', 3)
 	set_library('DEFAULT_LAYOUT', v3d.create_layout()
-		:add_attribute('position', 3, 'vertex', true)
-		:add_attribute('colour', 1, 'face', false))
+		:add_vertex_attribute('position', 3, true)
+		:add_face_attribute('colour', 1))
 	set_library('UV_LAYOUT', v3d.create_layout()
-		:add_attribute('position', 3, 'vertex', true)
-		:add_attribute('uv', 2, 'vertex', true))
+		:add_vertex_attribute('position', 3, true)
+		:add_vertex_attribute('uv', 2, true))
 	set_library('DEBUG_CUBE_LAYOUT', v3d.create_layout()
-		:add_attribute('position', 3, 'vertex', true)
-		:add_attribute('uv', 3, 'vertex', true)
-		:add_attribute('colour', 1, 'face', false)
-		:add_attribute('normal', 3, 'face', true)
-		:add_attribute('face_index', 1, 'face', false)
-		:add_attribute('side_index', 1, 'face', false)
-		:add_attribute('side_name', 1, 'face', false))
+		:add_vertex_attribute('position', 3, true)
+		:add_vertex_attribute('uv', 3, true)
+		:add_face_attribute('colour', 1)
+		:add_face_attribute('face_normal', 3)
+		:add_face_attribute('face_index', 1)
+		:add_face_attribute('side_index', 1)
+		:add_face_attribute('side_name', 1))
 end
 
 return v3d

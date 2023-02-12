@@ -7,7 +7,6 @@
 -- https://github.com/exerro/v3d/wiki/Installation#build-from-source).
 -- #end
 
--- TODO: make V3DLayout immutable
 -- TODO: make V3DLayout and V3DGeometryBuilder be able to rename attributes
 -- TODO: use V3DTransform instead of V3DCamera
 
@@ -123,11 +122,20 @@ function v3d.create_texture_sampler(texture_uniform, width_uniform, height_unifo
 --- @field depth number[]
 local V3DFramebuffer = {}
 
---- Clears the entire framebuffer to the provided colour and resets the depth
---- values.
---- @param colour integer | nil Colour to set every pixel to. Defaults to 1 (colours.white)
+--- Sets every pixel's colour to the provided colour value. If `clear_depth` is
+--- not false, this resets the depth values to `0` as well.
+--- @param colour integer | nil Defaults to 1 (colours.white)
+--- @param clear_depth boolean | nil Whether to clear the depth values. Defaults to `true`.
 --- @return nil
-function V3DFramebuffer:clear(colour) end
+function V3DFramebuffer:clear(colour, clear_depth) end
+
+--- Sets every pixel's depth to the provided depth value. Note: the value
+--- representing "infinite" depth when nothing has been drawn is 0. The value
+--- stored in this buffer should be 1/depth, so something 2 units away will have
+--- 0.5 in the depth buffer.
+--- @param depth_reciprocal number
+--- @return nil
+function V3DFramebuffer:clear_depth(depth_reciprocal) end
 
 --- Render the framebuffer to the terminal, drawing a high resolution image
 --- using subpixel conversion.
@@ -182,13 +190,30 @@ local V3DLayoutAttribute = {}
 --- @param size integer
 --- @param type 'vertex' | 'face'
 --- @param is_numeric true | false
+--- @nodiscard
+--- @deprecated
 --- @return V3DLayout
 function V3DLayout:add_attribute(name, size, type, is_numeric) end
 
 --- TODO
 --- @param name string
+--- @param size integer
+--- @param is_numeric true | false
+--- @nodiscard
+--- @return V3DLayout
+function V3DLayout:add_vertex_attribute(name, size, is_numeric) end
+
+--- TODO
+--- @param name string
+--- @param size integer
+--- @nodiscard
+--- @return V3DLayout
+function V3DLayout:add_face_attribute(name, size) end
+
+--- TODO
+--- @param attribute string | V3DLayoutAttribute
 --- @return boolean
-function V3DLayout:has_attribute(name) end
+function V3DLayout:has_attribute(attribute) end
 
 --- TODO
 --- @param name string
@@ -202,7 +227,7 @@ function V3DLayout:get_attribute(name) end
 
 
 --- TODO
---- @class V3DGeometry2: { [integer]: any }
+--- @class V3DGeometry: { [integer]: any }
 --- TODO
 --- @field layout V3DLayout
 --- TODO
@@ -211,11 +236,11 @@ function V3DLayout:get_attribute(name) end
 --- @field faces integer
 --- TODO
 --- @field vertex_offset integer
-local V3DGeometry2 = {}
+local V3DGeometry = {}
 
 --- TODO
 --- @return V3DGeometryBuilder
-function V3DGeometry2:to_builder() end
+function V3DGeometry:to_builder() end
 
 
 ----------------------------------------------------------------
@@ -266,7 +291,7 @@ function V3DGeometryBuilder:cast(layout) end
 
 --- TODO
 --- @param label string | nil
---- @return V3DGeometry2
+--- @return V3DGeometry
 function V3DGeometryBuilder:build(label) end
 
 
@@ -413,7 +438,7 @@ local V3DUniforms = {}
 local V3DPipelineOptions = {}
 
 --- Draw geometry to the framebuffer using the camera given.
---- @param geometry V3DGeometry2 List of geometry to draw.
+--- @param geometry V3DGeometry List of geometry to draw.
 --- @param fb V3DFramebuffer Framebuffer to draw to.
 --- @param camera V3DCamera Camera from whose perspective objects should be drawn.
 --- @return nil

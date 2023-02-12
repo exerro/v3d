@@ -17,18 +17,18 @@ end
 
 local layout = v3d.create_layout()
 
-assertEquals(layout, layout:add_attribute('a', 2, 'face', true))
+layout = layout:add_face_attribute('a', 2)
 assertEquals(true, layout:has_attribute 'a')
 assertEquals('a', layout:get_attribute 'a' .name)
 assertEquals(2, layout:get_attribute 'a' .size)
 assertEquals('face', layout:get_attribute 'a' .type)
-assertEquals(true, layout:get_attribute 'a' .is_numeric)
+assertEquals(false, layout:get_attribute 'a' .is_numeric)
 assertEquals(0, layout:get_attribute 'a' .offset)
 assertEquals(0, layout.vertex_stride)
 assertEquals(2, layout.face_stride)
 assertEquals(layout:get_attribute 'a', layout.attributes[1])
 
-assertEquals(layout, layout:add_attribute('b', 3, 'face', false))
+layout = layout:add_face_attribute('b', 3)
 assertEquals(true, layout:has_attribute 'b')
 assertEquals('b', layout:get_attribute 'b' .name)
 assertEquals(3, layout:get_attribute 'b' .size)
@@ -39,7 +39,7 @@ assertEquals(0, layout.vertex_stride)
 assertEquals(5, layout.face_stride)
 assertEquals(layout:get_attribute 'b', layout.attributes[2])
 
-assertEquals(layout, layout:add_attribute('c', 4, 'vertex', true))
+layout = layout:add_vertex_attribute('c', 4, true)
 assertEquals(true, layout:has_attribute 'c')
 assertEquals('c', layout:get_attribute 'c' .name)
 assertEquals(4, layout:get_attribute 'c' .size)
@@ -55,10 +55,10 @@ assertEquals(layout:get_attribute 'c', layout.attributes[3])
 --------------------------------------------------------------------------------
 
 local layout = v3d.create_layout()
-	:add_attribute('position', 3, 'vertex', true)
-	:add_attribute('uv', 2, 'vertex', true)
-	:add_attribute('colour', 1, 'face', true)
-	:add_attribute('object_name', 1, 'face', false)
+	:add_vertex_attribute('position', 3, true)
+	:add_vertex_attribute('uv', 2, true)
+	:add_face_attribute('colour', 1)
+	:add_face_attribute('object_name', 1)
 
 local gb = v3d.create_geometry_builder(layout)
 

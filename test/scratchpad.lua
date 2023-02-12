@@ -5,13 +5,11 @@ local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
-local layout = v3d.create_layout()
-    :add_attribute('position', 3, 'vertex', true)
-    :add_attribute('uv', 2, 'vertex', true)
-    :add_attribute('b', 4, 'vertex', true)
-    :add_attribute('face_index', 1, 'face', false)
-    :add_attribute('colour', 1, 'face', false)
-    -- :add_attribute('colour', 1, 'face', false)
+local layout = v3d.UV_LAYOUT
+    :add_vertex_attribute('b', 4, true)
+    :add_face_attribute('face_index', 1)
+    :add_face_attribute('colour', 1)
+    -- :add_face_attribute('colour', 1)
 local pipeline = v3d.create_pipeline {
     -- cull_face = v3d.CULL_FRONT_FACE,
     -- depth_test = false,
