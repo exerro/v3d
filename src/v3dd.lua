@@ -7,7 +7,7 @@ local validation_enabled = true
 local capture_key = keys.f12
 local v3d_require_path = '/v3d'
 
-error 'v3dd is not updated to latest version of v3d'
+-- error 'v3dd is not updated to latest version of v3d'
 
 while args[1] and args[1]:sub(1, 1) == '-' do
 	local arg = table.remove(args, 1)
@@ -126,78 +126,13 @@ local function create_v3d_wrapper(enable_validation)
 		return r
 	end
 
+	--- @diagnostic disable: duplicate-set-field
+
 	v3d_wrapper.CULL_BACK_FACE = v3d_lib.CULL_BACK_FACE
 	v3d_wrapper.CULL_FRONT_FACE = v3d_lib.CULL_FRONT_FACE
-	v3d_wrapper.GEOMETRY_COLOUR = v3d_lib.GEOMETRY_COLOUR
-	v3d_wrapper.GEOMETRY_UV = v3d_lib.GEOMETRY_UV
-	v3d_wrapper.GEOMETRY_COLOUR_UV = v3d_lib.GEOMETRY_COLOUR_UV
-
-	--- @diagnostic disable: duplicate-set-field
-	function v3d_wrapper.create_camera(fov, label)
-		if enable_validation then
-			-- TODO
-			assert(fov == nil or type(fov) == 'number')
-			assert(fov == nil or fov > 0)
-			assert(fov == nil or fov < math.pi / 2)
-		end
-
-		local cam = v3d_lib.create_camera(fov)
-
-		if label ~= nil then
-			resource_labels[cam] = label
-		end
-
-		create_resource {
-			label = resource_labels[cam],
-			category = 'camera',
-			data = cam,
-			preview = { present = function()
-				error('NYI')
-			end },
-			view = { present = function()
-				error('NYI')
-			end },
-		}
-
-		return cam
-	end
-
-	function v3d_wrapper.create_debug_cube(cx, cy, cz, size, label)
-		if enable_validation then
-			-- TODO
-			assert(cx == nil or type(cx) == 'number')
-			assert(cy == nil or type(cy) == 'number')
-			assert(cz == nil or type(cz) == 'number')
-			assert(size == nil or type(size) == 'number')
-			assert(size == nil or size > 0)
-		end
-
-		local geom = v3d_lib.create_debug_cube(cx, cy, cz, size)
-
-		-- geom.add_colour_triangle
-		-- geom.add_colour_uv_triangle
-		-- geom.add_uv_triangle
-		-- geom.rotate_y
-		-- geom.rotate_z
-
-		if label ~= nil then
-			resource_labels[geom] = label
-		end
-
-		create_resource {
-			label = resource_labels[geom],
-			category = 'geometry',
-			data = geom,
-			preview = { present = function()
-				error('NYI')
-			end },
-			view = { present = function()
-				error('NYI')
-			end },
-		}
-
-		return geom
-	end
+	v3d_wrapper.DEFAULT_LAYOUT = v3d_lib.DEFAULT_LAYOUT
+	v3d_wrapper.UV_LAYOUT = v3d_lib.UV_LAYOUT
+	v3d_wrapper.DEBUG_CUBE_LAYOUT = v3d_lib.DEBUG_CUBE_LAYOUT
 
 	function v3d_wrapper.create_framebuffer(width, height, label)
 		if enable_validation then
@@ -212,6 +147,7 @@ local function create_v3d_wrapper(enable_validation)
 		local blit_subpixel_orig = fb.blit_subpixel
 		local blit_subpixel_depth_orig = fb.blit_subpixel_depth
 		local clear_orig = fb.clear
+		local clear_depth_orig = fb.clear_depth
 
 		function fb.blit_subpixel(self, term, dx, dy)
 			dx = dx == nil and 0 or dx
@@ -264,6 +200,8 @@ local function create_v3d_wrapper(enable_validation)
 			clear_orig(self, colour)
 		end
 
+		-- TODO: clear_depth
+
 		if label ~= nil then
 			resource_labels[fb] = label
 		end
@@ -287,28 +225,33 @@ local function create_v3d_wrapper(enable_validation)
 		return v3d_wrapper.create_framebuffer(width * 2, height * 3, label)
 	end
 
-	function v3d_wrapper.create_geometry(type, label)
-		if validation_enabled then
+	-- TODO
+	v3d_wrapper.create_layout = v3d_lib.create_layout
+
+	-- TODO
+	v3d_wrapper.create_geometry_builder = v3d_lib.create_geometry_builder
+
+	-- TODO
+	v3d_wrapper.create_debug_cube = v3d_lib.create_debug_cube
+
+	function v3d_wrapper.create_camera(fov, label)
+		if enable_validation then
 			-- TODO
-			assert(type == v3d_lib.GEOMETRY_COLOUR or type == v3d_lib.GEOMETRY_COLOUR_UV or type == v3d_lib.GEOMETRY_UV)
+			assert(fov == nil or type(fov) == 'number')
+			assert(fov == nil or fov > 0)
+			assert(fov == nil or fov < math.pi / 2)
 		end
 
-		local geom = v3d_lib.create_geometry(type)
-
-		-- geom.add_colour_triangle
-		-- geom.add_colour_uv_triangle
-		-- geom.add_uv_triangle
-		-- geom.rotate_y
-		-- geom.rotate_z
+		local cam = v3d_lib.create_camera(fov)
 
 		if label ~= nil then
-			resource_labels[geom] = label
+			resource_labels[cam] = label
 		end
 
 		create_resource {
-			label = resource_labels[geom],
-			category = 'geometry',
-			data = geom,
+			label = resource_labels[cam],
+			category = 'camera',
+			data = cam,
 			preview = { present = function()
 				error('NYI')
 			end },
@@ -317,22 +260,21 @@ local function create_v3d_wrapper(enable_validation)
 			end },
 		}
 
-		return geom
+		return cam
 	end
 
 	function v3d_wrapper.create_pipeline(options, label)
-		options = options or {}
-
 		if enable_validation then
+			--- @cast options V3DPipelineOptions
 			-- TODO
 			assert(type(options) == 'table')
+			assert(options.layout) -- TODO
+			-- TODO: all the new layout/attribute stuff
 			assert(not options.cull_face or options.cull_face == v3d_lib.CULL_BACK_FACE or options.cull_face == v3d_lib.CULL_FRONT_FACE)
 			assert(options.depth_store == nil or type(options.depth_store) == 'boolean')
 			assert(options.depth_test == nil or type(options.depth_test) == 'boolean')
 			assert(options.fragment_shader == nil or type(options.fragment_shader) == 'function')
-			assert(options.interpolate_uvs == nil or type(options.interpolate_uvs) == 'boolean')
 			assert(options.pixel_aspect_ratio == nil or type(options.pixel_aspect_ratio) == 'number')
-			assert(options.vertex_shader == nil or type(options.vertex_shader) == 'function')
 			assert(options.pixel_aspect_ratio == nil or options.pixel_aspect_ratio > 0)
 		end
 
@@ -346,21 +288,17 @@ local function create_v3d_wrapper(enable_validation)
 			-- TODO: validation
 
 			if capture then
-				local geom_names = {}
-
-				for i = 1, #geometry do
-					geom_names[i] = resource_labels[geometry[i]]
-				end
-
 				table.insert(capture.instructions, {
-					description = string.format('pipeline_render_geometry(%s, [%s], %s, %s)',
-						resource_labels[self], table.concat(geom_names, ', '),
+					description = string.format('pipeline_render_geometry(%s, %s, %s, %s)',
+						resource_labels[self], resource_labels[geometry],
 						resource_labels[fb], resource_labels[camera])
 				})
 			end
 
 			render_geometry_orig(self, geometry, fb, camera)
 		end
+
+		-- TODO
 
 		if label ~= nil then
 			resource_labels[pipeline] = label
@@ -395,6 +333,7 @@ local function create_v3d_wrapper(enable_validation)
 
 		return fn
 	end
+
 	--- @diagnostic enable: duplicate-set-field
 
 	return {
