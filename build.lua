@@ -117,6 +117,7 @@ local function tokenise(source)
 		local multiline_comment = word_end or source:match('^%-%-%[(=*)%[', i)
 		local comment_end = multiline_comment or select(2, source:find('^%-%-[^\n]*\n', i))
 		local string_char = comment_end or source:match('^[\'"]', i)
+		local multiline_string = string_char or source:match('^%[(=*)%[', i)
 		if whitespace_end then
 			local has_newline = source:sub(i, whitespace_end):find '\n'
 			table.insert(tokens, {
@@ -140,6 +141,11 @@ local function tokenise(source)
 					type = 'comment',
 					text = '---' .. comment:sub(5)
 				})
+			elseif comment:sub(1, 10) == '-- #marker' then
+				table.insert(tokens, {
+					type = 'comment',
+					text = comment
+				})
 			end
 			i = comment_end + 1
 		elseif string_char then
@@ -160,6 +166,13 @@ local function tokenise(source)
 				type = 'string',
 				text = source:sub(i0, i - 1)
 			})
+		elseif multiline_string then
+			local _, string_end = source:find('%]' .. ('='):rep(#multiline_string) .. '%]', i)
+			table.insert(tokens, {
+				type = 'string',
+				text = source:sub(i, string_end)
+			})
+			i = string_end + 1
 		else
 			local _, symbol_end = source:find('^[^%s%w_"\']+', i)
 			table.insert(tokens, {
@@ -202,18 +215,18 @@ local all_characters = {}
 local first_characters = {}
 
 do
-	for i = 0, 3 do
+	for i = 0, 9 do
 		table.insert(all_characters, string.char(string.byte '0' + i))
 	end
 
-	for i = 1, 3 do
-		table.insert(first_characters, string.char(string.byte 'A' + i - 1))
-		table.insert(all_characters, string.char(string.byte 'A' + i - 1))
+	for i = 0, 25 do
+		table.insert(first_characters, string.char(string.byte 'A' + i))
+		table.insert(all_characters, string.char(string.byte 'A' + i))
 	end
 
-	for i = 1, 3 do
-		table.insert(first_characters, string.char(string.byte 'a' + i - 1))
-		table.insert(all_characters, string.char(string.byte 'a' + i - 1))
+	for i = 0, 25 do
+		table.insert(first_characters, string.char(string.byte 'a' + i))
+		table.insert(all_characters, string.char(string.byte 'a' + i))
 	end
 end
 
@@ -454,6 +467,27 @@ end
 sleep(0)
 
 local content = table.concat(blocks, '\n')
+
+while true do
+	local s, f = content:find '%-%-%s*#quote'
+	if not f then break end
+	local name = content:match('local%s+function%s+([%w_]+)', f + 1)
+	local params = content:match('%(([^)]+)%)', f + 1)
+	local f2 = content:find('%)', f + 1)
+	local fes, fef = content:find('%-%-%s*#endquote', f2 + 1)
+
+	local inner_content = content:sub(f2 + 1, fes - 1)
+	:gsub('^%s+', '')
+	:gsub('\n%s+', '\n')
+	:gsub('end%s+$', '', 1)
+
+	local section = 'local ' .. name .. '_source = [[local ' .. params:gsub('%s', '') .. '=...\n'
+	             .. reconstruct(strip_whitespace(tokenise(inner_content)))
+	             .. ']]'
+	
+	content = content:sub(1, s - 1) .. section .. content:sub(fef + 1)
+end
+
 local len = #content
 local content_tokens = tokenise(content)
 sleep(0)

@@ -339,6 +339,8 @@ function V3DCamera:set_fov(fov) end
 --- pipelines can be created or re-created at will according to the needs of the
 --- application.
 --- @class V3DPipeline
+--- TODO
+--- @field source string
 local V3DPipeline = {}
 
 --- Specifies which face to cull, either the front or back face.

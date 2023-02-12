@@ -872,41 +872,24 @@ local function rasterize_triangle(
 end
 -- #endsection
 
-local function create_pipeline(options)
-	--- @cast options V3DPipelineOptions
-	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
-	local opt_layout = options.layout
-	local opt_position_attribute = options.position_attribute or 'position'
-	local opt_interpolate_attribute = options.interpolate_attribute
-	local opt_colour_attribute = options.colour_attribute
-	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
-	-- used by the #select below
-	--- @diagnostic disable-next-line: unused-local
-	local opt_depth_store = options.depth_store == nil or options.depth_store
-	-- used by the #select below
-	--- @diagnostic disable-next-line: unused-local
-	local opt_depth_test = options.depth_test == nil or options.depth_test
-	local opt_fragment_shader = options.fragment_shader or nil
-
+local create_render_geometry_source
+-- #quote
+local function create_render_geometry(
+	uniforms,
+	opt_pixel_aspect_ratio,
+	opt_layout,
+	opt_colour_attribute,
+	opt_cull_face,
+	opt_depth_store,
+	opt_depth_test,
+	opt_fragment_shader,
+	rasterize_triangle_fn
+)
 	local vertex_stride = opt_layout.vertex_stride
 	local face_stride = opt_layout.face_stride
-	local position_local_offset = opt_layout:get_attribute(opt_position_attribute).offset or 0
-	local interpolate_local_offset = opt_interpolate_attribute and opt_layout:get_attribute(opt_interpolate_attribute).offset or 0
 	local colour_local_offset = opt_colour_attribute and opt_layout:get_attribute(opt_colour_attribute).offset or 0
 
-	--- @type V3DPipeline
-	local pipeline = {}
-	local uniforms = {}
-
-	local rasterize_triangle_fn = rasterize_triangle
-	-- #select rasterize_triangle_fn rasterize_triangle
-	-- #select-param depth_test opt_depth_test
-	-- #select-param depth_store opt_depth_store
-	-- #select-param interpolate_uvs opt_interpolate_attribute
-	-- #select-param enable_fs opt_fragment_shader
-
-	local function render_geometry(_, geometry, fb, camera)
-		--- @cast geometry V3DGeometry2
+	return function(_, geometry, fb, camera)
 		local clipping_plane = -0.0001
 		local pxd = (fb.width - 1) / 2
 		local pyd = (fb.height - 1) / 2
@@ -942,59 +925,32 @@ local function create_pipeline(options)
 		local fdy = -camera.y
 		local fdz = -camera.z
 
-		local position_index = position_local_offset + geometry.vertex_offset + 1
-		local interpolate_index = interpolate_local_offset + geometry.vertex_offset + 1
+		local vertex_offset = geometry.vertex_offset
+		local vertex_offset_limit = vertex_offset + vertex_stride * geometry.vertices
 		local colour_index = colour_local_offset + 1
-		local position_max_offset = geometry.vertex_offset + geometry.vertices * opt_layout.vertex_stride
 		local faceID = 0
+		
+		local p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z
+		local p0u, p0v, p1u, p1v, p2u, p2v
+		local p0vs, p1vs, p2vs = {}, {}, {}
+		local colour
 
-		while position_index <= position_max_offset do
+		while vertex_offset < vertex_offset_limit do
 			faceID = faceID + 1
 
-			local p0x = geometry[position_index]
-			local p0y = geometry[position_index + 1]
-			local p0z = geometry[position_index + 2]
-			position_index = position_index + vertex_stride
-			local p1x = geometry[position_index]
-			local p1y = geometry[position_index + 1]
-			local p1z = geometry[position_index + 2]
-			position_index = position_index + vertex_stride
-			local p2x = geometry[position_index]
-			local p2y = geometry[position_index + 1]
-			local p2z = geometry[position_index + 2]
-			position_index = position_index + vertex_stride
-			local colour
+			-- #marker POSITION_ASSIGNMENT
+			-- #marker INTERPOLATE_ASSIGNMENT
 
 			if opt_colour_attribute then
 				colour = geometry[colour_index]
 				colour_index = colour_index + face_stride
 			end
 
-			local p0u, p0v, p1u, p1v, p2u, p2v
+			vertex_offset = vertex_offset + vertex_stride * 3
 
-			if opt_interpolate_attribute then
-				p0u = geometry[interpolate_index]
-				p0v = geometry[interpolate_index + 1]
-				interpolate_index = interpolate_index + vertex_stride
-				p1u = geometry[interpolate_index]
-				p1v = geometry[interpolate_index + 1]
-				interpolate_index = interpolate_index + vertex_stride
-				p2u = geometry[interpolate_index]
-				p2v = geometry[interpolate_index + 1]
-				interpolate_index = interpolate_index + vertex_stride
-			end
-
-			p0x = p0x + fdx
-			p0y = p0y + fdy
-			p0z = p0z + fdz
-
-			p1x = p1x + fdx
-			p1y = p1y + fdy
-			p1z = p1z + fdz
-
-			p2x = p2x + fdx
-			p2y = p2y + fdy
-			p2z = p2z + fdz
+			p0x = p0x + fdx; p0y = p0y + fdy; p0z = p0z + fdz
+			p1x = p1x + fdx; p1y = p1y + fdy; p1z = p1z + fdz
+			p2x = p2x + fdx; p2y = p2y + fdy; p2z = p2z + fdz
 
 			local cull_face = false
 
@@ -1014,16 +970,16 @@ local function create_pipeline(options)
 
 			if not cull_face then
 				p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-								, fyx * p0x + fyy * p0y + fyz * p0z
-								, fzx * p0x + fzy * p0y + fzz * p0z
+				              , fyx * p0x + fyy * p0y + fyz * p0z
+				              , fzx * p0x + fzy * p0y + fzz * p0z
 
 				p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-								, fyx * p1x + fyy * p1y + fyz * p1z
-								, fzx * p1x + fzy * p1y + fzz * p1z
+				              , fyx * p1x + fyy * p1y + fyz * p1z
+				              , fzx * p1x + fzy * p1y + fzz * p1z
 
 				p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-								, fyx * p2x + fyy * p2y + fyz * p2z
-								, fzx * p2x + fzy * p2y + fzz * p2z
+				              , fyx * p2x + fyy * p2y + fyz * p2z
+				              , fzx * p2x + fzy * p2y + fzz * p2z
 
 				-- TODO: make this split polygons
 				if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
@@ -1045,15 +1001,89 @@ local function create_pipeline(options)
 			end
 		end
 	end
+end
+-- #endquote
 
-	-- magical hacks to get around the language server!
-	select(1, pipeline).render_geometry = render_geometry
+local function create_pipeline(options)
+	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
+	local opt_layout = options.layout
+	local opt_position_attribute = options.position_attribute or 'position'
+	local opt_interpolate_attribute = options.interpolate_attribute
+	local opt_colour_attribute = options.colour_attribute
+	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
+	-- used by the #select below
+	--- @diagnostic disable-next-line: unused-local
+	local opt_depth_store = options.depth_store == nil or options.depth_store
+	-- used by the #select below
+	--- @diagnostic disable-next-line: unused-local
+	local opt_depth_test = options.depth_test == nil or options.depth_test
+	local opt_fragment_shader = options.fragment_shader or nil
 
-	select(1, pipeline).set_uniform = function(_, name, value)
+	local rasterize_triangle_fn = rasterize_triangle
+	-- #select rasterize_triangle_fn rasterize_triangle
+	-- #select-param depth_test opt_depth_test
+	-- #select-param depth_store opt_depth_store
+	-- #select-param interpolate_uvs opt_interpolate_attribute
+	-- #select-param enable_fs opt_fragment_shader
+
+	local pipeline = {}
+	local uniforms = {}
+
+	-- #remove
+	local _ = create_render_geometry -- here because of build system magic + IDE warning if not used
+	-- #end
+	local pipeline_source = create_render_geometry_source
+
+	do
+		local position_base_offset = opt_layout:get_attribute(opt_position_attribute).offset
+		pipeline_source = pipeline_source:gsub(
+			'-- #marker POSITION_ASSIGNMENT',
+			'p0x=geometry[vertex_offset+' .. (position_base_offset + 1) .. ']\n' ..
+			'p0y=geometry[vertex_offset+' .. (position_base_offset + 2) .. ']\n' ..
+			'p0z=geometry[vertex_offset+' .. (position_base_offset + 3) .. ']\n' ..
+			'p1x=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 1) .. ']\n' ..
+			'p1y=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 2) .. ']\n' ..
+			'p1z=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 3) .. ']\n' ..
+			'p2x=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 1) .. ']\n' ..
+			'p2y=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 2) .. ']\n' ..
+			'p2z=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 3) .. ']'
+		)
+	end
+
+	if opt_interpolate_attribute then
+		local uv_base_offset = opt_layout:get_attribute(opt_interpolate_attribute).offset
+		pipeline_source = pipeline_source:gsub(
+			'-- #marker INTERPOLATE_ASSIGNMENT',
+			'p0u=geometry[vertex_offset+' .. (uv_base_offset + 1) .. ']\n' ..
+			'p0v=geometry[vertex_offset+' .. (uv_base_offset + 2) .. ']\n' ..
+			'p1u=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride + 1) .. ']\n' ..
+			'p1v=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride + 2) .. ']\n' ..
+			'p2u=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride * 2 + 1) .. ']\n' ..
+			'p2v=geometry[vertex_offset+' .. (uv_base_offset + opt_layout.vertex_stride * 2 + 2) .. ']\n'
+		)
+	else
+		pipeline_source = pipeline_source:gsub('-- #marker INTERPOLATE_ASSIGNMENT', '')
+	end
+
+	pipeline.source = pipeline_source
+
+	pipeline.render_geometry = assert(load(pipeline_source, 'pipeline source'))(
+		uniforms,
+		opt_pixel_aspect_ratio,
+		opt_layout,
+		opt_colour_attribute,
+		opt_cull_face,
+		opt_depth_store,
+		opt_depth_test,
+		opt_fragment_shader,
+		rasterize_triangle_fn
+	)
+
+	pipeline.set_uniform = function(_, name, value)
 		uniforms[name] = value
 	end
 
-	select(1, pipeline).get_uniform = function(_, name)
+	pipeline.get_uniform = function(_, name)
 		return uniforms[name]
 	end
 

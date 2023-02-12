@@ -21,6 +21,9 @@ local pipeline = v3d.create_pipeline {
 	-- 	return 2 ^ (math.min(math.floor(u * 4), 3) * 4 + math.min(math.floor(v * 4), 3))
 	-- end,
 }
+local h = assert(io.open('/v3d/build/pipeline_source.lua', 'w'))
+h:write(pipeline.source)
+h:close()
 local geometry = v3d.create_debug_cube()
     :cast(layout)
     :build()
