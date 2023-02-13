@@ -21,4 +21,4 @@ framebuffer:clear(colours.lightBlue)
 pipeline:render_geometry(geometry, framebuffer, camera)
 
 -- Draw the framebuffer to the screen
-framebuffer:blit_subpixel(term)
+framebuffer:blit_term_subpixel(term)

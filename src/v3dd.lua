@@ -144,37 +144,12 @@ local function create_v3d_wrapper(enable_validation)
 
 		local fb = v3d_lib.create_framebuffer(width, height)
 
-		local blit_subpixel_orig = fb.blit_subpixel
-		local blit_subpixel_depth_orig = fb.blit_subpixel_depth
+		local blit_term_subpixel_orig = fb.blit_term_subpixel
+		local blit_term_subpixel_depth_orig = fb.blit_term_subpixel_depth
+		local blit_graphics_orig = fb.blit_graphics
+		local blit_graphics_depth_orig = fb.blit_graphics_depth
 		local clear_orig = fb.clear
 		local clear_depth_orig = fb.clear_depth
-
-		function fb.blit_subpixel(self, term, dx, dy)
-			dx = dx == nil and 0 or dx
-			dy = dy == nil and 0 or dy
-
-			if enable_validation then
-				assert(type(term) == 'table', 'Term passed to TODO')
-				-- TODO
-			end
-
-			if capture then
-				table.insert(capture.instructions, {
-					description = string.format('framebuffer_blit_subpixel(%s, term, %d, %d)',
-						resource_labels[self], dx, dy)
-				})
-			end
-
-			blit_subpixel_orig(self, term, dx, dy)
-			blit_called = true
-		end
-
-		function fb.blit_subpixel_depth(self, term, dx, dy, update_palette)
-			-- TODO: validation
-
-			blit_subpixel_depth_orig(self, term, dx, dy, update_palette)
-			blit_called = true
-		end
 
 		function fb.clear(self, colour)
 			colour = colour or 1
@@ -201,6 +176,59 @@ local function create_v3d_wrapper(enable_validation)
 		end
 
 		-- TODO: clear_depth
+
+		function fb.blit_term_subpixel(self, term, dx, dy)
+			dx = dx == nil and 0 or dx
+			dy = dy == nil and 0 or dy
+
+			if enable_validation then
+				assert(type(term) == 'table', 'Term passed to TODO')
+				-- TODO
+			end
+
+			if capture then
+				table.insert(capture.instructions, {
+					description = string.format('framebuffer_blit_term_subpixel(%s, term, %d, %d)',
+						resource_labels[self], dx, dy)
+				})
+			end
+
+			blit_term_subpixel_orig(self, term, dx, dy)
+			blit_called = true
+		end
+
+		function fb.blit_term_subpixel_depth(self, term, dx, dy, update_palette)
+			-- TODO: validation
+
+			blit_term_subpixel_depth_orig(self, term, dx, dy, update_palette)
+			blit_called = true
+		end
+
+		function fb.blit_graphics(self, term, dx, dy)
+			dx = dx == nil and 0 or dx
+			dy = dy == nil and 0 or dy
+
+			if enable_validation then
+				assert(type(term) == 'table', 'Term passed to TODO')
+				-- TODO
+			end
+
+			if capture then
+				table.insert(capture.instructions, {
+					description = string.format('framebuffer_blit_graphics(%s, term, %d, %d)',
+						resource_labels[self], dx, dy)
+				})
+			end
+
+			blit_graphics_orig(self, term, dx, dy)
+			blit_called = true
+		end
+
+		function fb.blit_graphics_depth(self, term, dx, dy, update_palette)
+			-- TODO: validation
+			blit_graphics_depth_orig(self, term, dx, dy, update_palette)
+			blit_called = true
+		end
 
 		if label ~= nil then
 			resource_labels[fb] = label

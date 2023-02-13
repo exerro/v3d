@@ -4,9 +4,9 @@ local v3d = require '/v3d'
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local camera = v3d.create_camera()
 local layout = v3d.create_layout()
-    :add_attribute('position', 3, 'vertex', true)
-    :add_attribute('uv', 2, 'vertex', true)
-    :add_attribute('face_index', 1, 'face', false)
+    :add_vertex_attribute('position', 3, true)
+    :add_vertex_attribute('uv', 2, true)
+    :add_face_attribute('face_index', 1)
 local pipeline = v3d.create_pipeline {
     layout = layout,
     cull_face = false,
@@ -34,6 +34,6 @@ while true do
     camera.z = c * distance
     framebuffer:clear(colours.white)
     pipeline:render_geometry(cube, framebuffer, camera)
-    framebuffer:blit_subpixel(term)
+    framebuffer:blit_term_subpixel(term)
     sleep(0.05)
 end

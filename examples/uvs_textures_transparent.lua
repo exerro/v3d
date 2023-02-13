@@ -26,6 +26,6 @@ while true do
 	camera.z = c * distance
 	framebuffer:clear(colours.white)
 	pipeline:render_geometry(cube, framebuffer, camera)
-	framebuffer:blit_subpixel(term)
+	framebuffer:blit_term_subpixel(term)
 	sleep(0.05)
 end

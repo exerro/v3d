@@ -151,7 +151,7 @@ function V3DFramebuffer:clear_depth(depth_reciprocal) end
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @return nil
-function V3DFramebuffer:blit_subpixel(term, dx, dy) end
+function V3DFramebuffer:blit_term_subpixel(term, dx, dy) end
 
 --- Similar to `blit_subpixel` but draws the depth instead of colour.
 --- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
@@ -159,7 +159,22 @@ function V3DFramebuffer:blit_subpixel(term, dx, dy) end
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
 --- @return nil
-function V3DFramebuffer:blit_subpixel_depth(term, dx, dy, update_palette) end
+function V3DFramebuffer:blit_term_subpixel_depth(term, dx, dy, update_palette) end
+
+--- TODO
+--- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @return nil
+function V3DFramebuffer:blit_graphics(term, dx, dy) end
+
+--- TODO
+--- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
+--- @return nil
+function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
 
 
 --------------------------------------------------------------------------------

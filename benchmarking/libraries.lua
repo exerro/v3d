@@ -74,13 +74,14 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 		cull_face = flags.cull_face == nil and v3d.CULL_BACK_FACE or flags.cull_face,
 		depth_test = flags.depth_test,
 		depth_store = flags.depth_test,
-		attributes = flags.fragment_shader and { 'position' },
+		attributes = flags.fragment_shader and { 'position' } or nil,
 		pack_attributes = false,
-		fragment_shader = flags.fragment_shader and function()
-			return colours.red
+		fragment_shader = flags.fragment_shader and function(_, x, y, z)
+			local idx = math.floor(x) % 4 * 4 + (math.floor(z) + math.floor(y)) % 4
+			return 2 ^ idx
 		end,
 	}
-	local v3d_present = flags.depth_present and fb.blit_subpixel_depth or fb.blit_subpixel
+	local v3d_present = flags.depth_present and fb.blit_term_subpixel_depth or fb.blit_term_subpixel
 	local v3d_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
 
@@ -112,7 +113,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	end
 
 	local function present_fn()
-		v3d_present(fb, term, 0, 0, true)
+		v3d_present(fb, term.current(), 0, 0, true)
 	end
 
 	return clear_fn, draw_fn, present_fn

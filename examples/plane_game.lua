@@ -10,7 +10,7 @@ local startTimer = os.startTimer
 
 -- constants
 local REFRESH_INTERVAL = 0.05
-local CHUNK_SIZE = 21
+local CHUNK_SIZE = 20
 local CHUNK_TILING = 20
 local CHUNK_LOG_DIVISIONS = 4
 local CHUNK_MAX_HEIGHT = 15 -- kinda arbitrary, used for visibility tests
@@ -27,16 +27,20 @@ local PLANE_CAMERA_UP_DISTANCE = 1
 local PLANE_CAMERA_X_ROTATION_DELTA = math.atan(PLANE_CAMERA_UP_DISTANCE / PLANE_CAMERA_FORWARD_DISTANCE)
 
 -- set up graphics state
-local screen_width, screen_height = term.getSize()
-local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
+term.setGraphicsMode(1)
+-- local screen_width, screen_height = term.getSize()
+local screen_width, screen_height = term.getSize(1)
+-- local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
+local framebuffer = v3d.create_framebuffer(screen_width, screen_height)
 local camera = v3d.create_camera(math.pi / 6)
 local terrain_layout = v3d.create_layout()
-	:add_attribute('position', 3, 'vertex', true)
-	:add_attribute('uv', 2, 'vertex', true)
-	:add_attribute('colour', 1, 'face', false)
+	:add_vertex_attribute('position', 3, true)
+	:add_vertex_attribute('uv', 2, true)
+	:add_face_attribute('colour', 1)
 local terrain_pipeline = v3d.create_pipeline {
 	layout = terrain_layout,
 	attributes = { 'uv' },
+	-- colour_attribute = 'colour',
 	pack_attributes = false,
 	fragment_shader = function(_, u, v)
 		local mountain_threshold = MOUNTAIN_SCALER / 3 + u
@@ -157,7 +161,7 @@ local function draw()
 			if not chunks[chunkId] then
 				local g = {}
 				for i = 0, CHUNK_LOG_DIVISIONS do
-					table.insert(g, tesselate_face(cx, cz, 2 ^ i, terrain_uvs))
+					table.insert(g, tesselate_face(cx, cz, 48, terrain_uvs))
 				end
 				chunks[chunkId] = g
 			end
@@ -170,7 +174,8 @@ local function draw()
 	for i = 1, #visible_chunks do
 		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, camera)
 	end
-	framebuffer:blit_subpixel(term)
+	-- framebuffer:blit_term_subpixel(term)
+	framebuffer:blit_graphics(term)
 end
 
 local function update(dt)

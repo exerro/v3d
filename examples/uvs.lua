@@ -34,7 +34,7 @@ pcall(function()
 		camera:set_position(math.sin(camera.yRotation) * 2, 0, math.cos(camera.yRotation) * 2)
 		fb:clear(1)
 		pipeline:render_geometry(cube, fb, camera)
-		fb:blit_subpixel(term)
+		fb:blit_term_subpixel(term)
 		sleep(0.05)
 	end
 end)

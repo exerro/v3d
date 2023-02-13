@@ -14,9 +14,9 @@ camera:set_position(0, 0, 2)
 
 -- TODO
 local layout = v3d.create_layout()
-	:add_attribute('position', 3, 'vertex', true)
-	:add_attribute('uv', 2, 'vertex', true)
-	:add_attribute('colour', 3, 'face', false)
+	:add_vertex_attribute('position', 3, true)
+	:add_vertex_attribute('uv', 2, true)
+	:add_face_attribute('colour', 1)
 
 -- Create a large cube at the origin.
 local cube1 = v3d.create_debug_cube(0, 0, 0, 1):cast(layout):build('Large cube')
@@ -130,7 +130,7 @@ while true do
 	default_pipeline:render_geometry(cube2, framebuffer, camera)
 
 	-- Draw the framebuffer to the screen.
-	framebuffer:blit_subpixel(term, 0, 0)
+	framebuffer:blit_term_subpixel(term, 0, 0)
 
 	-- Wait a short amount of time.
 	sleep(next_frame_time - os.clock())

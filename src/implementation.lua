@@ -134,7 +134,7 @@ local function framebuffer_clear_depth(fb, depth)
 	end
 end
 
-local function framebuffer_blit_subpixel(fb, term, dx, dy)
+local function framebuffer_blit_term_subpixel(fb, term, dx, dy)
 	dx = dx or 0
 	dy = dy or 0
 
@@ -244,7 +244,7 @@ local function framebuffer_blit_subpixel(fb, term, dx, dy)
 	end
 end
 
-local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
+local function framebuffer_blit_term_subpixel_depth(fb, term, dx, dy, update_palette)
 	local math_floor = math.floor
 
 	if update_palette ~= false then
@@ -281,7 +281,88 @@ local function framebuffer_blit_subpixel_depth(fb, term, dx, dy, update_palette)
 	end
 
 	fb.colour = new_colour
-	framebuffer_blit_subpixel(fb, term, dx, dy)
+	framebuffer_blit_term_subpixel(fb, term, dx, dy)
+	fb.colour = old_colour
+end
+
+local function framebuffer_blit_graphics(fb, term, dx, dy)
+	local lines = {}
+	local index = 1
+	local fb_colour = fb.colour
+	local fb_width = fb.width
+	local string_char = string.char
+	local table_concat = table.concat
+	local math_floor = math.floor
+	local math_log = math.log
+	local function convert_pixel(n) return math_floor(math_log(n + 0.5, 2)) end
+
+	if term.getGraphicsMode() == 2 then
+		convert_pixel = function(n) return n end
+	end
+
+	dx = dx or 0
+	dy = dy or 0
+
+	for y = 1, fb.height do
+		local line = {}
+
+		for x = 1, fb_width do
+			if not pcall(string_char, convert_pixel(fb_colour[index])) then error(fb_colour[index]) end
+			line[x] = string_char(convert_pixel(fb_colour[index]))
+			index = index + 1
+		end
+
+		lines[y] = table_concat(line)
+	end
+
+	term.drawPixels(dx, dy, lines)
+end
+
+local function framebuffer_blit_graphics_depth(fb, term, dx, dy, update_palette)
+	local math_floor = math.floor
+	local palette_size = 16
+	local function convert_pixel(n) return 2 ^ n end
+
+	if term.getGraphicsMode() == 2 then
+		palette_size = 256
+		convert_pixel = function(n) return n end
+	end
+
+	if update_palette ~= false then
+		for i = 0, palette_size - 1 do
+			term.setPaletteColour(convert_pixel(i), i / (palette_size - 1), i / (palette_size - 1), i / (palette_size - 1))
+		end
+	end
+
+	-- we're gonna do a hack to swap out the buffers and draw it like normal
+
+	local fb_depth = fb.depth
+	local old_colour = fb.colour
+	local new_colour = {}
+	local min = fb_depth[1]
+	local max = fb_depth[1]
+
+	for i = 2, #fb_depth do
+		local a = fb_depth[i]
+		if a < min then min = a end
+		if a > max then max = a end
+	end
+
+	local delta = max - min
+
+	if min == max then
+		delta = 1
+	end
+
+	for i = 1, #fb_depth do
+		local a = (fb_depth[i] - min) / delta
+		local b = math_floor(a * palette_size)
+		if b == palette_size then b = palette_size - 1 end
+		new_colour[i] = convert_pixel(b)
+	end
+
+	fb.colour = new_colour
+	framebuffer_blit_graphics(fb, term, dx, dy)
 	fb.colour = old_colour
 end
 
@@ -295,10 +376,12 @@ local function create_framebuffer(width, height)
 	fb.depth = {}
 	fb.clear = framebuffer_clear
 	fb.clear_depth = framebuffer_clear_depth
-	fb.blit_subpixel = framebuffer_blit_subpixel
-	fb.blit_subpixel_depth = framebuffer_blit_subpixel_depth
+	fb.blit_term_subpixel = framebuffer_blit_term_subpixel
+	fb.blit_term_subpixel_depth = framebuffer_blit_term_subpixel_depth
+	fb.blit_graphics = framebuffer_blit_graphics
+	fb.blit_graphics_depth = framebuffer_blit_graphics_depth
 
-	framebuffer_clear(fb, 1)
+	framebuffer_clear(fb)
 
 	return fb
 end
@@ -712,30 +795,35 @@ if row_bottom_max > fb_height_m1 then row_bottom_max = fb_height_m1 end
 
 if row_top_min <= row_top_max then
 	local tri_delta_y = _ptri_p1y - _ptri_p0y
-	local _pflat_tri_left_gradient_x = (pMx - _ptri_p0x) / tri_delta_y
-	local _pflat_tri_right_gradient_x = (_ptri_p1x - _ptri_p0x) / tri_delta_y
-	local tri_projection = row_top_min + 0.5 - _ptri_p0y
-	local _pflat_tri_left_x = _ptri_p0x + _pflat_tri_left_gradient_x * tri_projection - 0.5
-	local _pflat_tri_right_x = _ptri_p0x + _pflat_tri_right_gradient_x * tri_projection - 1.5
-	-- #marker TOP_HALF_CALCULATIONS
+	if tri_delta_y > 0 then
+		local _pflat_tri_left_gradient_x = (pMx - _ptri_p0x) / tri_delta_y
+		local _pflat_tri_right_gradient_x = (_ptri_p1x - _ptri_p0x) / tri_delta_y
+		local tri_projection = row_top_min + 0.5 - _ptri_p0y
+		local _pflat_tri_left_x = _ptri_p0x + _pflat_tri_left_gradient_x * tri_projection - 0.5
+		local _pflat_tri_right_x = _ptri_p0x + _pflat_tri_right_gradient_x * tri_projection - 1.5
+		-- #marker TOP_HALF_CALCULATIONS
 
-	local _pflat_it_a, _pflat_it_b = row_top_min * fb_width + 1, row_top_max * fb_width + 1
+		local _pflat_it_a, _pflat_it_b = row_top_min * fb_width + 1, row_top_max * fb_width + 1
 
-	-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
+		-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
+	end
 end
 
 if row_bottom_min <= row_bottom_max then
 	local tri_delta_y = _ptri_p2y - _ptri_p1y
-	local _pflat_tri_left_gradient_x = (_ptri_p2x - pMx) / tri_delta_y
-	local _pflat_tri_right_gradient_x = (_ptri_p2x - _ptri_p1x) / tri_delta_y
-	local tri_projection = row_bottom_min + 0.5 - _ptri_p1y
-	local _pflat_tri_left_x = pMx + _pflat_tri_left_gradient_x * tri_projection - 0.5
-	local _pflat_tri_right_x = _ptri_p1x + _pflat_tri_right_gradient_x * tri_projection - 1.5
-	-- #marker BOTTOM_HALF_CALCULATIONS
 
-	local _pflat_it_a, _pflat_it_b = row_bottom_min * fb_width + 1, row_bottom_max * fb_width + 1
+	if tri_delta_y > 0 then
+		local _pflat_tri_left_gradient_x = (_ptri_p2x - pMx) / tri_delta_y
+		local _pflat_tri_right_gradient_x = (_ptri_p2x - _ptri_p1x) / tri_delta_y
+		local tri_projection = row_bottom_min + 0.5 - _ptri_p1y
+		local _pflat_tri_left_x = pMx + _pflat_tri_left_gradient_x * tri_projection - 0.5
+		local _pflat_tri_right_x = _ptri_p1x + _pflat_tri_right_gradient_x * tri_projection - 1.5
+		-- #marker BOTTOM_HALF_CALCULATIONS
 
-	-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
+		local _pflat_it_a, _pflat_it_b = row_bottom_min * fb_width + 1, row_bottom_max * fb_width + 1
+
+		-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
+	end
 end
 ]]
 
@@ -1057,7 +1145,7 @@ local function create_pipeline(options)
 		end
 
 		if opt_depth_test then
-			pda = pda .. 'if row_left_w > fb_depth[index] then\n'
+			pda = pda .. 'if row_left_w > fb_depth[math_floor(index)] then\n'
 		end
 
 		if opt_fragment_shader then
@@ -1212,9 +1300,11 @@ local function create_texture_sampler(texture_uniform, width_uniform, height_uni
 		local image_height = uniforms[height_uniform]
 
 		local x = math_floor(u * image_width)
-		if x == image_width then x = image_width - 1 end
+		if x < 0 then x = 0 end
+		if x >= image_width then x = image_width - 1 end
 		local y = math_floor(v * image_height)
-		if y == image_height then y = image_height - 1 end
+		if y < 0 then y = 0 end
+		if y >= image_height then y = image_height - 1 end
 
 		local colour = image[y + 1][x + 1]
 

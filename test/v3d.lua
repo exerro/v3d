@@ -112,7 +112,7 @@ do
 		end
 	})
 
-	fb2:blit_subpixel(fake_term, 1, 2)
+	fb2:blit_term_subpixel(fake_term, 1, 2)
 end
 
 --------------------------------------------------------------------------------

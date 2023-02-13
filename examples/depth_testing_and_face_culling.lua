@@ -24,6 +24,6 @@ while true do
     framebuffer:clear(colours.white)
     pipeline:render_geometry(large_cube, framebuffer, camera)
     pipeline:render_geometry(small_cube, framebuffer, camera)
-    framebuffer:blit_subpixel(term)
+    framebuffer:blit_term_subpixel(term)
     sleep(0.05)
 end
