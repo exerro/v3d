@@ -318,6 +318,7 @@ local function framebuffer_blit_graphics(fb, term, dx, dy)
 	term.drawPixels(dx, dy, lines)
 end
 
+-- TODO: find and remove replication with framebuffer_blit_term_subpixel_depth
 local function framebuffer_blit_graphics_depth(fb, term, dx, dy, update_palette)
 	local math_floor = math.floor
 	local palette_size = 16
@@ -495,6 +496,7 @@ end
 local function geometry_to_builder(geometry)
 	local gb = v3d.create_geometry_builder(geometry.layout)
 
+	-- TODO
 	error 'NYI'
 
 	return gb
@@ -537,6 +539,7 @@ local function geometry_builder_map(gb, attribute_name, fn)
 end
 
 local function geometry_builder_transform(gb, attribute_name, transform)
+	-- TODO
 	error 'NYI'
 	return gb
 end
@@ -699,6 +702,109 @@ local function create_debug_cube(cx, cy, cz, size)
 		:map('position', function(d)
 			return { d[1] + cx, d[2] + cy, d[3] + cz }
 		end)
+end
+
+
+--------------------------------------------------------------------------------
+--[ Transform functions ]-------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local create_identity_transform
+
+local function transform_combine(transform, other)
+	local t = create_identity_transform()
+
+	t[ 1] = transform[ 1] * other[1] + transform[ 2] * other[5] + transform[ 3] * other[ 9]
+	t[ 2] = transform[ 1] * other[2] + transform[ 2] * other[6] + transform[ 3] * other[10]
+	t[ 3] = transform[ 1] * other[3] + transform[ 2] * other[7] + transform[ 3] * other[11]
+	t[ 4] = transform[ 1] * other[4] + transform[ 2] * other[8] + transform[ 3] * other[12] + transform[ 4]
+
+	t[ 5] = transform[ 5] * other[1] + transform[ 6] * other[5] + transform[ 7] * other[ 9]
+	t[ 6] = transform[ 5] * other[2] + transform[ 6] * other[6] + transform[ 7] * other[10]
+	t[ 7] = transform[ 5] * other[3] + transform[ 6] * other[7] + transform[ 7] * other[11]
+	t[ 8] = transform[ 5] * other[4] + transform[ 6] * other[8] + transform[ 7] * other[12] + transform[ 8]
+
+	t[ 9] = transform[ 9] * other[1] + transform[10] * other[5] + transform[11] * other[ 9]
+	t[10] = transform[ 9] * other[2] + transform[10] * other[6] + transform[11] * other[10]
+	t[11] = transform[ 9] * other[3] + transform[10] * other[7] + transform[11] * other[11]
+	t[12] = transform[ 9] * other[4] + transform[10] * other[8] + transform[11] * other[12] + transform[12]
+
+	return t
+end
+
+local function transform_transform(transform, data, translate)
+	local d1 = data[1]
+	local d2 = data[2]
+	local d3 = data[3]
+
+	local r1 = transform[1] * d1 + transform[ 2] * d2 + transform[ 3] * d3
+	local r2 = transform[5] * d1 + transform[ 6] * d2 + transform[ 7] * d3
+	local r3 = transform[9] * d1 + transform[10] * d2 + transform[11] * d3
+
+	if translate then
+		r1 = r1 + transform[ 4]
+		r2 = r2 + transform[ 8]
+		r3 = r3 + transform[12]
+	end
+
+	return { r1, r2, r3 }
+end
+
+local transform_mt = { __mul = transform_combine }
+
+function create_identity_transform()
+	local t = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0 }
+
+	t.combine = transform_combine
+	t.transform = transform_transform
+
+	return setmetatable(t, transform_mt)
+end
+
+local function create_translate_transform(dx, dy, dz)
+	local t = { 1, 0, 0, dx, 0, 1, 0, dy, 0, 0, 1, dz }
+
+	t.combine = transform_combine
+	t.transform = transform_transform
+
+	return setmetatable(t, transform_mt)
+end
+
+local function create_scale_transform(sx, sy, sz)
+	local t = { sx, 0, 0, 0, 0, sy or sx, 0, 0, 0, 0, sz or sx, 0 }
+
+	t.combine = transform_combine
+	t.transform = transform_transform
+
+	return setmetatable(t, transform_mt)
+end
+
+local function create_rotate_transform(tx, ty, tz)
+	local math = math
+	local math_sin = math.sin
+	local math_cos = math.cos
+	local sin_x = math_sin(tx)
+	local sin_y = math_sin(ty)
+	local sin_z = math_sin(tz)
+	local cos_x = math_cos(tx)
+	local cos_y = math_cos(ty)
+	local cos_z = math_cos(tz)
+	local fxx = cos_y*cos_z+sin_x*sin_y*sin_z
+	local fxy = cos_x*sin_z
+	local fxz = -sin_y*cos_z + sin_x*cos_y*sin_z
+	local fyx = -cos_y*sin_z + sin_x*sin_y*cos_z
+	local fyy = cos_x*cos_z
+	local fyz = sin_y*sin_z + sin_x*cos_y*cos_z
+	local fzx = cos_x*sin_y
+	local fzy = -sin_x
+	local fzz = cos_x*cos_y
+	local t = { fxx, fxy, fxz, 0, fyx, fyy, fyz, 0, fzx, fzy, fzz, 0 }
+
+	t.combine = transform_combine
+	t.transform = transform_transform
+
+	return setmetatable(t, transform_mt)
 end
 
 
@@ -1336,6 +1442,10 @@ do
 	set_library('create_layout', create_layout)
 	set_library('create_geometry_builder', create_geometry_builder)
 	set_library('create_debug_cube', create_debug_cube)
+	set_library('identity', create_identity_transform)
+	set_library('translate', create_translate_transform)
+	set_library('scale', create_scale_transform)
+	set_library('rotate', create_rotate_transform)
 	set_library('create_camera', create_camera)
 	set_library('create_pipeline', create_pipeline)
 	set_library('create_texture_sampler', create_texture_sampler)

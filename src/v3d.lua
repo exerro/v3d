@@ -8,6 +8,7 @@
 -- #end
 
 -- TODO: use V3DTransform instead of V3DCamera
+-- TODO: statistics with render_geometry!
 -- TODO: make V3DGeometryBuilder be able to splice attributes
 
 
@@ -73,6 +74,41 @@ function v3d.create_geometry_builder(layout) end
 --- @nodiscard
 --- @return V3DGeometryBuilder
 function v3d.create_debug_cube(cx, cy, cz, size) end
+
+--- Create a [[@V3DTransform]] which has no effect.
+--- @nodiscard
+--- @return V3DTransform
+function v3d.identity() end
+
+--- Create a [[@V3DTransform]] which translates points by `(dx, dy, dz)` units.
+--- Note: the `translate` parameter of [[@V3DTransform.transform]] must be true
+--- for this to have any effect.
+--- @param dx number
+--- @param dy number
+--- @param dz number
+--- @nodiscard
+--- @return V3DTransform
+function v3d.translate(dx, dy, dz) end
+
+--- Create a [[@V3DTransform]] which scales (multiplies) points by
+--- `(sx, sy, sz)` units.
+--- @param sx number
+--- @param sy number
+--- @param sz number
+--- @overload fun(scale: number): V3DTransform
+--- @nodiscard
+--- @return V3DTransform
+function v3d.scale(sx, sy, sz) end
+
+--- Create a [[@V3DTransform]] which rotates points by `(tx, ty, tz)` radians
+--- around `(0, 0, 0)`. The order of rotation is ZXY, that is it rotates Y
+--- first, then X, then Z.
+--- @param tx number
+--- @param ty number
+--- @param tz number
+--- @nodiscard
+--- @return V3DTransform
+function v3d.rotate(tx, ty, tz) end
 
 --- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
 --- degrees.
@@ -322,6 +358,30 @@ function V3DGeometryBuilder:cast(layout) end
 --- @param label string | nil
 --- @return V3DGeometry
 function V3DGeometryBuilder:build(label) end
+
+
+--------------------------------------------------------------------------------
+--[ Transforms ]----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- TODO
+--- @class V3DTransform: { [integer]: number }
+--- @operator mul (V3DTransform): V3DTransform
+local V3DTransform = {}
+
+--- TODO
+--- @param transform V3DTransform
+--- @nodiscard
+--- @return V3DTransform
+function V3DTransform:combine(transform) end
+
+--- TODO
+--- @param data { [1]: number, [2]: number, [3]: number }
+--- @param translate boolean
+--- @nodiscard
+--- @return { [1]: number, [2]: number, [3]: number }
+function V3DTransform:transform(data, translate) end
 
 
 --------------------------------------------------------------------------------

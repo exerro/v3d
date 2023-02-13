@@ -2,7 +2,6 @@
 local dir = fs.getDir(fs.getDir(shell.getRunningProgram()))
 
 shell.run(dir .. '/build')
---- @type v3d
 local v3d = require '/v3d'
 
 local function assertEquals(expected, actual)
@@ -195,6 +194,89 @@ do
 	assertEquals(3, geometry.vertices)
 	assertEquals(2, geometry.faces)
 	assertEquals(4, geometry.vertex_offset)
+end
+
+-- map
+-- insert
+-- cast
+
+--------------------------------------------------------------------------------
+--[[ Transforms ]]--------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+local function assertTableEquals(n, a, b)
+	assertEquals(n, #a)
+	assertEquals(n, #b)
+
+	for i = 1, #a do
+		if a[i] ~= b[i] then
+			error('Assertion [' .. i .. '] failed: ' .. textutils.serialize(b[i]) .. ' ~= expected ' .. textutils.serialize(a[i]), 2)
+		end
+	end
+end
+
+do
+	local identity = v3d.identity()
+
+	local identity_combined = identity:combine(identity)
+	local identity_multiplied = identity * identity
+	local identity_transform_direction = identity:transform({ 1, 2, 3 }, false)
+	local identity_transform_position = identity:transform({ 4, 5, 6 }, true)
+
+	assertTableEquals(12, identity, identity_combined)
+	assertTableEquals(12, identity, identity_multiplied)
+
+	assertTableEquals(3, { 1, 2, 3 }, identity_transform_direction)
+	assertTableEquals(3, { 4, 5, 6 }, identity_transform_position)
+
+	local numbers = { 1, 2, 3, 4, 5, 6, 7 }
+	for i = 1, 20, 3 do
+		local n1, n2, n3 = numbers[(i - 1) % #numbers + 1], numbers[i % #numbers + 1], numbers[(i + 1) % #numbers + 1]
+		local translate = v3d.translate(n1, n2, n3)
+		local scale = v3d.scale(n1, n2, n3)
+
+		assertTableEquals(12, translate, translate * identity)
+		assertTableEquals(12, translate, identity * translate)
+		assertTableEquals(12, scale, scale * identity)
+		assertTableEquals(12, scale, identity * scale)
+	end
+
+	local translate = v3d.translate(1, 2, 3)
+
+	local translate_combined_translate = translate:combine(translate)
+	local translate_multiplied_translate = translate * translate
+	local translate_transform_direction = translate:transform({ 2, 3, 4 }, false)
+	local translate_transform_position = translate:transform({ 3, 4, 5 }, true)
+
+	assertTableEquals(12, v3d.translate(2, 4, 6), translate_combined_translate)
+	assertTableEquals(12, v3d.translate(2, 4, 6), translate_multiplied_translate)
+
+	assertTableEquals(3, { 2, 3, 4 }, translate_transform_direction)
+	assertTableEquals(3, { 4, 6, 8 }, translate_transform_position)
+
+	local scale = v3d.scale(1, 2, 3)
+
+	local scale_combined_scale = scale:combine(scale)
+	local scale_transform_direction = scale:transform({ 2, 3, 4 }, false)
+	local scale_transform_position = scale:transform({ 3, 4, 5 }, true)
+
+	assertTableEquals(12, v3d.scale(1, 4, 9), scale_combined_scale)
+	assertTableEquals(3, { 2, 6, 12 }, scale_transform_direction)
+	assertTableEquals(3, { 3, 8, 15 }, scale_transform_position)
+
+	local scale_translate = scale * translate
+	local translate_scale = translate * scale
+
+	local p = { 10, 20, 30 }
+	local scale_translate_transform_direction = scale_translate:transform(p, false)
+	local scale_translate_transform_position = scale_translate:transform(p, true)
+	local translate_scale_transform_direction = translate_scale:transform(p, false)
+	local translate_scale_transform_position = translate_scale:transform(p, true)
+
+	assertTableEquals(3, { 10, 40, 90 }, scale_translate_transform_direction)
+	assertTableEquals(3, { 11, 44, 99 }, scale_translate_transform_position)
+	assertTableEquals(3, { 10, 40, 90 }, translate_scale_transform_direction)
+	assertTableEquals(3, { 11, 42, 93 }, translate_scale_transform_position)
 end
 
 -- map

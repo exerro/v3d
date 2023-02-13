@@ -195,6 +195,8 @@ local function rename_shorter(tokens)
 					i = i + 2
 				until not tokens[i] or tokens[i].text ~= ','
 			elseif tokens[i].text == 'function' then
+				local is_local_function = tokens[i - 2] and tokens[i - 2].text == 'local'
+
 				i = i + 1
 
 				local rename_parameters = true
@@ -208,11 +210,13 @@ local function rename_shorter(tokens)
 					if tokens[i] and tokens[i].type == 'symbol' and (tokens[i].text == ':' or tokens[i].text == '.') then
 						i = i - 1
 						rename_parameters = false
-					else
+					elseif is_local_function then
 						local varname = scope['$next']
 						scope[tokens[i - 1].text] = varname
 						tokens[i - 1].text = varname
 						scope['$next'] = next_variable_name(varname)
+					elseif scope[tokens[i - 1].text] then
+						tokens[i - 1].text = scope[tokens[i - 1].text]
 					end
 				end
 
