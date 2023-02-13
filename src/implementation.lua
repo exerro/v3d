@@ -477,7 +477,6 @@ local function create_layout()
 	layout.vertex_stride = 0
 	layout.face_stride = 0
 
-	layout.add_attribute = layout_add_attribute
 	layout.add_vertex_attribute = layout_add_vertex_attribute
 	layout.add_face_attribute = layout_add_face_attribute
 	layout.drop_attribute = layout_drop_attribute
@@ -928,6 +927,11 @@ return function(_, geometry, fb, transform, model_transform)
 
 	local scale_y = -pyd - 0.5
 	local scale_x = opt_pixel_aspect_ratio * (pyd - 0.5)
+
+	-- TODO: implement this properly
+	if model_transform then
+		transform = transform:combine(model_transform)
+	end
 
 	local fxx = transform[ 1]
 	local fxy = transform[ 2]

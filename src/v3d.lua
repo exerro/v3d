@@ -7,7 +7,6 @@
 -- https://github.com/exerro/v3d/wiki/Installation#build-from-source).
 -- #end
 
--- TODO: use V3DTransform instead of V3DCamera
 -- TODO: statistics with render_geometry!
 -- TODO: make V3DGeometryBuilder be able to splice attributes
 
@@ -41,8 +40,8 @@ local v3d = {}
 --- @param width integer
 --- @param height integer
 --- @param label string | nil Optional label for debugging
---- @nodiscard
 --- @return V3DFramebuffer
+--- @nodiscard
 function v3d.create_framebuffer(width, height, label) end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
@@ -50,19 +49,19 @@ function v3d.create_framebuffer(width, height, label) end
 --- @param width integer
 --- @param height integer
 --- @param label string | nil Optional label for debugging
---- @nodiscard
 --- @return V3DFramebuffer
+--- @nodiscard
 function v3d.create_framebuffer_subpixel(width, height, label) end
 
 --- Create an empty [[@V3DLayout]].
---- @nodiscard
 --- @return V3DLayout
+--- @nodiscard
 function v3d.create_layout() end
 
 --- Create an empty [[@V3DGeometryBuilder]] with the given layout.
 --- @param layout V3DLayout
---- @nodiscard
 --- @return V3DGeometryBuilder
+--- @nodiscard
 function v3d.create_geometry_builder(layout) end
 
 --- Create a [[@V3DGeometryBuilder]] cube in the [[@v3d.DEBUG_CUBE_LAYOUT]]
@@ -71,13 +70,13 @@ function v3d.create_geometry_builder(layout) end
 --- @param cy number | nil Centre Y coordinate of the cube.
 --- @param cz number | nil Centre Z coordinate of the cube.
 --- @param size number | nil Distance between opposide faces of the cube.
---- @nodiscard
 --- @return V3DGeometryBuilder
+--- @nodiscard
 function v3d.create_debug_cube(cx, cy, cz, size) end
 
 --- Create a [[@V3DTransform]] which has no effect.
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function v3d.identity() end
 
 --- Create a [[@V3DTransform]] which translates points by `(dx, dy, dz)` units.
@@ -86,8 +85,8 @@ function v3d.identity() end
 --- @param dx number
 --- @param dy number
 --- @param dz number
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function v3d.translate(dx, dy, dz) end
 
 --- Create a [[@V3DTransform]] which scales (multiplies) points by
@@ -96,8 +95,8 @@ function v3d.translate(dx, dy, dz) end
 --- @param sy number
 --- @param sz number
 --- @overload fun(scale: number): V3DTransform
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function v3d.scale(sx, sy, sz) end
 
 --- Create a [[@V3DTransform]] which rotates points by `(tx, ty, tz)` radians
@@ -106,8 +105,8 @@ function v3d.scale(sx, sy, sz) end
 --- @param tx number
 --- @param ty number
 --- @param tz number
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function v3d.rotate(tx, ty, tz) end
 
 --- TODO
@@ -121,8 +120,8 @@ function v3d.rotate(tx, ty, tz) end
 --- @overload fun(x: number, y: number, z: number, y_rotation: number): V3DTransform
 --- @overload fun(x: number, y: number, z: number): V3DTransform
 --- @overload fun(): V3DTransform
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov) end
 
 --- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
@@ -138,8 +137,8 @@ function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov) end
 --- ```
 --- @param options V3DPipelineOptions
 --- @param label string | nil Optional label for debugging
---- @nodiscard
 --- @return V3DPipeline
+--- @nodiscard
 function v3d.create_pipeline(options, label) end
 
 
@@ -147,8 +146,8 @@ function v3d.create_pipeline(options, label) end
 --- @param texture_uniform string | nil TODO
 --- @param width_uniform string | nil TODO
 --- @param height_uniform string | nil TODO
---- @nodiscard
 --- @return V3DFragmentShader
+--- @nodiscard
 function v3d.create_texture_sampler(texture_uniform, width_uniform, height_uniform) end
 
 
@@ -254,32 +253,22 @@ local V3DLayoutAttribute = {}
 --- TODO
 --- @param name string
 --- @param size integer
---- @param type 'vertex' | 'face'
 --- @param is_numeric true | false
---- @nodiscard
---- @deprecated
 --- @return V3DLayout
-function V3DLayout:add_attribute(name, size, type, is_numeric) end
-
---- TODO
---- @param name string
---- @param size integer
---- @param is_numeric true | false
 --- @nodiscard
---- @return V3DLayout
 function V3DLayout:add_vertex_attribute(name, size, is_numeric) end
 
 --- TODO
 --- @param name string
 --- @param size integer
---- @nodiscard
 --- @return V3DLayout
+--- @nodiscard
 function V3DLayout:add_face_attribute(name, size) end
 
 --- TODO
 --- @param attribute string | V3DLayoutAttribute
---- @nodiscard
 --- @return V3DLayout
+--- @nodiscard
 function V3DLayout:drop_attribute(attribute) end
 
 --- TODO
@@ -364,6 +353,7 @@ function V3DGeometryBuilder:cast(layout) end
 --- TODO
 --- @param label string | nil
 --- @return V3DGeometry
+--- @nodiscard
 function V3DGeometryBuilder:build(label) end
 
 
@@ -379,15 +369,15 @@ local V3DTransform = {}
 
 --- TODO
 --- @param transform V3DTransform
---- @nodiscard
 --- @return V3DTransform
+--- @nodiscard
 function V3DTransform:combine(transform) end
 
 --- TODO
 --- @param data { [1]: number, [2]: number, [3]: number }
 --- @param translate boolean
---- @nodiscard
 --- @return { [1]: number, [2]: number, [3]: number }
+--- @nodiscard
 function V3DTransform:transform(data, translate) end
 
 

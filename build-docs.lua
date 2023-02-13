@@ -5,7 +5,7 @@ local path = shell and (shell.getRunningProgram():match '.+/' or '') or 'v3d/'
 local sections = {}
 local section = nil
 
-for line in io.lines(path .. 'src/library.lua') do
+for line in io.lines(path .. 'src/v3d.lua') do
 	if line:find '%-%-%- @diagnostic' then
 		-- do nothing
 	elseif line:find '^%s*%-%-%- ' or line:find '^%s*%-%-%-$' then
@@ -96,6 +96,8 @@ local function register_class(section)
 				docstring = table.concat(field_docstring, '\n')
 			})
 			field_docstring = {}
+		elseif section[1]:sub(1, 9) == '@operator' then
+			table.remove(section, 1)
 		else
 			table.insert(field_docstring, table.remove(section, 1))
 		end
@@ -155,6 +157,10 @@ local function register_function(section, parent_class, method_like, function_na
 		})
 	end
 
+	while section[1] and section[1]:sub(1, 9) == '@overload' do
+		table.remove(section, 1)
+	end
+
 	if section[1] and section[1]:sub(1, 7) == '@return' then
 		m.returns = section[1]:sub(9)
 		table.remove(section, 1)
@@ -162,6 +168,10 @@ local function register_function(section, parent_class, method_like, function_na
 		term.setTextColour(colours.yellow)
 		print('Function ' .. function_name .. ' is missing a return type!')
 		term.setTextColour(colours.white)
+	end
+
+	if section[1] and section[1]:sub(1, 10) == '@nodiscard' then
+		table.remove(section, 1)
 	end
 
 	assert(#section == 0, 'Leftover section for function \'' .. function_name .. '\': ' .. tostring(section[1]))
