@@ -67,7 +67,7 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local fb = v3d.create_framebuffer_subpixel(width, height)
 	local gb = v3d.create_geometry_builder(v3d.DEFAULT_LAYOUT)
-	local camera = v3d.create_camera()
+	local transform = v3d.camera()
 	local pipeline = v3d.create_pipeline {
 		layout = v3d.DEFAULT_LAYOUT,
 		colour_attribute = not flags.fragment_shader and 'colour' or nil,
@@ -85,14 +85,12 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local v3d_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
 
-	camera.fov = math.atan(math.tan(SETTING_CAMERA_H_FOV) / aspect)
+	transform = v3d.camera(0, 0, 0, 0, 0, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
 
-	if not flags.front_facing then
-		camera.xRotation = SETTING_CAMERA_X_ROTATION
-		camera.yRotation = SETTING_CAMERA_Y_ROTATION
-		camera.x = SETTING_CAMERA_X
-		camera.y = SETTING_CAMERA_Y
-		camera.z = SETTING_CAMERA_Z
+	if flags.front_facing then
+		transform = v3d.camera(0, 0, 0, 0, 0, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
+	else
+		transform = v3d.camera(SETTING_CAMERA_X, SETTING_CAMERA_Y, SETTING_CAMERA_Z, SETTING_CAMERA_X_ROTATION, SETTING_CAMERA_Y_ROTATION, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
 	end
 
 	for i = 1, model_data.triangles do
@@ -109,7 +107,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	end
 
 	local function draw_fn()
-		v3d_render(pipeline, geom, fb, camera)
+		v3d_render(pipeline, geom, fb, transform)
 	end
 
 	local function present_fn()

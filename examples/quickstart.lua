@@ -6,11 +6,7 @@ local v3d = require '/v3d'
 local width, height = term.getSize()
 local framebuffer = v3d.create_framebuffer_subpixel(width, height, 'Screen buffer')
 
--- Create a camera.
-local camera = v3d.create_camera(nil, 'Camera')
-
--- Move the camera to Z=2 so we are looking at the origin from a distance.
-camera:set_position(0, 0, 2)
+local transform = v3d.camera(0, 0, 2)
 
 -- TODO
 local layout = v3d.create_layout()
@@ -119,15 +115,15 @@ while true do
 
 	-- Render the outer cube using the transparent pipeline so it's textured
 	-- using the window image we defined above.
-	transparent_pipeline:render_geometry(cube1, framebuffer, camera)
+	transparent_pipeline:render_geometry(cube1, framebuffer, transform)
 
 	-- Draw the cube again but using the effect pipeline to draw expanding
 	-- circles in the transparent section of the glass.
-	effect_pipeline:render_geometry(cube1, framebuffer, camera)
+	effect_pipeline:render_geometry(cube1, framebuffer, transform)
 
 	-- Render the inner cube using the default pipeline so it's textured with
 	-- a unique colour per triangle.
-	default_pipeline:render_geometry(cube2, framebuffer, camera)
+	default_pipeline:render_geometry(cube2, framebuffer, transform)
 
 	-- Draw the framebuffer to the screen.
 	framebuffer:blit_term_subpixel(term, 0, 0)

@@ -32,7 +32,7 @@ term.setGraphicsMode(1)
 local screen_width, screen_height = term.getSize(1)
 -- local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
 local framebuffer = v3d.create_framebuffer(screen_width, screen_height)
-local camera = v3d.create_camera(math.pi / 6)
+local transform = v3d.camera()
 local terrain_layout = v3d.create_layout()
 	:add_vertex_attribute('position', 3, true)
 	:add_vertex_attribute('uv', 2, true)
@@ -172,7 +172,7 @@ local function draw()
 
 	framebuffer:clear(2 ^ 6)
 	for i = 1, #visible_chunks do
-		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, camera)
+		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, transform)
 	end
 	-- framebuffer:blit_term_subpixel(term)
 	framebuffer:blit_graphics(term)
@@ -217,12 +217,14 @@ local function update(dt)
 	plane.y = plane.y + forward_y * dt * speed
 	plane.z = plane.z + forward_z * dt * speed
 
-	camera.x = plane.x + forward_x * PLANE_CAMERA_FORWARD_DISTANCE + up_x * PLANE_CAMERA_UP_DISTANCE
-	camera.y = plane.y + forward_y * PLANE_CAMERA_FORWARD_DISTANCE + up_y * PLANE_CAMERA_UP_DISTANCE
-	camera.z = plane.z + forward_z * PLANE_CAMERA_FORWARD_DISTANCE + up_z * PLANE_CAMERA_UP_DISTANCE
-	camera.yRotation = plane.yaw - PLANE_CAMERA_X_ROTATION_DELTA * math.sin(plane.roll)
-	camera.xRotation = -plane.pitch - PLANE_CAMERA_X_ROTATION_DELTA * math.cos(plane.roll)
-	camera.zRotation = -plane.roll
+	transform = v3d.camera(
+		plane.x + forward_x * PLANE_CAMERA_FORWARD_DISTANCE + up_x * PLANE_CAMERA_UP_DISTANCE,
+		plane.y + forward_y * PLANE_CAMERA_FORWARD_DISTANCE + up_y * PLANE_CAMERA_UP_DISTANCE,
+		plane.z + forward_z * PLANE_CAMERA_FORWARD_DISTANCE + up_z * PLANE_CAMERA_UP_DISTANCE,
+		-plane.pitch - PLANE_CAMERA_X_ROTATION_DELTA * math.cos(plane.roll),
+		plane.yaw - PLANE_CAMERA_X_ROTATION_DELTA * math.sin(plane.roll),
+		-plane.roll
+	)
 end
 
 local function handle_event(event, ...)

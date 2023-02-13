@@ -2,7 +2,6 @@
 local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
-local camera = v3d.create_camera()
 local pipeline = v3d.create_pipeline {
 	layout = v3d.UV_LAYOUT,
 	cull_face = false,
@@ -17,15 +16,15 @@ pipeline:set_uniform('u_texture', image)
 pipeline:set_uniform('u_texture_width', #image[1])
 pipeline:set_uniform('u_texture_height', #image)
 
+local rotation = 0
 while true do
-	camera.yRotation = camera.yRotation + 0.04
-	local s = math.sin(camera.yRotation)
-	local c = math.cos(camera.yRotation)
-	local distance = 2
-	camera.x = s * distance
-	camera.z = c * distance
+    rotation = rotation + 0.04
+    local s = math.sin(rotation)
+    local c = math.cos(rotation)
+    local distance = 2
+    local transform = v3d.camera(s * distance, 0, c * distance, rotation)
 	framebuffer:clear(colours.white)
-	pipeline:render_geometry(cube, framebuffer, camera)
+	pipeline:render_geometry(cube, framebuffer, transform)
 	framebuffer:blit_term_subpixel(term)
 	sleep(0.05)
 end

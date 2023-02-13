@@ -2,7 +2,6 @@
 local v3d = require '/v3d'
 
 local fb = v3d.create_framebuffer_subpixel(term.getSize())
-local camera = v3d.create_camera(math.pi / 4)
 local pipeline = v3d.create_pipeline {
 	layout = v3d.UV_LAYOUT,
 	attributes = { 'uv' },
@@ -28,12 +27,14 @@ for y = 0, 3 do
 	end
 end
 
+local rotation = 0
+
 pcall(function()
 	while true do
-		camera:set_rotation(camera.xRotation, camera.yRotation + 0.05, camera.zRotation)
-		camera:set_position(math.sin(camera.yRotation) * 2, 0, math.cos(camera.yRotation) * 2)
+		rotation = rotation + 0.05
+		local transform = v3d.camera(math.sin(rotation) * 3, 0, math.cos(rotation) * 3, rotation)
 		fb:clear(1)
-		pipeline:render_geometry(cube, fb, camera)
+		pipeline:render_geometry(cube, fb, transform)
 		fb:blit_term_subpixel(term)
 		sleep(0.05)
 	end

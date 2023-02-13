@@ -110,13 +110,20 @@ function v3d.scale(sx, sy, sz) end
 --- @return V3DTransform
 function v3d.rotate(tx, ty, tz) end
 
---- Create a [[@V3DCamera]] with the given field of view. FOV defaults to 30
---- degrees.
+--- TODO
+--- @param x number
+--- @param y number
+--- @param z number
+--- @param x_rotation number
+--- @param y_rotation number
+--- @param z_rotation number
 --- @param fov number | nil
---- @param label string | nil Optional label for debugging
+--- @overload fun(x: number, y: number, z: number, y_rotation: number): V3DTransform
+--- @overload fun(x: number, y: number, z: number): V3DTransform
+--- @overload fun(): V3DTransform
 --- @nodiscard
---- @return V3DCamera
-function v3d.create_camera(fov, label) end
+--- @return V3DTransform
+function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov) end
 
 --- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
 --- use defaults, and any field within the options can also be omitted to use
@@ -366,7 +373,7 @@ function V3DGeometryBuilder:build(label) end
 
 
 --- TODO
---- @class V3DTransform: { [integer]: number }
+--- @class V3DTransform
 --- @operator mul (V3DTransform): V3DTransform
 local V3DTransform = {}
 
@@ -382,59 +389,6 @@ function V3DTransform:combine(transform) end
 --- @nodiscard
 --- @return { [1]: number, [2]: number, [3]: number }
 function V3DTransform:transform(data, translate) end
-
-
---------------------------------------------------------------------------------
---[ Cameras ]-------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-
---- Contains information for the view transform when rasterizing geometry.
---- @class V3DCamera
---- Angle between the centre and the topmost pixel of the screen, in radians.
---- @field fov number
---- Centre X coordinate of the camera, where geometry is drawn relative to.
---- A positive value moves the camera to the right in world space.
---- @field x number
---- Centre Y coordinate of the camera, where geometry is drawn relative to.
---- A positive value moves the camera upwards in world space.
---- @field y number
---- Centre Z coordinate of the camera, where geometry is drawn relative to.
---- A positive value moves the camera 'backwards' (away from where it's looking
---- by default) in world space.
---- @field z number
---- Counter-clockwise rotation of the camera in radians around the Y axis.
---- Increasing this value will make the camera look "to the left". Decreasing it
---- will make the camera look "to the right".
---- @field yRotation number
---- Counter-clockwise rotation of the camera in radians around the X axis.
---- Increasing this value will make the camera look "up". Decreasing it will
---- make the camera look "down".
---- @field xRotation number
---- Counter-clockwise rotation of the camera in radians around the Z axis.
---- Increasing this value will make the camera tilt "to the left". Decreasing it
---- will make the camera tilt "to the right".
---- @field zRotation number
-local V3DCamera = {}
-
---- Set the position of the camera.
---- @param x number | nil New X value, defaults to current value if nil.
---- @param y number | nil New Y value, defaults to current value if nil.
---- @param z number | nil New Z value, defaults to current value if nil.
---- @return nil
-function V3DCamera:set_position(x, y, z) end
-
---- Set the rotation of the camera.
---- @param x number | nil New X rotation, defaults to current rotation if nil.
---- @param y number | nil New Y rotation, defaults to current rotation if nil.
---- @param z number | nil New Z rotation, defaults to current rotation if nil.
---- @return nil
-function V3DCamera:set_rotation(x, y, z) end
-
---- Set the field of view of the camera.
---- @param fov number
---- @return nil
-function V3DCamera:set_fov(fov) end
 
 
 --------------------------------------------------------------------------------
@@ -526,12 +480,13 @@ local V3DUniforms = {}
 --- @field pixel_aspect_ratio number | nil
 local V3DPipelineOptions = {}
 
---- Draw geometry to the framebuffer using the camera given.
+--- Draw geometry to the framebuffer using the transforms given.
 --- @param geometry V3DGeometry List of geometry to draw.
 --- @param fb V3DFramebuffer Framebuffer to draw to.
---- @param camera V3DCamera Camera from whose perspective objects should be drawn.
+--- @param transform V3DTransform TODO
+--- @param model_transform V3DTransform | nil TODO
 --- @return nil
-function V3DPipeline:render_geometry(geometry, fb, camera) end
+function V3DPipeline:render_geometry(geometry, fb, transform, model_transform) end
 
 --- Set a uniform value which can be accessed from shaders.
 --- @param name string Name of the uniform. Shaders can access using `uniforms[name]`

@@ -781,7 +781,6 @@ local function create_scale_transform(sx, sy, sz)
 end
 
 local function create_rotate_transform(tx, ty, tz)
-	local math = math
 	local math_sin = math.sin
 	local math_cos = math.cos
 	local sin_x = math_sin(tx)
@@ -807,45 +806,26 @@ local function create_rotate_transform(tx, ty, tz)
 	return setmetatable(t, transform_mt)
 end
 
+local function create_camera_transform(x, y, z, rx, ry, rz, fov)
+	if not ry then
+		ry = rx
+		rx = 0
+	end
 
---------------------------------------------------------------------------------
---[ Camera functions ]----------------------------------------------------------
---------------------------------------------------------------------------------
+	fov = fov or math.pi / 6
+	rx = rx or 0
+	ry = ry or 0
+	rz = rz or 0
+	x = x or 0
+	y = y or 0
+	z = z or 0
 
+	local tan_inverse = 1 / math.tan(fov)
 
-local function camera_set_position(camera, x, y, z)
-	camera.x = x or camera.x
-	camera.y = y or camera.y
-	camera.z = z or camera.z
-end
-
-local function camera_set_rotation(camera, x, y, z)
-	camera.xRotation = x or camera.xRotation
-	camera.yRotation = y or camera.yRotation
-	camera.zRotation = z or camera.zRotation
-end
-
-local function camera_set_fov(camera, fov)
-	camera.fov = fov
-end
-
-local function create_camera(fov)
-	--- @type V3DCamera
-	local camera = {}
-
-	camera.fov = fov or math.pi / 6
-	camera.x = 0
-	camera.y = 0
-	camera.z = 0
-	camera.yRotation = 0
-	camera.xRotation = 0
-	camera.zRotation = 0
-
-	camera.set_position = camera_set_position
-	camera.set_rotation = camera_set_rotation
-	camera.set_fov = camera_set_fov
-
-	return camera
+	return transform_combine(transform_combine(
+		{ tan_inverse, 0, 0, 0, 0, tan_inverse, 0, 0, 0, 0, 1, 0 },
+		create_rotate_transform(-rx, ry, -rz)),
+		{ 1, 0, 0, -x, 0, 1, 0, -y, 0, 0, 1, -z })
 end
 
 
@@ -935,44 +915,32 @@ end
 
 local RENDER_GEOMETRY_SOURCE = [[
 local upvalue_uniforms, upvalue_opt_fragment_shader = ...
-return function(_, geometry, fb, camera)
+return function(_, geometry, fb, transform, model_transform)
 	local uniforms = upvalue_uniforms
 	local opt_fragment_shader = upvalue_opt_fragment_shader
 	local math = math
-	local math_sin, math_cos = math.sin, math.cos
 	local math_ceil, math_floor = math.ceil, math.floor
 	local fb_colour, fb_depth, fb_width = fb.colour, fb.depth, fb.width
 	local clipping_plane = -0.0001
 	local fb_width_m1, fb_height_m1 = fb_width - 1, fb.height - 1
 	local pxd = (fb.width - 1) / 2
 	local pyd = (fb.height - 1) / 2
-	local pxs = pyd
-	local pys = -pyd
 
-	local sinX = math_sin(-camera.xRotation)
-	local sinY = math_sin(camera.yRotation)
-	local sinZ = math_sin(-camera.zRotation)
-	local cosX = math_cos(-camera.xRotation)
-	local cosY = math_cos(camera.yRotation)
-	local cosZ = math_cos(-camera.zRotation)
-	local scale_y = 1 / math.tan(camera.fov)
-	local scale_x = scale_y * opt_pixel_aspect_ratio
+	local scale_y = -pyd - 0.5
+	local scale_x = opt_pixel_aspect_ratio * (pyd - 0.5)
 
-	scale_x = scale_x * pxs
-	scale_y = scale_y * pys
-
-	local fxx = (cosY*cosZ+sinX*sinY*sinZ)*scale_x
-	local fxy = (cosX*sinZ)*scale_x
-	local fxz = (-sinY*cosZ + sinX*cosY*sinZ)*scale_x
-	local fyx = (-cosY*sinZ + sinX*sinY*cosZ)*scale_y
-	local fyy = (cosX*cosZ)*scale_y
-	local fyz = (sinY*sinZ + sinX*cosY*cosZ)*scale_y
-	local fzx = cosX*sinY
-	local fzy = -sinX
-	local fzz = cosX*cosY
-	local fdx = -camera.x
-	local fdy = -camera.y
-	local fdz = -camera.z
+	local fxx = transform[ 1]
+	local fxy = transform[ 2]
+	local fxz = transform[ 3]
+	local fdx = transform[ 4]
+	local fyx = transform[ 5]
+	local fyy = transform[ 6]
+	local fyz = transform[ 7]
+	local fdy = transform[ 8]
+	local fzx = transform[ 9]
+	local fzy = transform[10]
+	local fzz = transform[11]
+	local fdz = transform[12]
 
 	local vertex_offset = geometry.vertex_offset
 	local face_offset = 0
@@ -985,38 +953,34 @@ return function(_, geometry, fb, camera)
 		-- #marker COLOUR_ASSIGNMENT
 		-- #marker INCREMENT_OFFSETS
 
-		p0x = p0x + fdx; p0y = p0y + fdy; p0z = p0z + fdz
-		p1x = p1x + fdx; p1y = p1y + fdy; p1z = p1z + fdz
-		p2x = p2x + fdx; p2y = p2y + fdy; p2z = p2z + fdz
+		local sp0x = fxx * p0x + fxy * p0y + fxz * p0z + fdx
+		local sp0y = fyx * p0x + fyy * p0y + fyz * p0z + fdy
+		local sp0z = fzx * p0x + fzy * p0y + fzz * p0z + fdz
+
+		local sp1x = fxx * p1x + fxy * p1y + fxz * p1z + fdx
+		local sp1y = fyx * p1x + fyy * p1y + fyz * p1z + fdy
+		local sp1z = fzx * p1x + fzy * p1y + fzz * p1z + fdz
+
+		local sp2x = fxx * p2x + fxy * p2y + fxz * p2z + fdx
+		local sp2y = fyx * p2x + fyy * p2y + fyz * p2z + fdy
+		local sp2z = fzx * p2x + fzy * p2y + fzz * p2z + fdz
 
 		local cull_face
 
 		-- #marker FACE_CULLING
 
 		if not cull_face then
-			p0x, p0y, p0z = fxx * p0x + fxy * p0y + fxz * p0z
-						  , fyx * p0x + fyy * p0y + fyz * p0z
-						  , fzx * p0x + fzy * p0y + fzz * p0z
-
-			p1x, p1y, p1z = fxx * p1x + fxy * p1y + fxz * p1z
-						  , fyx * p1x + fyy * p1y + fyz * p1z
-						  , fzx * p1x + fzy * p1y + fzz * p1z
-
-			p2x, p2y, p2z = fxx * p2x + fxy * p2y + fxz * p2z
-						  , fyx * p2x + fyy * p2y + fyz * p2z
-						  , fzx * p2x + fzy * p2y + fzz * p2z
-
 			-- TODO: make this split polygons
-			if p0z <= clipping_plane and p1z <= clipping_plane and p2z <= clipping_plane then
-				local _ptri_p0w = -1 / p0z
-				local _ptri_p0x = pxd + p0x * _ptri_p0w
-				local _ptri_p0y = pyd + p0y * _ptri_p0w
-				local _ptri_p1w = -1 / p1z
-				local _ptri_p1x = pxd + p1x * _ptri_p1w
-				local _ptri_p1y = pyd + p1y * _ptri_p1w
-				local _ptri_p2w = -1 / p2z
-				local _ptri_p2x = pxd + p2x * _ptri_p2w
-				local _ptri_p2y = pyd + p2y * _ptri_p2w
+			if sp0z <= clipping_plane and sp1z <= clipping_plane and sp2z <= clipping_plane then
+				local _ptri_p0w = -1 / sp0z
+				local _ptri_p0x = pxd + sp0x * _ptri_p0w * scale_x
+				local _ptri_p0y = pyd + sp0y * _ptri_p0w * scale_y
+				local _ptri_p1w = -1 / sp1z
+				local _ptri_p1x = pxd + sp1x * _ptri_p1w * scale_x
+				local _ptri_p1y = pyd + sp1y * _ptri_p1w * scale_y
+				local _ptri_p2w = -1 / sp2z
+				local _ptri_p2x = pxd + sp2x * _ptri_p2w * scale_x
+				local _ptri_p2y = pyd + sp2y * _ptri_p2w * scale_y
 				-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
 				-- #marker RASTERIZE_TRIANGLE_SOURCE
 			end
@@ -1149,16 +1113,16 @@ local function create_pipeline(options)
 	if opt_cull_face then
 		pipeline_source = pipeline_source:gsub(
 			'-- #marker FACE_CULLING',
-			'local d1x = p1x - p0x\n' ..
-			'local d1y = p1y - p0y\n' ..
-			'local d1z = p1z - p0z\n' ..
-			'local d2x = p2x - p0x\n' ..
-			'local d2y = p2y - p0y\n' ..
-			'local d2z = p2z - p0z\n' ..
+			'local d1x = sp1x - sp0x\n' ..
+			'local d1y = sp1y - sp0y\n' ..
+			'local d1z = sp1z - sp0z\n' ..
+			'local d2x = sp2x - sp0x\n' ..
+			'local d2y = sp2y - sp0y\n' ..
+			'local d2z = sp2z - sp0z\n' ..
 			'local cx = d1y*d2z - d1z*d2y\n' ..
 			'local cy = d1z*d2x - d1x*d2z\n' ..
 			'local cz = d1x*d2y - d1y*d2x\n' ..
-			'local d = cx * p0x + cy * p0y + cz * p0z\n' ..
+			'local d = cx * sp0x + cy * sp0y + cz * sp0z\n' ..
 			'cull_face = d * ' .. opt_cull_face .. ' > 0\n')
 	else
 		pipeline_source = pipeline_source:gsub('-- #marker FACE_CULLING', 'cull_face = false')
@@ -1446,7 +1410,7 @@ do
 	set_library('translate', create_translate_transform)
 	set_library('scale', create_scale_transform)
 	set_library('rotate', create_rotate_transform)
-	set_library('create_camera', create_camera)
+	set_library('camera', create_camera_transform)
 	set_library('create_pipeline', create_pipeline)
 	set_library('create_texture_sampler', create_texture_sampler)
 

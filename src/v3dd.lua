@@ -262,34 +262,20 @@ local function create_v3d_wrapper(enable_validation)
 	-- TODO
 	v3d_wrapper.create_debug_cube = v3d_lib.create_debug_cube
 
-	function v3d_wrapper.create_camera(fov, label)
-		if enable_validation then
-			-- TODO
-			assert(fov == nil or type(fov) == 'number')
-			assert(fov == nil or fov > 0)
-			assert(fov == nil or fov < math.pi / 2)
-		end
+	-- TODO
+	v3d_wrapper.identity = v3d_lib.identity
 
-		local cam = v3d_lib.create_camera(fov)
+	-- TODO
+	v3d_wrapper.translate = v3d_lib.translate
 
-		if label ~= nil then
-			resource_labels[cam] = label
-		end
+	-- TODO
+	v3d_wrapper.scale = v3d_lib.scale
 
-		create_resource {
-			label = resource_labels[cam],
-			category = 'camera',
-			data = cam,
-			preview = { present = function()
-				error('NYI')
-			end },
-			view = { present = function()
-				error('NYI')
-			end },
-		}
+	-- TODO
+	v3d_wrapper.rotate = v3d_lib.rotate
 
-		return cam
-	end
+	-- TODO
+	v3d_wrapper.camera = v3d_lib.camera
 
 	function v3d_wrapper.create_pipeline(options, label)
 		if enable_validation then
