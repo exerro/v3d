@@ -680,7 +680,7 @@ local function create_debug_cube(cx, cy, cz, size)
 			colours.green, colours.lime, -- top
 			colours.purple, colours.magenta, -- bottom
 		})
-		:set_data('normal', {
+		:set_data('face_normal', {
 			 0,  0,  1,  0,  0,  1, -- front
 			 0,  0,  1,  0,  0, -1, -- back
 			-1,  0,  0, -1,  0,  0, -- left
@@ -788,13 +788,13 @@ local function create_rotate_transform(tx, ty, tz)
 	local cos_x = math_cos(tx)
 	local cos_y = math_cos(ty)
 	local cos_z = math_cos(tz)
-	local fxx = cos_y*cos_z+sin_x*sin_y*sin_z
+	local fxx = cos_y*cos_z - sin_x*sin_y*sin_z
 	local fxy = cos_x*sin_z
-	local fxz = -sin_y*cos_z + sin_x*cos_y*sin_z
-	local fyx = -cos_y*sin_z + sin_x*sin_y*cos_z
+	local fxz = sin_y*cos_z + sin_x*cos_y*sin_z
+	local fyx = -cos_y*sin_z - sin_x*sin_y*cos_z
 	local fyy = cos_x*cos_z
-	local fyz = sin_y*sin_z + sin_x*cos_y*cos_z
-	local fzx = cos_x*sin_y
+	local fyz = -sin_y*sin_z + sin_x*cos_y*cos_z
+	local fzx = -cos_x*sin_y
 	local fzy = -sin_x
 	local fzz = cos_x*cos_y
 	local t = { fxx, fxy, fxz, 0, fyx, fyy, fyz, 0, fzx, fzy, fzz, 0 }
@@ -823,7 +823,7 @@ local function create_camera_transform(x, y, z, rx, ry, rz, fov)
 
 	return transform_combine(transform_combine(
 		{ tan_inverse, 0, 0, 0, 0, tan_inverse, 0, 0, 0, 0, 1, 0 },
-		create_rotate_transform(-rx, ry, -rz)),
+		create_rotate_transform(-rx, -ry, -rz)),
 		{ 1, 0, 0, -x, 0, 1, 0, -y, 0, 0, 1, -z })
 end
 
@@ -1431,7 +1431,7 @@ do
 		:add_vertex_attribute('uv', 2, true))
 	set_library('DEBUG_CUBE_LAYOUT', v3d.create_layout()
 		:add_vertex_attribute('position', 3, true)
-		:add_vertex_attribute('uv', 3, true)
+		:add_vertex_attribute('uv', 2, true)
 		:add_face_attribute('colour', 1)
 		:add_face_attribute('face_normal', 3)
 		:add_face_attribute('face_index', 1)
