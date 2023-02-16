@@ -37,8 +37,8 @@ local v3d = {}
 ---
 --- Note, for using subpixel rendering (you probably are), use
 --- `create_framebuffer_subpixel` instead.
---- @param width integer
---- @param height integer
+--- @param width integer Width of the framebuffer in pixels
+--- @param height integer Height of the framebuffer in pixels
 --- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
 --- @nodiscard
@@ -46,8 +46,8 @@ function v3d.create_framebuffer(width, height, label) end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
 --- pixels, suitable for rendering subpixels.
---- @param width integer
---- @param height integer
+--- @param width integer Width of the framebuffer in full screen pixels
+--- @param height integer Height of the framebuffer in full screen pixels
 --- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
 --- @nodiscard

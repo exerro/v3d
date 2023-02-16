@@ -31,6 +31,63 @@ end
 local v3d_types = docparse.parse(interface_text)
 local v3d_library_type = v3d_types['v3d']
 
+do -- warn on missing documentation
+	local missing = 0
+
+	local function warn(fmt, ...)
+		local params = { ... }
+		local parts = {}
+
+		missing = missing + 1
+		fmt = 'Missing documentation: ' .. fmt .. ' '
+
+		for part in fmt:gmatch '[^@]+' do
+			table.insert(parts, part)
+		end
+
+		for i = 1, #parts do
+			term.setTextColour(colours.yellow)
+			term.write(parts[i])
+
+			if i < #parts then
+				term.setTextColour(colours.cyan)
+				term.write('\'' .. params[i] .. '\'')
+			end
+		end
+
+		print()
+	end
+
+	for i = 1, #v3d_types do
+		if v3d_types[i].docstring == docparse.MISSING_DOCUMENTATION then
+			warn('type @', v3d_types[i].name)
+		end
+
+		for j = 1, #v3d_types[i].fields do
+			if v3d_types[i].fields[j].docstring == docparse.MISSING_DOCUMENTATION then
+				warn('type @ field @', v3d_types[i].name, v3d_types[i].fields[j].name)
+			end
+		end
+
+		for j = 1, #v3d_types[i].functions do
+			if v3d_types[i].functions[j].docstring == docparse.MISSING_DOCUMENTATION then
+				warn('type @ function @', v3d_types[i].name, v3d_types[i].functions[j].name)
+			end
+
+			for k = 1, #v3d_types[i].functions[j].overloads do
+				for l = 1, #v3d_types[i].functions[j].overloads[k].parameters do
+					if v3d_types[i].functions[j].overloads[k].parameters[l].docstring == docparse.MISSING_DOCUMENTATION then
+						warn('type @ function @ parameter @', v3d_types[i].name, v3d_types[i].functions[j].name, v3d_types[i].functions[j].overloads[k].parameters[l].name)
+					end
+				end
+			end
+		end
+	end
+
+	term.setTextColour(colours.yellow)
+	print('Total of ' .. missing .. ' missing entries')
+end
+
 do -- produce compiled v3d.lua
 	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
 	                 .. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias\n'
@@ -111,14 +168,14 @@ do -- produce compiled api_reference.md
 			h:write ')\n'
 		end
 
-		for j = 1, #class.methods do
+		for j = 1, #class.functions do
 			h:write '  * [`'
 			h:write(class.name)
-			h:write(class.methods[j].is_method and ':' or '.')
-			h:write(class.methods[j].name)
+			h:write(class.functions[j].is_method and ':' or '.')
+			h:write(class.functions[j].name)
 			h:write('()`](#')
 			h:write(class.name:lower())
-			h:write(class.methods[j].name:lower())
+			h:write(class.functions[j].name:lower())
 			h:write ')\n'
 		end
 	end
@@ -158,8 +215,8 @@ do -- produce compiled api_reference.md
 			end
 		end
 
-		for j = 1, #class.methods do
-			local method = class.methods[j]
+		for j = 1, #class.functions do
+			local method = class.functions[j]
 
 			h:write '## `'
 			h:write(class.name)

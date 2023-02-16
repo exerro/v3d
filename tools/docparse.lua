@@ -27,7 +27,7 @@ local luatools = require 'luatools'
 --- @field docstring string
 --- @field fields NameType[]
 --- @field operators OperatorOverload[]
---- @field methods Function[]
+--- @field functions Function[]
 
 --- @alias TypeList { [integer]: Type, [string]: Type }
 
@@ -60,7 +60,7 @@ local function parse_class(group)
 		docstring = docstring,
 		fields = {},
 		operators = {},
-		methods = {},
+		functions = {},
 	}
 
 	for i = 2, #group.annotations do
@@ -99,7 +99,7 @@ local function parse_class(group)
 end
 
 --- @param group AnnotatedGroup
---- @return Function | { class_codename: string }
+--- @return Function | { type_codename: string }
 local function parse_function(group)
 	assert(#group >= 6)
 	assert(group[1].text == 'function')
@@ -113,7 +113,7 @@ local function parse_function(group)
 		name = group[4].text,
 		docstring = group.annotations[1].pretext or MISSING_DOCUMENTATION,
 		overloads = {},
-		class_codename = group[2].text,
+		type_codename = group[2].text,
 	}
 
 	--- @type { [string]: NameType }
@@ -211,21 +211,23 @@ local function parse_alias(group)
 	assert(#group.annotations == 1)
 	assert(#group == 0)
 
-	local classname, extends = group.annotations[1].content:match '^([%w_]+)%s+(.+)$'
+	local typename, extends = group.annotations[1].content:match '^([%w_]+)%s+(.+)$'
 	local docstring = group.annotations[1].pretext or MISSING_DOCUMENTATION
 
 	return {
-		name = classname,
+		name = typename,
 		extends = extends,
 		docstring = docstring,
 		fields = {},
 		operators = {},
-		methods = {},
-		codename = classname,
+		functions = {},
+		codename = typename,
 	}
 end
 
 local docparse = {}
+
+docparse.MISSING_DOCUMENTATION = MISSING_DOCUMENTATION
 
 --- @param source string
 --- @return TypeList
@@ -237,6 +239,7 @@ function docparse.parse(source)
 	--- @type AnnotatedGroup[]
 	local token_groups = { {} }
 
+	-- generate token groups from token list
 	for i = 1, #tokens do
 		if tokens[i].type == 'whitespace' then
 			if tokens[i].text:find '\n' and #token_groups[#token_groups] > 0 then
@@ -247,6 +250,7 @@ function docparse.parse(source)
 		end
 	end
 
+	-- extract annotations from token groups
 	for i = #token_groups, 1, -1 do
 		local annotation_pretext = nil
 
@@ -273,15 +277,16 @@ function docparse.parse(source)
 		end
 	end
 
-	local classes = {}
+	-- generate types and functions
+	local types = {}
 	local functions = {}
 	for i = 1, #token_groups do
 		if token_groups[i].annotations[1].annotation == 'class' then
-			table.insert(classes, parse_class(token_groups[i]))
+			table.insert(types, parse_class(token_groups[i]))
 		elseif token_groups[i].annotations[1].annotation == 'param' or token_groups[i].annotations[1].annotation == 'return' then
 			table.insert(functions, parse_function(token_groups[i]))
 		elseif token_groups[i].annotations[1].annotation == 'alias' then
-			table.insert(classes, parse_alias(token_groups[i]))
+			table.insert(types, parse_alias(token_groups[i]))
 		elseif token_groups[i].annotations[1].annotation == 'diagnostic' then
 			assert(#token_groups[i].annotations == 1)
 			assert(token_groups[i].annotations[1].pretext == nil)
@@ -290,22 +295,50 @@ function docparse.parse(source)
 		end
 	end
 
-	local class_lookup = {}
-	for i = 1, #classes do
-		class_lookup[classes[i].codename] = classes[i]
-		classes[classes[i].name] = classes[i]
+	-- add functions to types
+	local type_lookup = {}
+	for i = 1, #types do
+		type_lookup[types[i].codename] = types[i]
+		types[types[i].name] = types[i]
 	end
 	for i = 1, #functions do
-		local class = class_lookup[functions[i].class_codename]
+		local type = type_lookup[functions[i].type_codename]
 
-		if not class then
-			error('Failed to find class \'' .. functions[i].class_codename .. '\' for method \'' .. functions[i].name .. '\'')
+		if not type then
+			error('Failed to find type \'' .. functions[i].type_codename .. '\' for method \'' .. functions[i].name .. '\'')
 		end
 
-		table.insert(class.methods, functions[i])
+		table.insert(type.functions, functions[i])
 	end
 
-	return classes
+	-- replace TODO docstrings with MISSING_DOCUMENTATION constant
+	for i = 1, #types do
+		if types[i].docstring == 'TODO' then
+			types[i].docstring = MISSING_DOCUMENTATION
+		end
+
+		for j = 1, #types[i].fields do
+			if types[i].fields[j].docstring == 'TODO' then
+				types[i].fields[j].docstring = MISSING_DOCUMENTATION
+			end
+		end
+
+		for j = 1, #types[i].functions do
+			if types[i].functions[j].docstring == 'TODO' then
+				types[i].functions[j].docstring = MISSING_DOCUMENTATION
+			end
+
+			for k = 1, #types[i].functions[j].overloads do
+				for l = 1, #types[i].functions[j].overloads[k].parameters do
+					if types[i].functions[j].overloads[k].parameters[l].docstring == 'TODO' then
+						types[i].functions[j].overloads[k].parameters[l].docstring = MISSING_DOCUMENTATION
+					end
+				end
+			end
+		end
+	end
+
+	return types
 end
 
 return docparse
