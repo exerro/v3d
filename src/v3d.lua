@@ -25,11 +25,22 @@
 --- @field CULL_FRONT_FACE V3DCullFace
 --- Specify to cull (not draw) the back face (facing away from the camera).
 --- @field CULL_BACK_FACE V3DCullFace
---- TODO
+--- A default layout containing just position and colour attributes.
 --- @field DEFAULT_LAYOUT V3DLayout
---- TODO
+--- A layout containing just position and UV attributes, useful for textures or
+--- other UV based rendering.
 --- @field UV_LAYOUT V3DLayout
---- TODO
+--- The layout used by [[@v3d.create_debug_cube]], containing the following
+--- attributes:
+--- Attribute | Type | # Components
+--- -|-|-
+--- `position` | numeric vertex attribute | 3
+--- `uv` | numeric vertex attribute | 2
+--- `colour` | face attribute | 1
+--- `face_normal` | face attribute | 3
+--- `face_index` | face attribute | 1
+--- `side_index` | face attribute | 1
+--- `side_name` | face attribute | 1
 --- @field DEBUG_CUBE_LAYOUT V3DLayout
 local v3d = {}
 
@@ -59,7 +70,7 @@ function v3d.create_framebuffer_subpixel(width, height, label) end
 function v3d.create_layout() end
 
 --- Create an empty [[@V3DGeometryBuilder]] with the given layout.
---- @param layout V3DLayout
+--- @param layout V3DLayout Initial layout, which can be changed with [[@V3DGeometryBuilder.cast]].
 --- @return V3DGeometryBuilder
 --- @nodiscard
 function v3d.create_geometry_builder(layout) end
@@ -82,18 +93,18 @@ function v3d.identity() end
 --- Create a [[@V3DTransform]] which translates points by `(dx, dy, dz)` units.
 --- Note: the `translate` parameter of [[@V3DTransform.transform]] must be true
 --- for this to have any effect.
---- @param dx number
---- @param dy number
---- @param dz number
+--- @param dx number Delta X.
+--- @param dy number Delta Y.
+--- @param dz number Delta Z.
 --- @return V3DTransform
 --- @nodiscard
 function v3d.translate(dx, dy, dz) end
 
 --- Create a [[@V3DTransform]] which scales (multiplies) points by
 --- `(sx, sy, sz)` units.
---- @param sx number
---- @param sy number
---- @param sz number
+--- @param sx number Scale X.
+--- @param sy number Scale Y.
+--- @param sz number Scale Z.
 --- @overload fun(sx: number, sy: number, sz: number): V3DTransform
 --- @overload fun(scale: number): V3DTransform
 --- @return V3DTransform
@@ -103,21 +114,27 @@ function v3d.scale(sx, sy, sz) end
 --- Create a [[@V3DTransform]] which rotates points by `(tx, ty, tz)` radians
 --- around `(0, 0, 0)`. The order of rotation is ZXY, that is it rotates Y
 --- first, then X, then Z.
---- @param tx number
---- @param ty number
---- @param tz number
+--- @param tx number Amount to rotate around the X axis, in radians.
+--- @param ty number Amount to rotate around the Y axis, in radians.
+--- @param tz number Amount to rotate around the Z axis, in radians.
 --- @return V3DTransform
 --- @nodiscard
 function v3d.rotate(tx, ty, tz) end
 
---- TODO
---- @param x number
---- @param y number
---- @param z number
---- @param x_rotation number
---- @param y_rotation number
---- @param z_rotation number
---- @param fov number | nil
+--- Create a [[@V3DTransform]] which simulates a camera. The various overloads
+--- of this function allow you to specify the position, rotation, and FOV of the
+--- camera. The resultant transform will apply the inverse translation and
+--- rotation before scaling to apply the FOV.
+---
+--- Rotation is ZXY ordered, i.e. the inverse Y is applied first, then X, then
+--- Z. This corresponds to pan, tilt, and roll.
+--- @param x number X coordinate of the origin of the viewing frustum.
+--- @param y number Y coordinate of the origin of the viewing frustum.
+--- @param z number Z coordinate of the origin of the viewing frustum.
+--- @param x_rotation number Rotation of the viewing frustum about the X axis.
+--- @param y_rotation number Rotation of the viewing frustum about the Y axis.
+--- @param z_rotation number Rotation of the viewing frustum about the Z axis.
+--- @param fov number | nil Vertical field of view, i.e. the angle between the top and bottom planes of the viewing frustum. Defaults to PI / 3 (60 degrees).
 --- @overload fun(x: number, y: number, z: number, x_rotation: number, y_rotation: number, z_rotation: number, fov: number | nil): V3DTransform
 --- @overload fun(x: number, y: number, z: number, y_rotation: number, fov: number | nil): V3DTransform
 --- @overload fun(x: number, y: number, z: number): V3DTransform
@@ -137,7 +154,7 @@ function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov) end
 --- 	cull_face = false,
 --- }
 --- ```
---- @param options V3DPipelineOptions
+--- @param options V3DPipelineOptions Immutable options for the pipeline.
 --- @param label string | nil Optional label for debugging
 --- @return V3DPipeline
 --- @nodiscard
@@ -238,17 +255,28 @@ function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
 --- @field face_stride integer
 local V3DLayout = {}
 
---- TODO
+--- An attribute in a layout. Attributes represent a unit of data that can form
+--- vertices or faces of geometry. For example, "position" might be an
+--- attribute, as well as "colour" or "uv". Attributes have a number of fields
+--- that describe how much information is stored, and how it may be used.
 --- @class V3DLayoutAttribute
---- TODO
+--- Name of the attribute.
 --- @field name string
---- TODO
+--- Number of components in this attribute, e.g. 3D position would have a size
+--- of `3`.
 --- @field size integer
---- TODO
+--- Whether this attribute has data stored per-vertex or per-face. Per-vertex
+--- attributes can have a unique for each vertex of every triangle in geometry.
+--- Per-face attributes have a single value for each triangle in geometry.
 --- @field type 'vertex' | 'face'
---- TODO
+--- Applies only to vertex attributes. Numeric vertex attributes can be
+--- transformed and interpolated by the library.
+---
+--- Note, this isn't enforced by the library, i.e. there is no explicit type
+--- checking or validation applied by default. This is a flag that can be used
+--- by debuggers and validators.
 --- @field is_numeric boolean
---- TODO
+--- Sum of the sizes of previous attributes of the same type.
 --- @field offset integer
 local V3DLayoutAttribute = {}
 
@@ -289,19 +317,26 @@ function V3DLayout:get_attribute(name) end
 --------------------------------------------------------------------------------
 
 
---- TODO
+--- [[@V3DGeometry]] stores the data for shapes and triangles in an optimised
+--- format determined by its `layout`. Data is stored as a contiguous array of
+--- unpacked attribute components. [[@V3DPipeline]]s are then specifically
+--- compiled to draw geometry of a specific layout as quickly as possible.
+---
+--- Use [[@V3DGeometryBuilder.build]] to create a geometry instance.
 --- @class V3DGeometry: { [integer]: any }
---- TODO
+--- [[@V3DLayout]] of this geometry, which defines the format data is stored in.
 --- @field layout V3DLayout
---- TODO
+--- Number of vertices contained within this geometry.
 --- @field vertices integer
---- TODO
+--- Number of faces contained within this geometry.
 --- @field faces integer
---- TODO
+--- Offset of the first vertex data. An offset of `0` would mean the first
+--- vertex starts from index `1`.
 --- @field vertex_offset integer
 local V3DGeometry = {}
 
---- TODO
+--- Convert this geometry back into a builder so it can be modified or
+--- transformed.
 --- @return V3DGeometryBuilder
 function V3DGeometry:to_builder() end
 
@@ -309,51 +344,83 @@ function V3DGeometry:to_builder() end
 ----------------------------------------------------------------
 
 
---- TODO
+--- Object used to build [[@V3DGeometry]] instances. [[@V3DGeometry]] is stored
+--- in an optimised format which depends on its layout and is an implementation
+--- detail of the library. As a result, we use geometry builders to pass data
+--- for our geometry with a well-defined interface, and then build that to bake
+--- it into the optimised format.
+---
+--- Geometry builders let us set data for individual attributes, or append
+--- vertices and faces in one go.
+---
+--- See [[@V3DGeometryBuilder.set_data]], [[@V3DGeometryBuilder.cast]],
+--- [[@V3DGeometryBuilder.build]].
 --- @class V3DGeometryBuilder
---- TODO
+--- Layout of this geometry builder, used when building the geometry using
+--- [[@V3DGeometryBuilder.build]]. Can be changed with
+--- [[@V3DGeometryBuilder.cast]].
 --- @field layout V3DLayout
---- TODO
 --- @field private attribute_data { [string]: any[] }
 local V3DGeometryBuilder = {}
 
---- TODO
---- @param attribute_name string
---- @param data any[]
+--- Set the data for an attribute, replacing any existing data.
+---
+--- See also: [[@V3DGeometryBuilder.append_data]]
+--- @param attribute_name string Name of the attribute to set the data for.
+--- @param data any[] New data, which replaces any existing data.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:set_data(attribute_name, data) end
 
---- TODO
---- @param attribute_name string
---- @param data any[]
+--- Append data to the end of the existing data for an attribute.
+---
+--- See also: [[@V3DGeometryBuilder.set_data]]
+--- @param attribute_name string Name of the attribute to append data to.
+--- @param data any[] New data to append.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:append_data(attribute_name, data) end
 
---- TODO
---- @param attribute_name string
---- @param fn fun(data: any[]): any[]
+-- TODO: append_vertex
+-- TODO: append_face
+
+--- Map a function to the data for an attribute. The table returned replaces the
+--- existing data for the attribute.
+---
+--- Note, it's fine to return the same table and mutate it (and arguably more
+--- performant if you do that).
+--- @param attribute_name string Name of the attribute to apply `fn` to.
+--- @param fn fun(data: any[]): any[] Function called with the data for this attribute, which should return the new data.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:map(attribute_name, fn) end
 
--- TODO: implement once we have V3DTransform
---- TODO
---- @param attribute_name string
---- @param transform nil
+-- TODO: implement this!
+--- Transform the data for `attribute_name` using the transform provided.
+--- @param attribute_name string Name of the numeric, 3 component vertex attribute to transform.
+--- @param transform nil Transformation to apply.
+--- @param translate boolean Whether vertices should be translated.
 --- @return V3DGeometryBuilder
-function V3DGeometryBuilder:transform(attribute_name, transform) end
+function V3DGeometryBuilder:transform(attribute_name, transform, translate) end
 
---- TODO
---- @param other V3DGeometryBuilder
+--- Copy the data from `other` into this geometry builder. The layout of the
+--- other builder and this must be identical, and only data that is part of the
+--- layout will be copied.
+--- @param other V3DGeometryBuilder Geometry builder to copy data from.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:insert(other) end
 
---- TODO
---- @param layout V3DLayout
+--- Change the layout of this geometry builder to `layout`. There are no
+--- requirements on the `layout` provided, and this function can be called as
+--- many times as necessary.
+---
+--- Note, the layout of a geometry builder affects how geometry is constructed
+--- when using [[@V3DGeometryBuilder.build]], as well as other functions.
+--- @param layout V3DLayout Any layout to change to.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:cast(layout) end
 
---- TODO
---- @param label string | nil
+--- Construct a [[@V3DGeometry]] instance using the data set in this builder.
+--- The resultant [[@V3DGeometry]] will have the same layout as this builder;
+--- consider using [[@V3DGeometryBuilder.cast]] to change layouts if necessary.
+--- @param label string | nil Optional label for the constructed [[@V3DGeometry]] instance.
 --- @return V3DGeometry
 --- @nodiscard
 function V3DGeometryBuilder:build(label) end
@@ -364,20 +431,45 @@ function V3DGeometryBuilder:build(label) end
 --------------------------------------------------------------------------------
 
 
---- TODO
+--- A transform is an object representing a transformation which can be applied
+--- to 3D positions and directions. Transforms are capable of things like
+--- translation, rotation, and scaling. Internally, they represent the first 3
+--- rows of a row-major 4x4 matrix. The last row is dropped for performance
+--- reasons, but is assumed to equal `[0, 0, 0, 1]` at all times.
+---
+--- Note, there are numerous constructors for [[@V3DTransform]]:
+--- * [[@v3d.identity]]
+--- * [[@v3d.translate]]
+--- * [[@v3d.scale]]
+--- * [[@v3d.rotate]]
+--- * [[@v3d.camera]]
 --- @class V3DTransform
 --- @operator mul (V3DTransform): V3DTransform
 local V3DTransform = {}
 
---- TODO
---- @param transform V3DTransform
+--- Combine this transform with another, returning a transform which first
+--- applies the 2nd transform, and then this one.
+---
+--- ```lua
+--- local result = transform_a:combine(transform_b)
+--- -- result is a transform which will first apply transform_b, then
+--- -- transform_a
+--- ```
+---
+--- Note: you can also use the `*` operator to combine transforms:
+---
+--- ```lua
+--- local result = transform_a * transform_b
+--- ```
+--- @param transform V3DTransform Other transform which will be applied first.
 --- @return V3DTransform
 --- @nodiscard
 function V3DTransform:combine(transform) end
 
---- TODO
---- @param data { [1]: number, [2]: number, [3]: number }
---- @param translate boolean
+--- Apply this transformation to the data provided, returning a new table with
+--- the modified X, Y, and Z position components.
+--- @param data { [1]: number, [2]: number, [3]: number } Data to be transformed.
+--- @param translate boolean Whether to apply translation. If false, only linear transformations like scaling and rotation will be applied.
 --- @return { [1]: number, [2]: number, [3]: number }
 --- @nodiscard
 function V3DTransform:transform(data, translate) end
@@ -389,15 +481,20 @@ function V3DTransform:transform(data, translate) end
 
 
 --- A pipeline is an optimised object used to draw [[@V3DGeometry]] to a
---- [[@V3DFramebuffer]] using a [[@V3DCamera]]. It is created using
+--- [[@V3DFramebuffer]] using a [[@V3DTransform]]. It is created using
 --- [[@V3DPipelineOptions]] which cannot change. To configure the pipeline after
 --- creation, uniforms can be used alongside shaders. Alternatively, multiple
 --- pipelines can be created or re-created at will according to the needs of the
 --- application.
 --- @class V3DPipeline
---- TODO
+--- Source code used to load the pipeline's `render_geometry` function.
 --- @field source string
---- TODO
+-- TODO: remove this!
+--- The syntax error in this pipeline's source code, if present. Note: if this
+--- field is not `nil`, the pipeline will not be usable. However, this need not
+--- be explicitly handled by the application as such an error would indicate a
+--- bug in v3d. This field exists so that debuggers can access the error
+--- message.
 --- @field source_error string | nil
 local V3DPipeline = {}
 
@@ -427,17 +524,37 @@ local V3DPipeline = {}
 --- features may lead to a performance gain, for example disabling depth testing
 --- or not using shaders.
 --- @class V3DPipelineOptions
---- TODO
+--- Layout of the [[@V3DGeometry]] that this pipeline is compatible with. A
+--- pipeline cannot draw geometry of other layouts, and cannot change its
+--- layout. This parameter is not optional.
 --- @field layout V3DLayout
---- TODO
+--- Optional attribute to specify which attribute vertex positions are stored
+--- in. Must be a numeric, 3 component vertex attribute. Defaults to
+--- `'position'`.
 --- @field position_attribute string | nil
---- TODO
+--- If specified, this option tells v3d to use the given attribute as a "colour"
+--- attribute to draw a fixed colour per polygon. Note: this should not be used
+--- with fragment shaders, as it will do nothing.
+---
+--- Defaults to `nil`, meaning the fragment shader or 'white' is used to draw
+--- pixels.
 --- @field colour_attribute string | nil
 --- Names of the attributes to interpolate values across polygons being drawn.
 --- Only useful when using fragment shaders, and has a slight performance loss
 --- when used. Defaults to `nil`.
 --- @field attributes string[] | nil
---- TODO
+--- Whether the fragment shader should receive attributes packed in a table.
+--- Defaults to `true`.
+---
+--- When packed, the 2nd parameter to the fragment shader is a table where the
+--- attribute name is the key to a list of attribute component values. For
+--- example, to access UVs, you might use `attr.uv[1]` and `attr.uv[2]`.
+---
+--- When unpacked, each component of each attribute is passed as an individual
+--- parameter, based on the order the attributes are specified in `attributes`.
+--- For example, to access UVs and colour with `attributes = { 'colour', 'uv' }`
+--- you would have the parameters `(uniforms, colour1, uv1, uv2)` for your
+--- fragment shader.
 --- @field pack_attributes boolean | nil
 --- Specify a face to cull (not draw), or false to disable face culling.
 --- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
@@ -471,8 +588,8 @@ local V3DPipelineOptions = {}
 --- Draw geometry to the framebuffer using the transforms given.
 --- @param geometry V3DGeometry List of geometry to draw.
 --- @param framebuffer V3DFramebuffer Framebuffer to draw to.
---- @param transform V3DTransform TODO
---- @param model_transform V3DTransform | nil TODO
+--- @param transform V3DTransform Transform applied to all vertices.
+--- @param model_transform V3DTransform | nil Transform applied to all vertices before `transform`, if specified.
 --- @return nil
 function V3DPipeline:render_geometry(geometry, framebuffer, transform, model_transform) end
 

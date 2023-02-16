@@ -811,7 +811,7 @@ local function create_camera_transform(x, y, z, rx, ry, rz, fov)
 		rx = 0
 	end
 
-	fov = fov or math.pi / 6
+	fov = fov or math.pi / 3
 	rx = rx or 0
 	ry = ry or 0
 	rz = rz or 0
@@ -819,7 +819,7 @@ local function create_camera_transform(x, y, z, rx, ry, rz, fov)
 	y = y or 0
 	z = z or 0
 
-	local tan_inverse = 1 / math.tan(fov)
+	local tan_inverse = 1 / math.tan(fov / 2)
 
 	return transform_combine(transform_combine(
 		{ tan_inverse, 0, 0, 0, 0, tan_inverse, 0, 0, 0, 0, 1, 0 },

@@ -69,11 +69,13 @@ local function parse_class(group)
 			if not name then
 				error('Failed to parse docstring for class \'' .. classname .. '\': ' .. group.annotations[i].content)
 			end
-			table.insert(class.fields, {
-				name = name,
-				type = type,
-				docstring = group.annotations[i].pretext or MISSING_DOCUMENTATION,
-			})
+			if name ~= 'private' then
+				table.insert(class.fields, {
+					name = name,
+					type = type,
+					docstring = group.annotations[i].pretext or MISSING_DOCUMENTATION,
+				})
+			end
 		elseif group.annotations[i].annotation == 'operator' then
 			local operator, paramstring, returns = group.annotations[i].content
 				:match '^([%w_]+)%s*%(([^%)]+)%)%s*:%s*(.+)$'

@@ -210,6 +210,15 @@ function luatools.strip_comments(tokens)
 	end
 end
 
+--- @param tokens LuaToken[]
+function luatools.strip_doccomments(tokens)
+	for i = #tokens, 1, -1 do
+		if tokens[i].type == 'doccomment' then
+			table.remove(tokens, i)
+		end
+	end
+end
+
 -- TODO: refactor this!
 --- @param tokens LuaToken[]
 function luatools.minify(tokens)
