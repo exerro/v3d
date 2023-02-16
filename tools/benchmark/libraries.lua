@@ -31,10 +31,6 @@ local libraries = {}
 local oldPath = package.path
 package.path = '/?.lua;/?/?.lua;' .. package.path
 
-if fs.isDir('v3d') then
-	assert(loadfile 'v3d/build.lua')()
-end
-
 local function try_load_library(name, library, setup_fn)
 	local ok, lib = pcall(require, library)
 	if not ok then

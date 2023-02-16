@@ -94,6 +94,7 @@ function v3d.translate(dx, dy, dz) end
 --- @param sx number
 --- @param sy number
 --- @param sz number
+--- @overload fun(sx: number, sy: number, sz: number): V3DTransform
 --- @overload fun(scale: number): V3DTransform
 --- @return V3DTransform
 --- @nodiscard
@@ -117,9 +118,10 @@ function v3d.rotate(tx, ty, tz) end
 --- @param y_rotation number
 --- @param z_rotation number
 --- @param fov number | nil
---- @overload fun(x: number, y: number, z: number, y_rotation: number): V3DTransform
+--- @overload fun(x: number, y: number, z: number, x_rotation: number, y_rotation: number, z_rotation: number, fov: number | nil): V3DTransform
+--- @overload fun(x: number, y: number, z: number, y_rotation: number, fov: number | nil): V3DTransform
 --- @overload fun(x: number, y: number, z: number): V3DTransform
---- @overload fun(): V3DTransform
+--- @overload fun(fov: number | nil): V3DTransform
 --- @return V3DTransform
 --- @nodiscard
 function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov) end
@@ -400,13 +402,12 @@ function V3DTransform:transform(data, translate) end
 local V3DPipeline = {}
 
 --- Specifies which face to cull, either the front or back face.
---- @see v3d.CULL_BACK_FACE
---- @see v3d.CULL_FRONT_FACE
+---
+--- See also: [[@v3d.CULL_FRONT_FACE]], [[@v3d.CULL_BACK_FACE]]
 --- @alias V3DCullFace 1 | -1
 
 --- Pseudo-class listing the engine-provided uniform values for shaders.
---- @class V3DUniforms: { [string]: unknown }
-local V3DUniforms = {}
+--- @alias V3DUniforms { [string]: unknown }
 
 -- TODO: support returning depth as 2nd param
 -- TODO: screen X/Y, depth (new & old), face index
@@ -420,9 +421,6 @@ local V3DUniforms = {}
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
 --- @alias V3DFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
-
---- TODO: Currently unused.
---- @alias V3DVertexShader function
 
 --- Pipeline options describe the settings used to create a pipeline. Most
 --- fields are optional and have a sensible default. Not using or disabling
