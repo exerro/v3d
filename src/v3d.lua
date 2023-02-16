@@ -472,11 +472,11 @@ local V3DPipelineOptions = {}
 
 --- Draw geometry to the framebuffer using the transforms given.
 --- @param geometry V3DGeometry List of geometry to draw.
---- @param fb V3DFramebuffer Framebuffer to draw to.
+--- @param framebuffer V3DFramebuffer Framebuffer to draw to.
 --- @param transform V3DTransform TODO
 --- @param model_transform V3DTransform | nil TODO
 --- @return nil
-function V3DPipeline:render_geometry(geometry, fb, transform, model_transform) end
+function V3DPipeline:render_geometry(geometry, framebuffer, transform, model_transform) end
 
 --- Set a uniform value which can be accessed from shaders.
 --- @param name string Name of the uniform. Shaders can access using `uniforms[name]`
@@ -488,6 +488,10 @@ function V3DPipeline:set_uniform(name, value) end
 --- @param name string Name of the uniform.
 --- @return unknown
 function V3DPipeline:get_uniform(name) end
+
+--- Get a list of uniform names that have been set with `set_uniform`.
+--- @return string[]
+function V3DPipeline:list_uniforms() end
 
 
 --------------------------------------------------------------------------------

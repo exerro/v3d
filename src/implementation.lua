@@ -1358,6 +1358,14 @@ local function create_pipeline(options)
 		return uniforms[name]
 	end
 
+	pipeline.list_uniforms = function(_)
+		local t = {}
+		for k in pairs(uniforms) do
+			t[#t + 1] = k
+		end
+		return t
+	end
+
 	return pipeline
 end
 
