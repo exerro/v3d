@@ -102,6 +102,21 @@ local v3d_state = {
 	call_trees = {},
 	blit_called = false,
 }
+local v3d_detail_generators = {}
+
+local function fmtobject(v)
+	if type(v) == 'number' then
+		return '&orange;' .. v .. '&reset;'
+	elseif type(v) == 'string' then
+		return '&green;"' .. v .. '"&reset;'
+	elseif v == true or v == false or v == nil then
+		return '&purple;' .. tostring(v) .. '&reset;'
+	elseif type(v) == 'table' then
+		return v3d_state.object_labels[v] or ('&lightGrey;@' .. tostring(v):sub(8) .. '&reset;')
+	else
+		return tostring(v)
+	end
+end
 
 local v3d_wrapper = {}
 do -- generate the wrapper
@@ -128,20 +143,6 @@ do -- generate the wrapper
 		label = label and '&pink;' .. label .. '&reset; @' .. suffix or '@' .. suffix
 		v3d_state.object_labels[obj] = label
 		v3d_state.object_types[obj] = type
-	end
-
-	local function fmtobject(v)
-		if type(v) == 'number' then
-			return '&orange;' .. v .. '&reset;'
-		elseif type(v) == 'string' then
-			return '&green;"' .. v .. '"&reset;'
-		elseif v == true or v == false or v == nil then
-			return '&purple;' .. tostring(v) .. '&reset;'
-		elseif type(v) == 'table' then
-			return v3d_state.object_labels[v] or ('&lightGrey;@' .. tostring(v):sub(8) .. '&reset;')
-		else
-			return tostring(v)
-		end
 	end
 
 	------------------------------------------------------------
@@ -374,9 +375,9 @@ local function present_capture(trees)
 		end
 
 		term.setPaletteColour(colours.white, 0.95, 0.95, 0.95)
-		term.setPaletteColour(colours.grey, 0.2, 0.2, 0.2)
+		term.setPaletteColour(colours.grey, 0.15, 0.15, 0.15)
 		term.setPaletteColour(colours.lightGrey, 0.6, 0.6, 0.6)
-		term.setPaletteColour(colours.purple, 0.45, 0.25, 0.55)
+		term.setPaletteColour(colours.purple, 0.60, 0.30, 0.70)
 	end
 
 	local timers_captured = {}
@@ -517,6 +518,67 @@ local frame_time_avg = 0
 local avg_samples = 10
 local last_capture_trees = nil
 
+local function show_capture(error_tree)
+	local trees = {}
+
+	local object_types = {}
+
+	for instance, type in pairs(v3d_state.object_types) do
+		if type ~= 'v3d' then
+			type = type
+			if not object_types[type] then
+				object_types[type] = {}
+				table.insert(object_types, type)
+			end
+			table.insert(object_types[type], instance)
+		end
+	end
+
+	table.sort(object_types)
+
+	local object_tree = {
+		content = 'Objects',
+		children = {},
+		default_expanded = not error_tree,
+	}
+
+	for i = 1, #object_types do
+		local objects = object_types[object_types[i]]
+		local detail_generator = v3d_detail_generators[object_types[i]]
+		local objects_tree = {
+			content = object_types[i]:sub(4),
+			content_right = '&lightGrey;(' .. #objects .. ')',
+			children = {},
+			default_expanded = false,
+		}
+		for j = 1, #objects do
+			local tree = {
+				content = fmtobject(objects[j]),
+				children = {},
+			}
+			table.insert(objects_tree.children, tree)
+			if detail_generator then
+				detail_generator(objects[j], tree.children)
+			end
+		end
+		table.insert(object_tree.children, objects_tree)
+	end
+
+	table.insert(trees, object_tree)
+
+	table.insert(trees, {
+		content = 'Calls',
+		children = last_capture_trees,
+		default_expanded = true,
+	})
+
+	if error_tree then
+		table.insert(trees, error_tree)
+	end
+
+	return present_capture(trees)
+end
+
 while true do
 	if filter == nil or event[1] == filter then
 		local start_time = currentTime()
@@ -542,18 +604,13 @@ while true do
 		end
 
 		if not ok then
-			present_capture {
-				{ content = 'Capture', children = last_capture_trees, default_expanded = false, },
-				{ content = 'Error', children = {
-					{ content = tostring(err) }
-				}, default_expanded = true, }
-			}
+			show_capture { content = 'Error', children = {
+				{ content = tostring(err) }
+			}, default_expanded = true, }
 			return
 		elseif coroutine.status(program_co) == 'dead' then
 			if capture_first_frame then
-				present_capture {
-					{ content = 'Capture', children = last_capture_trees, default_expanded = true, },
-				}
+				show_capture()
 			end
 			break
 		else
@@ -564,9 +621,7 @@ while true do
 	event = table.remove(event_queue, 1) or { coroutine.yield() }
 
 	if (event[1] == 'key' and event[2] == capture_key) or capture_first_frame then
-		local cont, timers = present_capture {
-			{ content = 'Capture', children = last_capture_trees, default_expanded = true, },
-		}
+		local cont, timers = show_capture()
 		if not cont then
 			break
 		end

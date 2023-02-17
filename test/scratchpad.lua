@@ -1,23 +1,20 @@
--- Import the library
 local v3d = require '/v3d'
 
--- Create objects using default settings
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
 local geometry = v3d.create_geometry_builder(v3d.DEFAULT_LAYOUT)
-	:set_data('position', { 0, 1, -1, -1.1, -1, -1, 1.1, -1, -1 })
+	:set_data('position', { 0, 1, 0, -1.1, -1, 0, 1.1, -1, 0 })
 	:set_data('colour', { colours.red })
 	:build()
-local transform = v3d.identity()
+local transform = v3d.camera(0, 0, 2, 0, math.pi / 2)
 local pipeline = v3d.create_pipeline {
 	layout = v3d.DEFAULT_LAYOUT,
 	colour_attribute = 'colour',
 }
 
--- Clear the framebuffer to light blue
-framebuffer:clear(colours.lightBlue)
-
--- Draw the geometry to the framebuffer
-pipeline:render_geometry(geometry, framebuffer, transform)
-
--- Draw the framebuffer to the screen
-framebuffer:blit_term_subpixel(term)
+while true do
+    transform = transform * v3d.rotate(0, 0.05, 0)
+    framebuffer:clear(colours.lightBlue)
+    pipeline:render_geometry(geometry, framebuffer, transform)
+    framebuffer:blit_term_subpixel(term)
+    sleep(0.05)
+end

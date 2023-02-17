@@ -806,7 +806,13 @@ local function create_rotate_transform(tx, ty, tz)
 end
 
 local function create_camera_transform(x, y, z, rx, ry, rz, fov)
-	if not ry then
+	if not y then
+		fov = x
+		x = 0
+	end
+
+	if not rz then
+		fov = ry
 		ry = rx
 		rx = 0
 	end

@@ -1,5 +1,7 @@
 
 --- @class build_config
+--- TODO
+--- @field v3dd_meta_aliases { [string]: string }
 --- String snippets to run a type check on a type. Overrides anything that v3dd
 --- would insert on its own. Strings should use `%s` where the value would be
 --- placed.
@@ -50,6 +52,7 @@
 --- Keys to this table should be a class name, e.g. `V3DTransform`.
 --- @field v3dd_extra_field_details { [string]: string }
 local build_config = {
+	v3dd_meta_aliases = {},
 	v3dd_type_checkers = {},
 	v3dd_structural_types = {},
 	v3dd_fn_logging_blacklist = {},
@@ -58,6 +61,10 @@ local build_config = {
 	v3dd_field_detail_blacklist = {},
 	v3dd_extra_field_details = {},
 }
+
+do -- meta aliases
+	build_config.v3dd_meta_aliases['V3DTransform.mul'] = 'combine'
+end
 
 do -- type checkers
 	build_config.v3dd_type_checkers['V3DFragmentShader'] = 'type(%s) == \'function\''
@@ -109,13 +116,17 @@ do -- fn pre body
 	-- show current uniform values in tree when calling render_geometry
 	build_config.v3dd_fn_pre_body['V3DPipeline.render_geometry'] = [[
 local uniforms_tree = { content = 'Uniforms', children = {} }
+local uniforms_count = 0
 table.insert(call_tree.children, uniforms_tree)
 
 for _, uniform in ipairs(self:list_uniforms()) do
-table.insert(uniforms_tree.children, {
-	content = '&lightBlue;' .. uniform .. '&reset; = ' .. fmtobject(self:get_uniform(uniform))
-})
+	uniforms_count = uniforms_count + 1
+	table.insert(uniforms_tree.children, {
+		content = '&lightBlue;' .. uniform .. '&reset; = ' .. fmtobject(self:get_uniform(uniform))
+	})
 end
+
+uniforms_tree.content_right = '&lightGrey;' .. uniforms_count .. ' uniforms'
 ]]
 end
 
@@ -155,26 +166,32 @@ do -- extra field details
 	-- show vertex and face attribute lists for V3DLayout
 	build_config.v3dd_extra_field_details.V3DLayout = [[
 local attr_trees = {}
+local attribute_count = { vertex = 0, face = 0 }
 attr_trees.vertex = {
-content = 'Vertex attributes',
-children = {},
+	content = 'Vertex attributes',
+	children = {},
 }
 attr_trees.face = {
-content = 'Face attributes',
-children = {},
+	content = 'Face attributes',
+	children = {},
 }
 table.insert(trees, attr_trees.vertex)
 table.insert(trees, attr_trees.face)
 for i = 1, #instance.attributes do
-local attr = instance.attributes[i]
-table.insert(attr_trees[attr.type].children, {
-	content = attr.name .. ' (' .. fmtobject(attr.size) .. '&lightGrey; components&reset;)',
-	children = {
-		{ content = '&lightBlue;offset&reset; = ' .. fmtobject(attr.offset) },
-		{ content = '&lightBlue;is_numeric&reset; = ' .. fmtobject(attr.is_numeric) },
-	},
-})
-end]]
+	local attr = instance.attributes[i]
+	attribute_count[attr.type] = attribute_count[attr.type] + 1
+	table.insert(attr_trees[attr.type].children, {
+		content = attr.name,
+		content_right = '&lightGrey;' .. attr.size .. ' components',
+		children = {
+			{ content = '&lightBlue;offset&reset; = ' .. fmtobject(attr.offset) },
+			{ content = '&lightBlue;is_numeric&reset; = ' .. fmtobject(attr.is_numeric) },
+		},
+	})
+end
+
+attr_trees.vertex.content_right = '&lightGrey;' .. attribute_count.vertex .. ' attributes'
+attr_trees.face.content_right = '&lightGrey;' .. attribute_count.face .. ' attributes']]
 
 	-- show transform data for V3DTransform
 	build_config.v3dd_extra_field_details.V3DTransform = [[
@@ -211,22 +228,26 @@ end]]
 	build_config.v3dd_extra_field_details.V3DGeometry = [[
 local face_data = { content = 'Raw face data', children = {} }
 local vertex_data = { content = 'Raw vertex data', children = {} }
-local face_fmt = '&lightGrey;[f%0' .. #tostring(instance.faces) .. 'd %'
-              .. #tostring(instance.vertex_offset - 1) .. 'd]: &reset;%s&reset;'
-local vertex_fmt = '&lightGrey;[v%0' .. #tostring(instance.vertices) .. 'd %'
-              .. #tostring(#instance) .. 'd]: &reset;%s&reset;'
+local face_fmt = '&lightGrey;[%' .. #tostring(instance.vertex_offset - 1) .. 'd]: &reset;%s&reset;'
+local vertex_fmt = '&lightGrey;[%' .. #tostring(#instance) .. 'd]: &reset;%s&reset;'
 
 table.insert(trees, face_data)
 table.insert(trees, vertex_data)
 
 for i = 1, instance.vertex_offset do
 	local face_n = math.floor((i - 1) / instance.layout.face_stride) + 1
-	face_data.children[i] = { content = face_fmt:format(face_n, i, fmtobject(instance[i])) }
+	face_data.children[i] = {
+		content = face_fmt:format(i, fmtobject(instance[i])),
+		content_right = '&lightGrey;face ' .. face_n,
+	}
 end
 
 for i = instance.vertex_offset + 1, #instance do
 	local vertex_n = math.floor((i - instance.vertex_offset - 1) / instance.layout.vertex_stride) + 1
-	table.insert(vertex_data.children, { content = vertex_fmt:format(vertex_n, i, fmtobject(instance[i])) })
+	table.insert(vertex_data.children, {
+		content = vertex_fmt:format(i, fmtobject(instance[i])),
+		content_right = '&lightGrey;vertex ' .. vertex_n,
+	})
 end]]
 
 	-- pretty print attributes as list and cull_face as ref for V3DPipelineOptions

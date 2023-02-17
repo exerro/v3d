@@ -318,6 +318,7 @@ function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
 		for i = 1, #call_tree.children do
 			call_tree.children[i].default_expanded = true
 		end
+		call_tree.content_right = '&red;validation errors'
 		call_tree.default_expanded = true
 		error(V3D_VALIDATION_FAILED)
 	end
@@ -366,6 +367,7 @@ local SHOW_DETAILS_TEMPLATE = [[
 		${INSTANCE_FIELDS}
 		${EXTRA_FIELDS}
 	end
+	v3d_detail_generators.${INSTANCE_TYPE_NAME} = show_details_${INSTANCE_TYPE_NAME}
 ]]
 
 local SHOW_DETAILS_FIELD_TEMPLATE = [[
