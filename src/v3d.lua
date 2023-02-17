@@ -393,9 +393,10 @@ function V3DGeometryBuilder:append_data(attribute_name, data) end
 function V3DGeometryBuilder:map(attribute_name, fn) end
 
 -- TODO: implement this!
+-- TODO: should work with 4 component attributes too!
 --- Transform the data for `attribute_name` using the transform provided.
 --- @param attribute_name string Name of the numeric, 3 component vertex attribute to transform.
---- @param transform nil Transformation to apply.
+--- @param transform V3DTransform Transformation to apply.
 --- @param translate boolean Whether vertices should be translated.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:transform(attribute_name, transform, translate) end
@@ -487,6 +488,9 @@ function V3DTransform:transform(data, translate) end
 --- pipelines can be created or re-created at will according to the needs of the
 --- application.
 --- @class V3DPipeline
+--- Options that the pipeline is using. Note that this differs to the ones it
+--- was created with, as these options will have defaults applied etc.
+--- @field options V3DPipelineOptions
 --- Source code used to load the pipeline's `render_geometry` function.
 --- @field source string
 -- TODO: remove this!
@@ -528,6 +532,10 @@ local V3DPipeline = {}
 --- pipeline cannot draw geometry of other layouts, and cannot change its
 --- layout. This parameter is not optional.
 --- @field layout V3DLayout
+--- Names of the attributes to interpolate values across polygons being drawn.
+--- Only useful when using fragment shaders, and has a slight performance loss
+--- when used. Defaults to `nil`.
+--- @field attributes string[] | nil
 --- Optional attribute to specify which attribute vertex positions are stored
 --- in. Must be a numeric, 3 component vertex attribute. Defaults to
 --- `'position'`.
@@ -539,10 +547,6 @@ local V3DPipeline = {}
 --- Defaults to `nil`, meaning the fragment shader or 'white' is used to draw
 --- pixels.
 --- @field colour_attribute string | nil
---- Names of the attributes to interpolate values across polygons being drawn.
---- Only useful when using fragment shaders, and has a slight performance loss
---- when used. Defaults to `nil`.
---- @field attributes string[] | nil
 --- Whether the fragment shader should receive attributes packed in a table.
 --- Defaults to `true`.
 ---

@@ -5,7 +5,7 @@ local docparse = require 'docparse'
 local base_path = shell and (shell.getRunningProgram():match '^(.+/).-/' or '') or 'v3d/'
 local src_path = base_path .. 'src/'
 local gen_path = base_path .. 'gen/'
-local license_text, interface_text, implementation_text
+local license_text, interface_text, implementation_text, v3dd_text
 
 do -- read the files
 	local function preprocess(text)
@@ -22,6 +22,10 @@ do -- read the files
 
 	local h = assert(io.open(src_path .. 'implementation.lua'), 'Failed to read implementation.lua')
 	implementation_text = h:read '*a'
+	h:close()
+
+	local h = assert(io.open(src_path .. 'v3dd.lua'), 'Failed to read v3dd.lua')
+	v3dd_text = h:read '*a'
 	h:close()
 
 	interface_text = preprocess(interface_text)
@@ -118,7 +122,7 @@ end
 
 do -- produce compiled api_reference.md
 	local function type_to_markdown(s)
-		return (s:gsub('[%w_][^ ]*', function(ss)
+		return (s:gsub('[a-zA-Z][%w_%[%]%.]*', function(ss)
 			if v3d_types[ss] then
 				return '[`' .. ss .. '`](#' .. ss:lower() .. ')'
 			else
@@ -279,7 +283,602 @@ do -- produce compiled api_reference.md
 	term.setTextColour(colours.white)
 end
 
+do -- produce compiled v3dd.lua
+	local type_checkers = {
+		['V3DFragmentShader'] = 'type(%s) == \'function\'',
+		['V3DCullFace'] = '%s == v3d_lib.CULL_FRONT_FACE or %s == v3d_lib.CULL_BACK_FACE',
+		['V3DUniforms'] = 'type(%s) == \'table\'',
+		['boolean'] = 'type(%s) == \'boolean\'',
+		['number'] = 'type(%s) == \'number\'',
+		['integer'] = 'type(%s) == \'number\' and %s % 1 < 0.001',
+		['string'] = 'type(%s) == \'string\'',
+		['table'] = 'type(%s) == \'table\'',
+		['true | false'] = 'type(%s) == \'boolean\'',
+		['any'] = 'true',
+	}
+	local structural_types = {
+		['V3DPipelineOptions'] = true,
+		['V3DLayoutAttribute'] = true,
+	}
+	local fn_logging_blacklist = {
+		['v3d.create_layout'] = true,
+		['v3d.create_geometry_builder'] = true,
+		['v3d.create_debug_cube'] = true,
+		['v3d.identity'] = true,
+		['v3d.translate'] = true,
+		['v3d.scale'] = true,
+		['v3d.rotate'] = true,
+		['v3d.camera'] = true,
+		['v3d.create_texture_sampler'] = true,
+		['V3DLayout.add_vertex_attribute'] = true,
+		['V3DLayout.add_face_attribute'] = true,
+		['V3DLayout.drop_attribute'] = true,
+		['V3DLayout.has_attribute'] = true,
+		['V3DLayout.get_attribute'] = true,
+		['V3DGeometry.to_builder'] = true,
+		['V3DGeometryBuilder.set_data'] = true,
+		['V3DGeometryBuilder.append_data'] = true,
+		['V3DGeometryBuilder.map'] = true,
+		['V3DGeometryBuilder.transform'] = true,
+		['V3DGeometryBuilder.insert'] = true,
+		['V3DGeometryBuilder.cast'] = true,
+		['V3DTransform.combine'] = true,
+		['V3DTransform.transform'] = true,
+		['V3DPipeline.get_uniform'] = true,
+		['V3DPipeline.list_uniforms'] = true,
+	}
+
+	local fn_pre_hooks = {
+		['V3DPipeline.render_geometry'] = [[
+local uniforms_tree = { content = 'Uniforms', children = {} }
+table.insert(call_tree.children, uniforms_tree)
+
+for _, uniform in ipairs(self:list_uniforms()) do
+	table.insert(uniforms_tree.children, {
+		content = '&lightBlue;' .. uniform .. '&reset; = ' .. fmtobject(self:get_uniform(uniform))
+	})
+end
+]]
+	}
+	local fn_post_hooks = {
+		['V3DFramebuffer.blit_term_subpixel'] = 'v3d_state.blit_called = true',
+		['V3DFramebuffer.blit_term_subpixel_depth'] = 'v3d_state.blit_called = true',
+		['V3DFramebuffer.blit_graphics'] = 'v3d_state.blit_called = true',
+		['V3DFramebuffer.blit_graphics_depth'] = 'v3d_state.blit_called = true',
+	}
+
+	-- TODO: add more hooks
+	--       * width > 0, height > 0 for creating framebuffer
+	--       * create_debug_cube size > 0
+	--       * wrap fragment shader for type checking
+	--       * clear_depth >= 0
+	--       * framebuffer contents valid before blit
+	--       * layout new attribute doesn't exist
+	--       * layout drop_attribute attribute does exist
+	--       * geometry builder transform applied to a 3/4+ component attribute
+	--       * geometry builder build checks data lengths and data existing
+	--       * camera fov > 0
+	--       * pipeline option has colour attribute xor fragment shader
+	--       * pipeline option layout has all specified attributes
+	--       * pipeline option layout position attribute is 3 component vertex
+	--       * pipeline option layout colour_attribute attribute is 1 component face
+	--       * pipeline option pixel aspect ratio > 0
+	--       * pipeline render_geometry layouts match
+
+	local field_detail_blacklist = {
+		['V3DLayout.attributes'] = true,
+		['V3DFramebuffer.colour'] = true,
+		['V3DFramebuffer.depth'] = true,
+	}
+
+	local extra_details_fields = {}
+
+	extra_details_fields.V3DLayout = [[
+local attr_trees = {}
+attr_trees.vertex = {
+	content = 'Vertex attributes',
+	children = {},
+}
+attr_trees.face = {
+	content = 'Face attributes',
+	children = {},
+}
+table.insert(trees, attr_trees.vertex)
+table.insert(trees, attr_trees.face)
+for i = 1, #instance.attributes do
+	local attr = instance.attributes[i]
+	table.insert(attr_trees[attr.type].children, {
+		content = attr.name .. ' (' .. fmtobject(attr.size) .. '&lightGrey; components&reset;)',
+		children = {
+			{ content = '&lightBlue;offset&reset; = ' .. fmtobject(attr.offset) },
+			{ content = '&lightBlue;is_numeric&reset; = ' .. fmtobject(attr.is_numeric) },
+		},
+	})
+end]]
+
+	extra_details_fields.V3DTransform = [[
+local s = {}
+local r = {}
+
+for y = 1, 3 do
+	s[y] = {}
+	for x = 1, 4 do
+		local index = (y - 1) * 4 + x
+		s[y][x] = fmtobject(instance[index])
+	end
+end
+
+for x = 1, 4 do
+	r[x] = 0
+	for y = 1, 3 do
+		r[x] = math.max(r[x], #s[y][x])
+	end
+end
+
+for y = 1, 3 do
+	local ss = {}
+	for x = 1, 4 do
+		ss[x] = (' '):rep(r[x] - #s[y][x]) .. s[y][x]
+	end
+	table.insert(trees, {
+		content = table.concat(ss, '  '),
+	})
+end]]
+
+	extra_details_fields.V3DGeometry = [[
+local data = { content = 'Data', children = {} }
+table.insert(trees, data)
+
+for i = 1, #instance do
+	data.children[i] = { content = '&lightGrey;[' .. i .. ']: &reset;' .. fmtobject(instance[i]) }
+end]]
+
+	extra_details_fields.V3DPipelineOptions = [[
+local attributes = {}
+local cull_face_s = fmtobject(instance.cull_face)
+
+if instance.attributes then
+	for i = 1, #instance.attributes do
+		attributes[i] = fmtobject(instance.attributes[i])
+	end
+end
+
+if instance.cull_face == v3d_wrapper.CULL_FRONT_FACE then
+	cull_face_s = '&cyan;v3d.CULL_FRONT_FACE&reset;'
+elseif instance.cull_face == v3d_wrapper.CULL_BACK_FACE then
+	cull_face_s = '&cyan;v3d.CULL_BACK_FACE&reset;'
+end
+
+trees.attributes.content = '&lightBlue;attributes&reset; = [' .. table.concat(attributes, ',') .. ']'
+trees.cull_face.content = '&lightBlue;cull_face&reset; = ' .. cull_face_s]]
+
+	local CONVERT_INSTANCE_TEMPLATE = [[
+function convert_instance_${INSTANCE_TYPE_NAME}(instance, instance_label)
+	if v3d_state.object_types[instance] then return end
+	register_object(instance, "${INSTANCE_TYPE_NAME}", instance_label)
+	${INSTANCE_FUNCTION_OVERRIDES}
+end
+]]
+
+	local WRAPPED_FUNCTION_TEMPLATE_LOGGED = [[
+local ${WF_FUNCTION_NAME}_orig = instance.${WF_FUNCTION_NAME}
+function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
+	local validation_failed = false
+	local call_tree = {
+		content = string.format("&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(${WF_PS_N})",${WF_FMT_PARAMS}),
+		content_expanded = "&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(...)",
+		children = {},
+	}
+	${WF_OVERLOADS}
+	table.insert(v3d_state.call_trees, call_tree)
+	if validation_failed then
+		for i = 1, #call_tree.children do
+			call_tree.children[i].default_expanded = true
+		end
+		call_tree.default_expanded = true
+		error(V3D_VALIDATION_FAILED)
+	end
+	${WF_PRE_HOOK}
+	local return_value = ${WF_FUNCTION_NAME}_orig(${WF_FN_SELF}${WF_FN_PARAMS})
+	${WF_RETURN_CONVERT}
+	local return_tree = { content = "&purple;return &reset;" .. fmtobject(return_value), children = {} }
+	table.insert(call_tree.children, return_tree)
+	${WF_RETURN_DETAILS}
+	${WF_POST_HOOK}
+	return return_value
+end]]
+
+	local WRAPPED_FUNCTION_TEMPLATE_UNLOGGED = [[
+local ${WF_FUNCTION_NAME}_orig = instance.${WF_FUNCTION_NAME}
+function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
+	${WF_OVERLOADS}
+	local return_value = ${WF_FUNCTION_NAME}_orig(${WF_FN_SELF}${WF_FN_PARAMS})
+	${WF_RETURN_CONVERT}
+	return return_value
+end]]
+
+	local PARAM_TEMPLATE_LOGGED = [[
+local param_${PT_PARAM_NAME}_tree = {
+	content = "&lightBlue;${PT_PARAM_NAME}&reset; = " .. fmtobject(${PT_VALUE_NAME}),
+	default_expanded = false,
+	children = {}
+}
+table.insert(call_tree.children, param_${PT_PARAM_NAME}_tree)
+${PT_DETAILS}
+if validation_enabled and not (${PT_TYPECHECK}) then
+	validation_failed = true
+	table.insert(param_${PT_PARAM_NAME}_tree.children, { content = "&red;ERROR: Expected type '${PT_TYPENAME}', got " .. type(${PT_VALUE_NAME}) })
+end]]
+
+	local PARAM_TEMPLATE_UNLOGGED = [[
+if validation_enabled and not (${PT_TYPECHECK}) then
+	error("Expected type '${PT_TYPENAME}' for parameter '${PT_PARAM_NAME}', got " .. type(${PT_VALUE_NAME}))
+end]]
+
+local SHOW_DETAILS_STUB_TEMPLATE = [[
+	local show_details_${INSTANCE_TYPE_NAME}]]
+
+local SHOW_DETAILS_TEMPLATE = [[
+	function show_details_${INSTANCE_TYPE_NAME}(instance, trees)
+		${INSTANCE_FIELDS}
+		${EXTRA_FIELDS}
+	end
+]]
+
+local SHOW_DETAILS_FIELD_TEMPLATE = [[
+local field_${SDF_FIELD_NAME}_tree = {
+	content = "&lightBlue;${SDF_FIELD_NAME}&reset; = " .. fmtobject(instance.${SDF_FIELD_NAME}),
+	default_expanded = false,
+	children = {}
+}
+trees.${SDF_FIELD_NAME} = field_${SDF_FIELD_NAME}_tree
+table.insert(trees, field_${SDF_FIELD_NAME}_tree)
+${SDF_SUB_DETAILS}]]
+
+	local function map_list(t, fn)
+		local r = {}
+		for i = 1, #t do
+			if fn then
+				r[i] = fn(t[i])
+			else
+				r[i] = t[i]
+			end
+		end
+		return r
+	end
+
+	local function is_class(s)
+		return v3d_types[s] and (#v3d_types[s].fields > 0 or #v3d_types[s].functions > 0)
+	end
+
+	local function get_v3d_type(typename)
+		if typename:find '|%s*nil' then
+			return typename:match '^(.-)%s*|%s*nil$', true
+		end
+		return typename, false
+	end
+
+	--- @param param_name string
+	--- @param param_type string
+	--- @param source_name string
+	--- @param hook string
+	--- @return string
+	local function generate_overload_param(param_name, param_type, source_name, hook, logged)
+		local actual_param_type = param_type
+		local is_optional = false
+		local needs_structural_check = nil
+		local needs_attribute_check = nil
+		local type_checker
+
+		do -- generate 4 fields above
+			param_type, is_optional = get_v3d_type(param_type)
+
+			type_checker = type_checkers[param_type]
+
+			if not type_checker and v3d_types[param_type] then
+				if structural_types[param_type] then
+					needs_structural_check = v3d_types[param_type]
+					type_checker = 'type(%s) == \'table\''
+				else
+					type_checker = 'v3d_state.object_types[%s] == \'' .. param_type .. '\''
+				end
+			elseif param_type == 'string | V3DLayoutAttribute' then
+				needs_attribute_check = v3d_types.V3DLayoutAttribute
+				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
+			elseif param_type:find '%[%]$' or param_type:find '^%b{}$' then
+				-- TODO: check contents of the table?
+				type_checker = type_checkers.table
+			end
+
+			if not type_checker then
+				error('No type checker for type ' .. param_type)
+			end
+
+			if is_optional then
+				type_checker = '%s == nil or (' .. type_checker .. ')'
+			end
+
+			type_checker = type_checker:gsub('%%s', source_name)
+		end
+
+		local content = logged and PARAM_TEMPLATE_LOGGED
+		                        or PARAM_TEMPLATE_UNLOGGED
+
+		-- TODO: use needs_structural_check and needs_attribute_check
+
+		local pt_details = ''
+
+		if is_class(param_type) then
+			pt_details = 'show_details_' .. param_type .. '(' .. source_name
+			          .. ', param_' .. param_name .. '_tree.children)'
+
+			if is_optional then
+				pt_details = 'if ' .. source_name .. ' then ' .. pt_details .. ' end'
+			end
+		end
+
+		return (content
+			:gsub('${PT_PARAM_NAME}', param_name)
+			:gsub('${PT_VALUE_NAME}', source_name)
+			:gsub('${PT_TYPECHECK}', function() return type_checker end)
+			:gsub('${PT_TYPENAME}', actual_param_type)
+			:gsub('${PT_DETAILS}', pt_details))
+	end
+
+	--- @param fn_param_names string[]
+	--- @param parameters NameType[]
+	--- @return string
+	local function generate_overload_params(fn_param_names, parameters, hook_base, logged)
+		local params = {}
+
+		for i = 1, #parameters do
+			local param_name = parameters[i].name
+			local param_type = parameters[i].type
+			local hook = hook_base .. ' ' .. param_name
+			local content = generate_overload_param(param_name, param_type, fn_param_names[i], hook, logged)
+
+			table.insert(params, content)
+		end
+
+		return table.concat(params, '\n')
+	end
+
+	local function generate_wrapped_function(type, fn, logged)
+		local wrapper = logged and WRAPPED_FUNCTION_TEMPLATE_LOGGED
+		                        or WRAPPED_FUNCTION_TEMPLATE_UNLOGGED
+
+		local fn_param_names = {}
+		local fn_overloads = {}
+		local fn_hook = type.name .. '.' .. fn.name
+
+		if #fn.overloads == 1 then
+			fn_overloads[1] = fn.overloads[1]
+			fn_param_names = map_list(
+				fn.overloads[1].parameters,
+				function(it) return it.name end)
+		else
+			local max_params = 0
+			for j = 1, #fn.overloads do
+				fn_overloads[j] = fn.overloads[j]
+				max_params = math.max(max_params, #fn.overloads[j].parameters)
+			end
+			for j = 1, max_params do
+				fn_param_names[j] = '_p' .. j
+			end
+			table.sort(fn_overloads, function(a, b) return #a.parameters < #b.parameters end)
+		end
+
+		wrapper = wrapper:gsub('${WF_FUNCTION_NAME}', fn.name)
+		wrapper = wrapper:gsub('${WF_FUNCTION_PREFIX}', fn.is_method and ':' or '')
+		wrapper = wrapper:gsub('${WF_METHOD_STR}', fn.is_method and ':' or '.')
+		wrapper = wrapper:gsub('${WF_FN_PARAMS}', table.concat(fn_param_names, ','))
+		wrapper = wrapper:gsub('${WF_PRE_HOOK}', fn_pre_hooks[fn_hook] or '')
+		wrapper = wrapper:gsub('${WF_POST_HOOK}', fn_post_hooks[fn_hook] or '')
+		wrapper = wrapper:gsub('${WF_FN_SELF}',
+			fn.is_method and (#fn_param_names > 0 and 'self, ' or 'self') or '')
+		wrapper = wrapper:gsub('${WF_PS_N}', function()
+			return table.concat(map_list(fn_param_names, function() return '%s' end), ', ')
+		end)
+		wrapper = wrapper:gsub('${WF_FMT_PARAMS}', table.concat(map_list(fn_param_names,
+			function(it) return 'fmtobject(' .. it .. ')' end), ','))
+
+		wrapper = wrapper:gsub('${WF_OVERLOADS}', function()
+			local fn_all_param_names = map_list(fn_param_names)
+
+			if fn.is_method then
+				table.insert(fn_all_param_names, 1, 'self')
+			end
+
+			if #fn.overloads == 1 then
+				local parameters = map_list(fn.overloads[1].parameters)
+				if fn.is_method then
+					table.insert(parameters, 1, { name = 'self', type = type.name })
+				end
+				local params = generate_overload_params(fn_all_param_names, parameters, fn_hook, logged)
+				return params:gsub('\n', '\n\t')
+			else
+				local s = ''
+				for j = 1, #fn_overloads do
+					local parameters = map_list(fn_overloads[j].parameters)
+					if fn.is_method then
+						table.insert(parameters, 1, { name = 'self', type = type.name })
+					end
+					s = s .. (j < #fn_overloads
+					      and 'if ' .. fn_param_names[#parameters + 1] .. '== nil then\n\t\t'
+					       or '\n\t\t')
+					local params = generate_overload_params(fn_all_param_names, parameters, fn_hook, logged)
+	
+					s = s .. params:gsub('\n', '\n\t\t') .. '\n'
+					      .. (j < #fn_overloads and '\n\telse' or '\n\tend\n')
+				end
+				return s
+			end
+		end)
+
+		local return_type = fn.overloads[1].returns
+		if is_class(return_type) and not structural_types[return_type] then
+			local label_param = 'nil'
+			for j = 1, #fn.overloads[1].parameters do
+				if fn.overloads[1].parameters[j].name == 'label' then
+					label_param = 'label'
+				end
+			end
+			local convert_instance = 'convert_instance_' .. return_type .. '(return_value, ' .. label_param .. ')'
+			wrapper = wrapper:gsub('${WF_RETURN_CONVERT}', convert_instance)
+		else
+			wrapper = wrapper:gsub('${WF_RETURN_CONVERT}', '-- no conversion necessary')
+		end
+
+		if is_class(return_type) then
+			wrapper = wrapper:gsub('${WF_RETURN_DETAILS}', 'show_details_' .. return_type .. '(return_value, return_tree.children)')
+		elseif return_type == 'nil' or not logged then
+			wrapper = wrapper:gsub('${WF_RETURN_DETAILS}', '-- no details')
+		else
+			error('Unhandled function return type: ' .. return_type)
+		end
+
+		return wrapper
+	end
+
+	--- @param type Type
+	--- @return string
+	local function generate_converter(type)
+		local function_overrides = {}
+
+		for i = 1, #type.functions do
+			local fn = type.functions[i]
+			local logged = not fn_logging_blacklist[type.name .. '.' .. fn.name]
+			local fn_text = generate_wrapped_function(type, fn, logged)
+			table.insert(function_overrides, (fn_text:gsub('\n', '\n\t')))
+		end
+
+		-- TODO: metamethod overrides
+
+		return (CONVERT_INSTANCE_TEMPLATE
+			:gsub('%${INSTANCE_TYPE_NAME}', type.name)
+			:gsub('%${INSTANCE_FUNCTION_OVERRIDES}', function()
+				return table.concat(function_overrides, '\n\t')
+			end))
+	end
+
+	--- @param field NameType
+	--- @return string
+	local function generate_field_details(field)
+		local sub_details = ''
+		local field_type, field_is_optional = get_v3d_type(field.type)
+
+		if is_class(field_type) then
+			sub_details = 'show_details_' .. field_type
+			           .. '(instance.' .. field.name .. ', '
+			           .. 'field_' .. field.name .. '_tree.children)'
+
+			if field_is_optional then
+				sub_details = 'if instance.' .. field.name .. ' then'
+				           .. sub_details .. ' end'
+			end
+		end
+
+		return (SHOW_DETAILS_FIELD_TEMPLATE
+			:gsub('${SDF_FIELD_NAME}', field.name)
+			:gsub('${SDF_SUB_DETAILS}', sub_details)
+			:gsub('\n', '\n\t'))
+	end
+
+	--- @param type Type
+	--- @return string
+	local function generate_details_stub(type)
+		return (SHOW_DETAILS_STUB_TEMPLATE
+			:gsub('%${INSTANCE_TYPE_NAME}', type.name))
+	end
+
+	--- @param type Type
+	--- @return string
+	local function generate_details(type)
+		local instance_fields = {}
+
+		for i = 1, #type.fields do
+			if not field_detail_blacklist[type.name .. '.' .. type.fields[i].name] then
+				local field_text = generate_field_details(type.fields[i])
+				table.insert(instance_fields, (field_text:gsub('\n', '\n\t')))
+			end
+		end
+
+		return (SHOW_DETAILS_TEMPLATE
+			:gsub('%${INSTANCE_TYPE_NAME}', type.name)
+			:gsub('%${INSTANCE_FIELDS}', function()
+				return table.concat(instance_fields, '\n\t\t')
+			end)
+			:gsub('%${EXTRA_FIELDS}', ((extra_details_fields[type.name] or ''):gsub('\n', '\n\t\t'))))
+	end
+
+	local wrapper_tokens
+	do
+		local generated_content = {}
+
+		for i = 1, #v3d_types do
+			if is_class(v3d_types[i].name) then
+				table.insert(generated_content, generate_details_stub(v3d_types[i]))
+			end
+		end
+
+		for i = 1, #v3d_types do
+			if is_class(v3d_types[i].name) then
+				table.insert(generated_content, generate_details(v3d_types[i]))
+			end
+		end
+
+		for i = 1, #v3d_types do
+			if is_class(v3d_types[i].name) and not structural_types[v3d_types[i].name] then
+				table.insert(generated_content, generate_converter(v3d_types[i]))
+			end
+		end
+
+		wrapper_tokens = luatools.tokenise(table.concat(generated_content, '\n'))
+	end
+
+	local tokens = luatools.tokenise(v3dd_text)
+
+	-- replace GENERATE_WRAPPER marker with wrapper tokens
+	for i = 1, #tokens do
+		if tokens[i].text:find '--%s*#marker%s+GENERATE_WRAPPER' then
+			for j = 1, #wrapper_tokens do
+				table.insert(tokens, i + j, wrapper_tokens[j])
+			end
+			break
+		end
+	end
+
+	local pre_minify_len = #luatools.concat(tokens)
+
+	luatools.strip_comments(tokens)
+	luatools.strip_doccomments(tokens)
+	luatools.strip_whitespace(tokens)
+	luatools.minify(tokens)
+
+	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
+	                 .. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias\n'
+	local content = header_text .. luatools.concat(tokens)
+
+	assert(load(content, 'v3dd.lua'))
+
+	local OUTPUT_PATH = gen_path .. 'v3dd.lua'
+	local h = assert(io.open(OUTPUT_PATH, 'w'))
+	h:write(content)
+	h:close()
+
+	term.setTextColour(colours.lightGrey)
+	term.write('Compiled v3dd to ')
+	term.setTextColour(colours.cyan)
+	print(OUTPUT_PATH)
+	term.setTextColour(colours.lightGrey)
+	print(string.format('  minification: %d / %d (%d%%)', #content, pre_minify_len, #content / pre_minify_len * 100 + 0.5))
+	term.setTextColour(colours.white)
+end
+
 do -- copy files to root
 	fs.delete('/v3d.lua')
 	fs.copy(gen_path .. 'v3d.lua', '/v3d.lua')
+
+	fs.delete('/v3dd.lua')
+	fs.copy(gen_path .. 'v3dd.lua', '/v3dd.lua')
 end

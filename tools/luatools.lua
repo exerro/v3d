@@ -15,6 +15,9 @@ local patterns = {
 	{ 'string', '^%[(=*)%[', '%]%s%]' },
 }
 
+local opening_brackets = { ['{'] = true, ['('] = true, ['['] = true, }
+local closing_brackets = { ['}'] = '{', [')'] = '(', [']'] = '[', }
+
 --- @type fun(name: string): string
 local next_variable_name
 do
@@ -224,6 +227,7 @@ end
 function luatools.minify(tokens)
 	local scopes = {}
 	local scope = { ['$next'] = next_variable_name '' }
+	local brackets = {}
 
 	local function push_scope()
 		table.insert(scopes, scope)
@@ -250,7 +254,15 @@ function luatools.minify(tokens)
 	local i = 1
 
 	while i <= #tokens do
-		if tokens[i].type == 'word' then
+		if tokens[i].type == 'symbol' then
+			if opening_brackets[tokens[i].text] then
+				table.insert(brackets, tokens[i].text)
+			elseif closing_brackets[tokens[i].text] then
+				assert(brackets[#brackets] == closing_brackets[tokens[i].text])
+				table.remove(brackets, #brackets)
+			end
+			i = i + 1
+		elseif tokens[i].type == 'word' then
 			if (tokens[i].text == 'local' or tokens[i].text == 'for') and tokens[i + 2] and tokens[i + 2].text ~= 'function' then
 				if tokens[i].text == 'for' then
 					push_scope()
@@ -297,7 +309,7 @@ function luatools.minify(tokens)
 
 				push_scope()
 
-				if rename_parameters and tokens[i] and tokens[i].text ~= '()' then
+				if rename_parameters and tokens[i] then
 					assert(tokens[i] and tokens[i].text == '(', tokens[i].text)
 					repeat
 						i = i + 1
@@ -312,6 +324,9 @@ function luatools.minify(tokens)
 						end
 						i = i + 1
 					until not tokens[i] or tokens[i].text ~= ','
+				end
+				if tokens[i].text == ')' then
+					i = i + 1
 				end
 			elseif tokens[i].text == 'do' or tokens[i].text == 'then' or tokens[i].text == 'repeat' then
 				push_scope()
@@ -333,8 +348,15 @@ function luatools.minify(tokens)
 
 				local prev_symbol_is_dot = prev_symbol and prev_symbol == '.' and (not tokens[i - 2] or tokens[i - 2].text ~= '.')
 
-				local is_rewritable = not prev_symbol_is_dot and
-				                      (not prev_symbol or not next_symbol or prev_symbol:sub(#prev_symbol) ~= '{' or next_symbol:sub(1, 1) ~= '=')
+				local is_rewritable = not prev_symbol_is_dot
+
+				if prev_symbol and next_symbol and prev_symbol == '{' and next_symbol == '=' then
+					is_rewritable = false
+				end
+
+				if prev_symbol and next_symbol and prev_symbol == ',' and next_symbol == '=' and brackets[#brackets] == '{' then
+					is_rewritable = false
+				end
 
 				if is_rewritable and scope[tokens[i].text] then
 					tokens[i].text = scope[tokens[i].text]

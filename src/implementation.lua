@@ -1008,6 +1008,20 @@ local function create_pipeline(options)
 	local pipeline = {}
 	local uniforms = {}
 
+	--- @type V3DPipelineOptions
+	pipeline.options = {
+		attributes = opt_attributes,
+		colour_attribute = not opt_fragment_shader and opt_colour_attribute or nil,
+		cull_face = opt_cull_face,
+		depth_store = opt_depth_store,
+		depth_test = opt_depth_test,
+		fragment_shader = opt_fragment_shader,
+		layout = opt_layout,
+		pack_attributes = opt_pack_attributes,
+		pixel_aspect_ratio = opt_pixel_aspect_ratio,
+		position_attribute = opt_position_attribute,
+	}
+
 	local geometry_face_attributes = {}
 	local geometry_vertex_attributes = {}
 	local interpolate_attributes = {}
