@@ -2,6 +2,8 @@
 local luatools = require 'luatools'
 local docparse = require 'docparse'
 
+local build_config = require 'build_config'
+
 local base_path = shell and (shell.getRunningProgram():match '^(.+/).-/' or '') or 'v3d/'
 local src_path = base_path .. 'src/'
 local gen_path = base_path .. 'gen/'
@@ -104,12 +106,12 @@ do -- produce compiled v3d.lua
 	content = header_text .. luatools.concat(content_tokens)
 	content = content:gsub('\n\n+', '\n')
 
-	assert(load(content))
-
 	local OUTPUT_PATH = gen_path .. 'v3d.lua'
 	local h = assert(io.open(OUTPUT_PATH, 'w'))
 	h:write(content)
 	h:close()
+
+	assert(load(content, 'v3d.lua'))
 
 	term.setTextColour(colours.lightGrey)
 	term.write('Compiled library code to ')
@@ -284,173 +286,13 @@ do -- produce compiled api_reference.md
 end
 
 do -- produce compiled v3dd.lua
-	local type_checkers = {
-		['V3DFragmentShader'] = 'type(%s) == \'function\'',
-		['V3DCullFace'] = '%s == v3d_lib.CULL_FRONT_FACE or %s == v3d_lib.CULL_BACK_FACE',
-		['V3DUniforms'] = 'type(%s) == \'table\'',
-		['boolean'] = 'type(%s) == \'boolean\'',
-		['number'] = 'type(%s) == \'number\'',
-		['integer'] = 'type(%s) == \'number\' and %s % 1 < 0.001',
-		['string'] = 'type(%s) == \'string\'',
-		['table'] = 'type(%s) == \'table\'',
-		['true | false'] = 'type(%s) == \'boolean\'',
-		['any'] = 'true',
-	}
-	local structural_types = {
-		['V3DPipelineOptions'] = true,
-		['V3DLayoutAttribute'] = true,
-	}
-	local fn_logging_blacklist = {
-		['v3d.create_layout'] = true,
-		['v3d.create_geometry_builder'] = true,
-		['v3d.create_debug_cube'] = true,
-		['v3d.identity'] = true,
-		['v3d.translate'] = true,
-		['v3d.scale'] = true,
-		['v3d.rotate'] = true,
-		['v3d.camera'] = true,
-		['v3d.create_texture_sampler'] = true,
-		['V3DLayout.add_vertex_attribute'] = true,
-		['V3DLayout.add_face_attribute'] = true,
-		['V3DLayout.drop_attribute'] = true,
-		['V3DLayout.has_attribute'] = true,
-		['V3DLayout.get_attribute'] = true,
-		['V3DGeometry.to_builder'] = true,
-		['V3DGeometryBuilder.set_data'] = true,
-		['V3DGeometryBuilder.append_data'] = true,
-		['V3DGeometryBuilder.map'] = true,
-		['V3DGeometryBuilder.transform'] = true,
-		['V3DGeometryBuilder.insert'] = true,
-		['V3DGeometryBuilder.cast'] = true,
-		['V3DTransform.combine'] = true,
-		['V3DTransform.transform'] = true,
-		['V3DPipeline.get_uniform'] = true,
-		['V3DPipeline.list_uniforms'] = true,
-	}
-
-	local fn_pre_hooks = {
-		['V3DPipeline.render_geometry'] = [[
-local uniforms_tree = { content = 'Uniforms', children = {} }
-table.insert(call_tree.children, uniforms_tree)
-
-for _, uniform in ipairs(self:list_uniforms()) do
-	table.insert(uniforms_tree.children, {
-		content = '&lightBlue;' .. uniform .. '&reset; = ' .. fmtobject(self:get_uniform(uniform))
-	})
-end
-]]
-	}
-	local fn_post_hooks = {
-		['V3DFramebuffer.blit_term_subpixel'] = 'v3d_state.blit_called = true',
-		['V3DFramebuffer.blit_term_subpixel_depth'] = 'v3d_state.blit_called = true',
-		['V3DFramebuffer.blit_graphics'] = 'v3d_state.blit_called = true',
-		['V3DFramebuffer.blit_graphics_depth'] = 'v3d_state.blit_called = true',
-	}
-
-	-- TODO: add more hooks
-	--       * width > 0, height > 0 for creating framebuffer
-	--       * create_debug_cube size > 0
-	--       * wrap fragment shader for type checking
-	--       * clear_depth >= 0
-	--       * framebuffer contents valid before blit
-	--       * layout new attribute doesn't exist
-	--       * layout drop_attribute attribute does exist
-	--       * geometry builder transform applied to a 3/4+ component attribute
-	--       * geometry builder build checks data lengths and data existing
-	--       * camera fov > 0
-	--       * pipeline option has colour attribute xor fragment shader
-	--       * pipeline option layout has all specified attributes
-	--       * pipeline option layout position attribute is 3 component vertex
-	--       * pipeline option layout colour_attribute attribute is 1 component face
-	--       * pipeline option pixel aspect ratio > 0
-	--       * pipeline render_geometry layouts match
-
-	local field_detail_blacklist = {
-		['V3DLayout.attributes'] = true,
-		['V3DFramebuffer.colour'] = true,
-		['V3DFramebuffer.depth'] = true,
-	}
-
-	local extra_details_fields = {}
-
-	extra_details_fields.V3DLayout = [[
-local attr_trees = {}
-attr_trees.vertex = {
-	content = 'Vertex attributes',
-	children = {},
-}
-attr_trees.face = {
-	content = 'Face attributes',
-	children = {},
-}
-table.insert(trees, attr_trees.vertex)
-table.insert(trees, attr_trees.face)
-for i = 1, #instance.attributes do
-	local attr = instance.attributes[i]
-	table.insert(attr_trees[attr.type].children, {
-		content = attr.name .. ' (' .. fmtobject(attr.size) .. '&lightGrey; components&reset;)',
-		children = {
-			{ content = '&lightBlue;offset&reset; = ' .. fmtobject(attr.offset) },
-			{ content = '&lightBlue;is_numeric&reset; = ' .. fmtobject(attr.is_numeric) },
-		},
-	})
-end]]
-
-	extra_details_fields.V3DTransform = [[
-local s = {}
-local r = {}
-
-for y = 1, 3 do
-	s[y] = {}
-	for x = 1, 4 do
-		local index = (y - 1) * 4 + x
-		s[y][x] = fmtobject(instance[index])
-	end
-end
-
-for x = 1, 4 do
-	r[x] = 0
-	for y = 1, 3 do
-		r[x] = math.max(r[x], #s[y][x])
-	end
-end
-
-for y = 1, 3 do
-	local ss = {}
-	for x = 1, 4 do
-		ss[x] = (' '):rep(r[x] - #s[y][x]) .. s[y][x]
-	end
-	table.insert(trees, {
-		content = table.concat(ss, '  '),
-	})
-end]]
-
-	extra_details_fields.V3DGeometry = [[
-local data = { content = 'Data', children = {} }
-table.insert(trees, data)
-
-for i = 1, #instance do
-	data.children[i] = { content = '&lightGrey;[' .. i .. ']: &reset;' .. fmtobject(instance[i]) }
-end]]
-
-	extra_details_fields.V3DPipelineOptions = [[
-local attributes = {}
-local cull_face_s = fmtobject(instance.cull_face)
-
-if instance.attributes then
-	for i = 1, #instance.attributes do
-		attributes[i] = fmtobject(instance.attributes[i])
-	end
-end
-
-if instance.cull_face == v3d_wrapper.CULL_FRONT_FACE then
-	cull_face_s = '&cyan;v3d.CULL_FRONT_FACE&reset;'
-elseif instance.cull_face == v3d_wrapper.CULL_BACK_FACE then
-	cull_face_s = '&cyan;v3d.CULL_BACK_FACE&reset;'
-end
-
-trees.attributes.content = '&lightBlue;attributes&reset; = [' .. table.concat(attributes, ',') .. ']'
-trees.cull_face.content = '&lightBlue;cull_face&reset; = ' .. cull_face_s]]
+	local type_checkers = build_config.v3dd_type_checkers
+	local structural_types = build_config.v3dd_structural_types
+	local fn_logging_blacklist = build_config.v3dd_fn_logging_blacklist
+	local fn_pre_hooks = build_config.v3dd_fn_pre_body
+	local fn_post_hooks = build_config.v3dd_fn_post_body
+	local field_detail_blacklist = build_config.v3dd_field_detail_blacklist
+	local extra_details_fields = build_config.v3dd_extra_field_details
 
 	local CONVERT_INSTANCE_TEMPLATE = [[
 function convert_instance_${INSTANCE_TYPE_NAME}(instance, instance_label)
@@ -808,7 +650,9 @@ ${SDF_SUB_DETAILS}]]
 			:gsub('%${INSTANCE_FIELDS}', function()
 				return table.concat(instance_fields, '\n\t\t')
 			end)
-			:gsub('%${EXTRA_FIELDS}', ((extra_details_fields[type.name] or ''):gsub('\n', '\n\t\t'))))
+			:gsub('%${EXTRA_FIELDS}', function()
+				return (extra_details_fields[type.name] or ''):gsub('\n', '\n\t\t')
+			end))
 	end
 
 	local wrapper_tokens
@@ -859,12 +703,12 @@ ${SDF_SUB_DETAILS}]]
 	                 .. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias\n'
 	local content = header_text .. luatools.concat(tokens)
 
-	assert(load(content, 'v3dd.lua'))
-
 	local OUTPUT_PATH = gen_path .. 'v3dd.lua'
 	local h = assert(io.open(OUTPUT_PATH, 'w'))
 	h:write(content)
 	h:close()
+
+	assert(load(content, 'v3dd.lua'))
 
 	term.setTextColour(colours.lightGrey)
 	term.write('Compiled v3dd to ')
