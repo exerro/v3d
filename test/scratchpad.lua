@@ -10,8 +10,8 @@ local pipeline = v3d.create_pipeline {
 
 while true do
     transform = transform * v3d.rotate(0, 0.05, 0)
-    framebuffer:clear(colours.lightBlue)
-    pipeline:render_geometry("hello", false, nil)
+    framebuffer:clear(colours.black)
+    pipeline:render_geometry(geometri, framebuffer, transform)
     framebuffer:blit_term_subpixel(term)
     sleep(0.05)
 end

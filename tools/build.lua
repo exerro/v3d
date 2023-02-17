@@ -317,9 +317,6 @@ function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
 	${WF_OVERLOADS}
 	table.insert(v3d_state.call_trees, call_tree)
 	if validation_failed then
-		for i = 1, #call_tree.children do
-			call_tree.children[i].default_expanded = true
-		end
 		call_tree.content_right = '&red;validation errors'
 		call_tree.default_expanded = true
 		error(V3D_VALIDATION_FAILED)
@@ -352,6 +349,7 @@ local param_${PT_PARAM_NAME}_tree = {
 table.insert(call_tree.children, param_${PT_PARAM_NAME}_tree)
 if validation_enabled and not (${PT_TYPECHECK}) then
 	validation_failed = true
+	param_${PT_PARAM_NAME}_tree.default_expanded = true
 	table.insert(param_${PT_PARAM_NAME}_tree.children, { content = "&red;ERROR: Expected type '${PT_TYPENAME}', got " .. type(${PT_VALUE_NAME}) })
 else
 	${PT_DETAILS}

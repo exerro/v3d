@@ -425,7 +425,7 @@ local function present_capture(trees)
 		local index = 1
 
 		while model.items[index] do
-			y, index = redraw_tree_item(model.items[index], index == model.selected_item, 2, y, width - 2, 4, height - 4)
+			y, index = redraw_tree_item(model.items[index], index == model.selected_item, 2, y, width - 2, model.items_start, height - model.items_start)
 		end
 	end
 
