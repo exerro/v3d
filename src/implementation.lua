@@ -806,12 +806,18 @@ local function create_rotate_transform(tx, ty, tz)
 end
 
 local function create_camera_transform(x, y, z, rx, ry, rz, fov)
-	if not ry then
+	if not y then
+		fov = x
+		x = 0
+	end
+
+	if not rz then
+		fov = ry
 		ry = rx
 		rx = 0
 	end
 
-	fov = fov or math.pi / 6
+	fov = fov or math.pi / 3
 	rx = rx or 0
 	ry = ry or 0
 	rz = rz or 0
@@ -819,7 +825,7 @@ local function create_camera_transform(x, y, z, rx, ry, rz, fov)
 	y = y or 0
 	z = z or 0
 
-	local tan_inverse = 1 / math.tan(fov)
+	local tan_inverse = 1 / math.tan(fov / 2)
 
 	return transform_combine(transform_combine(
 		{ tan_inverse, 0, 0, 0, 0, tan_inverse, 0, 0, 0, 0, 1, 0 },
@@ -1007,6 +1013,20 @@ local function create_pipeline(options)
 
 	local pipeline = {}
 	local uniforms = {}
+
+	--- @type V3DPipelineOptions
+	pipeline.options = {
+		attributes = opt_attributes,
+		colour_attribute = not opt_fragment_shader and opt_colour_attribute or nil,
+		cull_face = opt_cull_face,
+		depth_store = opt_depth_store,
+		depth_test = opt_depth_test,
+		fragment_shader = opt_fragment_shader,
+		layout = opt_layout,
+		pack_attributes = opt_pack_attributes,
+		pixel_aspect_ratio = opt_pixel_aspect_ratio,
+		position_attribute = opt_position_attribute,
+	}
 
 	local geometry_face_attributes = {}
 	local geometry_vertex_attributes = {}
@@ -1356,6 +1376,14 @@ local function create_pipeline(options)
 
 	pipeline.get_uniform = function(_, name)
 		return uniforms[name]
+	end
+
+	pipeline.list_uniforms = function(_)
+		local t = {}
+		for k in pairs(uniforms) do
+			t[#t + 1] = k
+		end
+		return t
 	end
 
 	return pipeline

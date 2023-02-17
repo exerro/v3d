@@ -6,8 +6,7 @@ local fps_enabled = false
 local validation_enabled = true
 local capture_key = keys.f12
 local v3d_require_path = '/v3d'
-
--- error 'v3dd is not updated to latest version of v3d'
+local capture_first_frame = false
 
 while args[1] and args[1]:sub(1, 1) == '-' do
 	local arg = table.remove(args, 1)
@@ -25,6 +24,8 @@ while args[1] and args[1]:sub(1, 1) == '-' do
 	elseif arg == '--capture-key' or arg == '--key' or arg == '-k' then
 		capture_key = table.remove(args, 1) or error('Expected key name after --capture-key', 0)
 		capture_key = keys[capture_key] or error('Unknown key name \'' .. capture_key .. '\'', 0)
+	elseif arg == '--capture-first-frame' or arg == '-c' then
+		capture_first_frame = true
 	elseif arg == '--v3d-path' then
 		v3d_require_path = table.remove(args, 1) or error('Expected path after --v3d-path', 0)
 	else
@@ -48,14 +49,20 @@ do
 	local requirelib = require '/rom.modules.main.cc.require'
 	program_environment.require, program_environment.package = requirelib.make(program_environment, fs.getDir(program))
 
-	local program_file = io.open(program, 'r')
+	local program_path = shell.resolveProgram(program)
+	
+	if not program_path then
+		error('Failed to find program \'' .. program .. '\'', 0)
+	end
+
+	local program_file = io.open(program_path, 'r')
 	local program_contents = ''
 
 	if program_file then
 		program_contents = program_file:read '*a'
 		program_file:close()
 	else
-		error('Failed to read program \'' .. program .. '\'', 0)
+		error('Failed to read file \'' .. program_path .. '\'', 0)
 	end
 
 	local err
@@ -68,323 +75,290 @@ end
 
 --------------------------------------------------------------------------------
 
---- @class Pane
---- @field present fun(x: integer, y: integer, width: integer, height: integer)
+--- @class Tree
+--- @field content string | nil
+--- @field content_right string | nil
+--- @field content_expanded string | nil
+--- @field content_right_expanded string | nil
+--- @field default_expanded boolean | nil
+--- @field children Tree[] | nil
 
---- @class Resource
---- @field label string
---- @field category string
---- @field data any
---- @field preview Pane
---- @field view Pane
+--------------------------------------------------------------------------------
 
---- @class Instruction
---- @field description string
+--- @alias V3DType 'v3d' | 'V3DFramebuffer' | 'V3DLayout' | 'V3DGeometryBuilder' | 'V3DGeometry' | 'V3DTransform' | 'V3DPipeline'
 
---- @class Capture
---- @field all_resources Resource[]
---- @field frame_resources Resource[] | { [Resource]: true | nil }
---- @field instructions Instruction[]
+local V3D_VALIDATION_FAILED = 'V3D_VALIDATION_FAILED'
 
---- @class LibraryWrapper
---- @field library table
---- @field begin_frame fun(): nil
---- @field finish_frame fun(): boolean
---- @field begin_capture fun(): nil
---- @field finish_capture fun(): Capture
+--- @class v3d_state
+--- @field object_types { [any]: V3DType | nil }
+--- @field object_labels { [any]: string | nil }
+--- @field next_object_id integer
+--- @field call_trees Tree[]
+--- @field blit_called boolean
+local v3d_state = {
+	object_types = setmetatable({}, { __mode = 'k' }),
+	object_labels = setmetatable({}, { __mode = 'k' }),
+	next_object_id = 1,
+	call_trees = {},
+	blit_called = false,
+}
+local v3d_detail_generators = {}
 
---- @return LibraryWrapper
-local function create_v3d_wrapper(enable_validation)
-	local v3d_ok, v3d_lib = pcall(require, v3d_require_path)
-	--- @cast v3d_lib v3d
-	--- @type v3d
-	local v3d_wrapper = {}
+local function fmtobject(v)
+	if type(v) == 'number' then
+		return '&orange;' .. v .. '&reset;'
+	elseif type(v) == 'string' then
+		return '&green;"' .. v .. '"&reset;'
+	elseif v == true or v == false or v == nil then
+		return '&purple;' .. tostring(v) .. '&reset;'
+	elseif type(v) == 'table' then
+		return v3d_state.object_labels[v] or ('&lightGrey;@' .. tostring(v):sub(8) .. '&reset;')
+	else
+		return tostring(v)
+	end
+end
 
-	if not v3d_ok then
-		error('Failed to load v3d library at \'' .. v3d_require_path .. '\': ' .. v3d_lib .. '.\nUse --v3d-path to specify alternate path', 0)
+local v3d_wrapper = {}
+do -- generate the wrapper
+	local v3d_lib
+	do -- load the library
+		local ok, lib = pcall(require, v3d_require_path)
+
+		if ok then
+			v3d_lib = lib
+		else
+			error('Failed to load v3d library at \'' .. v3d_require_path .. '\': ' .. lib .. '.\nUse --v3d-path to specify alternate path', 0)
+		end
 	end
 
-	local resource_labels = setmetatable({}, {
-		__index = function(_, data)
-			return tostring(data):sub(8)
-		end,
-	})
-	--- @type Resource[]
-	local all_resources = {}
-	--- @type Capture | nil
-	local capture
-	local blit_called = false
+	------------------------------------------------------------
 
-	--- @param r Resource
-	--- @return Resource
-	local function create_resource(r)
-		table.insert(all_resources, r)
-		if capture then
-			table.insert(capture.frame_resources, r)
-			capture.frame_resources[r] = true
-		end
-		return r
+	--- @diagnostic disable: unused-function, unused-local
+
+	--- @param type V3DType
+	--- @param label string
+	local function register_object(obj, type, label)
+		local suffix = type .. v3d_state.next_object_id
+		v3d_state.next_object_id = v3d_state.next_object_id + 1
+		label = label and '&pink;' .. label .. '&reset; @' .. suffix or '@' .. suffix
+		v3d_state.object_labels[obj] = label
+		v3d_state.object_types[obj] = type
 	end
 
-	--- @diagnostic disable: duplicate-set-field
+	------------------------------------------------------------
 
-	v3d_wrapper.CULL_BACK_FACE = v3d_lib.CULL_BACK_FACE
-	v3d_wrapper.CULL_FRONT_FACE = v3d_lib.CULL_FRONT_FACE
-	v3d_wrapper.DEFAULT_LAYOUT = v3d_lib.DEFAULT_LAYOUT
-	v3d_wrapper.UV_LAYOUT = v3d_lib.UV_LAYOUT
-	v3d_wrapper.DEBUG_CUBE_LAYOUT = v3d_lib.DEBUG_CUBE_LAYOUT
+	local convert_instance_v3d
+	local convert_instance_V3DFramebuffer
+	local convert_instance_V3DLayout
+	local convert_instance_V3DGeometryBuilder
+	local convert_instance_V3DGeometry
+	local convert_instance_V3DTransform
+	local convert_instance_V3DPipeline
 
-	function v3d_wrapper.create_framebuffer(width, height, label)
-		if enable_validation then
-			assert(type(width) == 'number', 'Width given to create framebuffer was not a number')
-			assert(type(height) == 'number', 'Height given to create framebuffer was not a number')
-			assert(width > 0, 'Width given to create framebuffer was <= 0 (' .. width .. ')')
-			assert(height > 0, 'Height given to create framebuffer was <= 0 (' .. height .. ')')
-		end
+	--- @diagnostic enable: unused-function, unused-local
 
-		local fb = v3d_lib.create_framebuffer(width, height)
+	-- #marker GENERATE_WRAPPER
 
-		local blit_term_subpixel_orig = fb.blit_term_subpixel
-		local blit_term_subpixel_depth_orig = fb.blit_term_subpixel_depth
-		local blit_graphics_orig = fb.blit_graphics
-		local blit_graphics_depth_orig = fb.blit_graphics_depth
-		local clear_orig = fb.clear
-		local clear_depth_orig = fb.clear_depth
-
-		function fb.clear(self, colour)
-			colour = colour or 1
-
-			-- TODO: validation
-
-			if capture then
-				local colour_name = tostring(colour)
-
-				for k, v in pairs(colours) do
-					if colour == v then
-						colour_name = colour_name .. ' \'' .. k .. '\''
-						break
-					end
-				end
-
-				table.insert(capture.instructions, {
-					description = string.format('framebuffer_clear(%s, %s)',
-						resource_labels[self], colour_name)
-				})
-			end
-
-			clear_orig(self, colour)
-		end
-
-		-- TODO: clear_depth
-
-		function fb.blit_term_subpixel(self, term, dx, dy)
-			dx = dx == nil and 0 or dx
-			dy = dy == nil and 0 or dy
-
-			if enable_validation then
-				assert(type(term) == 'table', 'Term passed to TODO')
-				-- TODO
-			end
-
-			if capture then
-				table.insert(capture.instructions, {
-					description = string.format('framebuffer_blit_term_subpixel(%s, term, %d, %d)',
-						resource_labels[self], dx, dy)
-				})
-			end
-
-			blit_term_subpixel_orig(self, term, dx, dy)
-			blit_called = true
-		end
-
-		function fb.blit_term_subpixel_depth(self, term, dx, dy, update_palette)
-			-- TODO: validation
-
-			blit_term_subpixel_depth_orig(self, term, dx, dy, update_palette)
-			blit_called = true
-		end
-
-		function fb.blit_graphics(self, term, dx, dy)
-			dx = dx == nil and 0 or dx
-			dy = dy == nil and 0 or dy
-
-			if enable_validation then
-				assert(type(term) == 'table', 'Term passed to TODO')
-				-- TODO
-			end
-
-			if capture then
-				table.insert(capture.instructions, {
-					description = string.format('framebuffer_blit_graphics(%s, term, %d, %d)',
-						resource_labels[self], dx, dy)
-				})
-			end
-
-			blit_graphics_orig(self, term, dx, dy)
-			blit_called = true
-		end
-
-		function fb.blit_graphics_depth(self, term, dx, dy, update_palette)
-			-- TODO: validation
-			blit_graphics_depth_orig(self, term, dx, dy, update_palette)
-			blit_called = true
-		end
-
-		if label ~= nil then
-			resource_labels[fb] = label
-		end
-
-		create_resource {
-			label = resource_labels[fb],
-			category = 'framebuffer',
-			data = fb,
-			preview = { present = function()
-				error('NYI')
-			end },
-			view = { present = function()
-				error('NYI')
-			end },
-		}
-
-		return fb
+	for k, v in pairs(v3d_lib) do
+		v3d_wrapper[k] = v
 	end
 
-	function v3d_wrapper.create_framebuffer_subpixel(width, height, label)
-		return v3d_wrapper.create_framebuffer(width * 2, height * 3, label)
+	convert_instance_v3d(v3d_wrapper, 'v3d')
+
+	for _, layout_name in ipairs { 'DEFAULT_LAYOUT', 'UV_LAYOUT', 'DEBUG_CUBE_LAYOUT' } do
+		local s = tostring {}
+		-- take a copy of the layout in a really hacky way, then wrap it
+		-- we don't wanna wrap_layout the original since that would mutate it
+		local layout_copy = v3d_wrapper[layout_name]
+			:add_face_attribute(s, 0):drop_attribute(s) -- we take a copy like this
+		convert_instance_V3DLayout(layout_copy, layout_name)
+		v3d_wrapper[layout_name] = layout_copy
 	end
-
-	-- TODO
-	v3d_wrapper.create_layout = v3d_lib.create_layout
-
-	-- TODO
-	v3d_wrapper.create_geometry_builder = v3d_lib.create_geometry_builder
-
-	-- TODO
-	v3d_wrapper.create_debug_cube = v3d_lib.create_debug_cube
-
-	-- TODO
-	v3d_wrapper.identity = v3d_lib.identity
-
-	-- TODO
-	v3d_wrapper.translate = v3d_lib.translate
-
-	-- TODO
-	v3d_wrapper.scale = v3d_lib.scale
-
-	-- TODO
-	v3d_wrapper.rotate = v3d_lib.rotate
-
-	-- TODO
-	v3d_wrapper.camera = v3d_lib.camera
-
-	function v3d_wrapper.create_pipeline(options, label)
-		if enable_validation then
-			--- @cast options V3DPipelineOptions
-			-- TODO
-			assert(type(options) == 'table')
-			assert(options.layout) -- TODO
-			-- TODO: all the new layout/attribute stuff
-			assert(not options.cull_face or options.cull_face == v3d_lib.CULL_BACK_FACE or options.cull_face == v3d_lib.CULL_FRONT_FACE)
-			assert(options.depth_store == nil or type(options.depth_store) == 'boolean')
-			assert(options.depth_test == nil or type(options.depth_test) == 'boolean')
-			assert(options.fragment_shader == nil or type(options.fragment_shader) == 'function')
-			assert(options.pixel_aspect_ratio == nil or type(options.pixel_aspect_ratio) == 'number')
-			assert(options.pixel_aspect_ratio == nil or options.pixel_aspect_ratio > 0)
-		end
-
-		local pipeline = v3d_lib.create_pipeline(options)
-
-		local render_geometry_orig = pipeline.render_geometry
-		local set_uniform_orig = pipeline.set_uniform
-		local get_uniform_orig = pipeline.get_uniform
-
-		function pipeline.render_geometry(self, geometry, fb, camera)
-			-- TODO: validation
-
-			if capture then
-				table.insert(capture.instructions, {
-					description = string.format('pipeline_render_geometry(%s, %s, %s, %s)',
-						resource_labels[self], resource_labels[geometry],
-						resource_labels[fb], resource_labels[camera])
-				})
-			end
-
-			render_geometry_orig(self, geometry, fb, camera)
-		end
-
-		-- TODO
-
-		if label ~= nil then
-			resource_labels[pipeline] = label
-		end
-
-		create_resource {
-			label = resource_labels[pipeline],
-			category = 'pipeline',
-			data = pipeline,
-			preview = { present = function()
-				error('NYI')
-			end },
-			view = { present = function()
-				error('NYI')
-			end },
-		}
-
-		return pipeline
-	end
-
-	function v3d_wrapper.create_texture_sampler(texture_uniform, width_uniform, height_uniform)
-		if enable_validation then
-			-- TODO
-			assert(texture_uniform == nil or type(texture_uniform) == 'string')
-			assert(width_uniform == nil or type(width_uniform) == 'string')
-			assert(height_uniform == nil or type(height_uniform) == 'string')
-		end
-
-		local fn = v3d_lib.create_texture_sampler(texture_uniform, width_uniform, height_uniform)
-
-		-- TODO: track this?
-
-		return fn
-	end
-
-	--- @diagnostic enable: duplicate-set-field
-
-	return {
-		library = v3d_wrapper,
-		begin_capture = function()
-			capture = {
-				all_resources = all_resources,
-				frame_resources = {},
-				instructions = {},
-			}
-		end,
-		finish_capture = function()
-			local c = capture
-			assert(c ~= nil)
-			capture = nil
-			return c
-		end,
-		begin_frame = function()
-			blit_called = false
-		end,
-		finish_frame = function()
-			return blit_called
-		end,
-	}
 end
 
 ----------------------------------------------------------------
 
-local v3d_wrapper = create_v3d_wrapper(validation_enabled)
-program_environment.package.loaded['/v3d'] = v3d_wrapper.library
-program_environment.package.loaded['v3d'] = v3d_wrapper.library
-program_environment.package.loaded[v3d_require_path] = v3d_wrapper.library
+program_environment.package.loaded['/v3d'] = v3d_wrapper
+program_environment.package.loaded['v3d'] = v3d_wrapper
+program_environment.package.loaded[v3d_require_path] = v3d_wrapper
 
 --------------------------------------------------------------------------------
 
---- @param capture Capture
-local function present_captures(capture)
+--- @alias RichTextSegments { text: string, colour: integer }[]
+
+--- @class TreeItem
+--- @field tree Tree
+--- @field expanded boolean
+--- @field previous_peer integer | nil
+--- @field next_expanded integer
+--- @field next_contracted integer
+--- @field last_child integer
+--- @field indent integer
+--- @field draw_y integer
+
+--- @param items TreeItem[]
+--- @param tree Tree
+--- @param previous_peer integer | nil
+--- @param indent integer
+local function tree_to_items(items, tree, previous_peer, indent)
+	local seq = {
+		tree = tree,
+		expanded = tree.default_expanded and tree.children and #tree.children > 0 or false,
+		previous_peer = previous_peer,
+		next_expanded = #items + 2,
+		-- note: deliberately incomplete! we finish this at the end of the function
+		indent = indent,
+		draw_y = 0,
+	}
+	table.insert(items, seq)
+	local previous_peer = nil
+	if tree.children and #tree.children > 0 then
+		for i = 1, #tree.children do
+			local next_previous_peer = #items + 1
+			tree_to_items(items, tree.children[i], previous_peer, indent + 1)
+			previous_peer = next_previous_peer
+		end
+	end
+	seq.next_contracted = #items + 1
+	seq.last_child = previous_peer
+end
+
+--- @param content string
+--- @param initial_colour integer
+--- @return RichTextSegments
+local function rich_content_to_segments(content, initial_colour)
+	local segments = {}
+	local active_color = initial_colour
+
+	local next_index = 1
+	local s, f = content:find '&[%w_]+;'
+
+	while s do
+		table.insert(segments, { text = content:sub(next_index, s - 1), colour = active_color })
+
+		local name = content:sub(s + 1, f - 1)
+
+		if name == 'reset' then
+			active_color = initial_colour
+		else
+			if not colours[name] and not colors[name] then error('Unknown colour: ' .. name) end
+			active_color = colours[name] or colors[name]
+		end
+
+		next_index = f + 1
+		s, f = content:find('&[%w_]+;', next_index)
+	end
+
+	table.insert(segments, { text = content:sub(next_index), colour = active_color })
+
+	return segments
+end
+
+--- @param segments RichTextSegments
+--- @return integer
+local function segments_length(segments)
+	local length = 0
+
+	for i = 1, #segments do
+		length = length + #segments[i].text
+	end
+
+	return length
+end
+
+--- @param segments RichTextSegments
+--- @param length integer
+--- @return RichTextSegments
+local function trim_segments_left(segments, length)
+	return segments -- TODO
+end
+
+--- @param segments RichTextSegments
+--- @param length integer
+--- @return RichTextSegments
+local function trim_segments_right(segments, length)
+	local r = {}
+	local r_length = 0
+
+	for i = 1, #segments do
+		r[i] = segments[i]
+		r_length = r_length + #segments[i].text
+
+		if r_length > length then
+			break
+		end
+	end
+
+	if r_length > length then
+		r[#r].text = r[#r].text:sub(1, #r[#r].text - r_length + length)
+	end
+
+	return r
+end
+
+--- @param item TreeItem
+--- @param y integer
+--- @return integer next_y, integer next_index
+local function redraw_tree_item(item, selected, x, y, w, by, bh)
+	local initial_colour = colours.white
+	local is_expanded = item.expanded
+	local left = rich_content_to_segments(
+		is_expanded and item.tree.content_expanded or item.tree.content or '',
+		initial_colour)
+	local right = rich_content_to_segments(
+		is_expanded and item.tree.content_right_expanded or item.tree.content_right or '',
+		initial_colour)
+	local right_anchor = x + w
+	local left_max_width = w
+
+	if selected then
+		term.setBackgroundColour(colours.black)
+		term.setCursorPos(x, y)
+		term.write((' '):rep(w))
+	else
+		term.setBackgroundColour(colours.grey)
+	end
+
+	x = x + item.indent * 2
+	w = w - item.indent * 2
+
+	if item.tree.children and #item.tree.children > 0 then
+		table.insert(left, 1, { text = string.char(is_expanded and 31 or 16) .. ' ', colour = colours.lightGrey })
+	-- elseif item.tree.on_select then -- TODO
+	-- 	left_max_width = left_max_width - 2
+	-- 	table.insert(left, 1, { text = '| ', colour = colours.lightGrey })
+	-- 	table.insert(right, { text = ' >', colour = colours.purple })
+	else
+		table.insert(left, 1, { text = '\166 ', colour = colours.lightGrey })
+	end
+
+	item.draw_y = y
+
+	if y >= by and y < by + bh then
+		right = trim_segments_left(right, w)
+		term.setCursorPos(right_anchor - segments_length(right), y)
+
+		for _, segment in ipairs(right) do
+			term.setTextColour(segment.colour)
+			term.write(segment.text)
+		end
+
+		term.setCursorPos(x, y)
+		left = trim_segments_right(left, left_max_width)
+
+		for _, segment in ipairs(left) do
+			term.setTextColour(segment.colour)
+			term.write(segment.text)
+		end
+	end
+
+	y = y + 1
+
+	return y, item.expanded and item.next_expanded or item.next_contracted
+end
+
+--- @param trees Tree[]
+local function present_capture(trees)
 	local palette = {}
 	do -- setup
 		term.setBackgroundColour(colours.black)
@@ -401,83 +375,28 @@ local function present_captures(capture)
 		end
 
 		term.setPaletteColour(colours.white, 0.95, 0.95, 0.95)
-		term.setPaletteColour(colours.grey, 0.2, 0.2, 0.2)
+		term.setPaletteColour(colours.grey, 0.15, 0.15, 0.15)
 		term.setPaletteColour(colours.lightGrey, 0.6, 0.6, 0.6)
-		term.setPaletteColour(colours.purple, 0.45, 0.25, 0.55)
+		term.setPaletteColour(colours.purple, 0.60, 0.30, 0.70)
 	end
 
-	--- @alias ResourcesList ({ type: 'category', name: string, next: integer, previous: integer, count: integer } | { type: 'resource', resource: Resource })[]
-
-	--- @return ResourcesList
-	local function generate_resources_list(show_all)
-		local capture_categories = {}
-		local resources_list = show_all and capture.all_resources or capture.frame_resources
-		local result = { __value = true }
-
-		for i = 1, #resources_list do
-			if capture_categories[resources_list[i].category] then
-				table.insert(capture_categories[resources_list[i].category], resources_list[i])
-			else
-				capture_categories[resources_list[i].category] = { resources_list[i] }
-				table.insert(capture_categories, resources_list[i].category)
-			end
-		end
-
-		table.sort(capture_categories)
-
-		local previous_category = 0
-
-		for i = 1, #capture_categories do
-			local count = #capture_categories[capture_categories[i]]
-	
-			table.insert(result, {
-				type = 'category',
-				name = capture_categories[i],
-				next = #result + 2 + count,
-				previous = previous_category,
-				count = count,
-			})
-
-			previous_category = #result
-
-			local resources = capture_categories[capture_categories[i]]
-
-			table.sort(resources, function(a, b) return a.label < b.label end)
-
-			for j = 1, #resources do
-				table.insert(result, {
-					type = 'resource',
-					resource = resources[j],
-				})
-			end
-		end
-
-		return result
-	end
+	local timers_captured = {}
 
 	--- @class CaptureViewModel
-	--- @field fullscreen_pane Pane | nil
-	--- @field width integer
-	--- @field half_width integer
-	--- @field tab 'resources' | 'instructions'
-	--- @field resources_scroll integer
-	--- @field resources_selection_index integer
-	--- @field resources_show_all boolean
-	--- @field resources_expanded_categories { [string]: true | nil }
-	--- @field resources_list ResourcesList
-	--- @field instructions_scroll integer
+	--- @field items TreeItem[]
 	local model = {
-		fullscreen_pane = nil,
-		width = term.getSize(),
-		half_width = math.floor(term.getSize() / 2),
-		tab = 'resources',
-		resources_scroll = 0,
-		resources_selection_index = 0,
-		resources_show_all = true,
-		resources_expanded_categories = { __value = true },
-		resources_list = generate_resources_list(true),
-		instructions_scroll = 0,
+		items = {},
+		selected_item = 1,
+		scroll = 0,
+		items_start = 2,
 	}
+
+	local previous_peer = 0
+	for i = 1, #trees do
+		local next_previous_peer = #model.items + 1
+		tree_to_items(model.items, trees[i], previous_peer, 0)
+		previous_peer = next_previous_peer
+	end
 
 	--- @param t CaptureViewModel
 	local function update_model(t, m)
@@ -496,100 +415,17 @@ local function present_captures(capture)
 		end
 	end
 
-	local function redraw_header()
-		term.setCursorPos(1, 1)
-		term.setTextColour(colours.white)
-		term.setBackgroundColour(model.tab == 'resources' and colours.purple or colours.grey)
-		term.write(string.rep(' ', model.half_width))
-		term.setCursorPos(2, 1)
-		term.write(model.tab == 'resources' and '[' or ' ')
-		term.write 'Resources'
-		term.write(model.tab == 'resources' and ']' or '')
-
-		term.setCursorPos(model.half_width + 1, 1)
-		term.setBackgroundColour(model.tab == 'resources' and colours.grey or colours.purple)
-		term.write(string.rep(' ', model.width - model.half_width))
-		term.setCursorPos(model.half_width + 2, 1)
-		term.write(model.tab == 'resources' and ' ' or '[')
-		term.write 'Instructions'
-		term.write(model.tab == 'resources' and '' or ']')
-	end
-
-	local function redraw_resource_list()
-		do
-			local format = model.resources_selection_index == 0 and '[%s]' or ' %s '
-			term.setCursorPos(2, 3)
-			term.setBackgroundColour(colours.lightGrey)
-			term.setTextColour(colours.black)
-			term.write(format:format(model.resources_show_all and 'x' or ' '))
-			term.setBackgroundColour(colours.grey)
-			term.setTextColour(colours.white)
-			term.write ' Show all resources'
-		end
-
-		local max_category_length = 0
-
-		for i = 1, #model.resources_list do
-			if model.resources_list[i].type == 'category' then
-				max_category_length = math.max(max_category_length, #model.resources_list[i].name)
-			end
-		end
-
-		local y = -model.resources_scroll
-		local i = 1
-
-		while i <= #model.resources_list do
-			term.setCursorPos(2, y + 5)
-
-			local format = model.resources_selection_index == i and '[%s]' or ' %s '
-
-			if y >= 0 then
-				if i == model.resources_selection_index then
-					term.setTextColour(colours.cyan)
-				elseif model.resources_list[i].type == 'category' then
-					term.setTextColour(colours.white)
-				else
-					term.setTextColour(colours.lightGrey)
-				end
-
-				if model.resources_list[i].type == 'category' then
-					local name = model.resources_list[i].name
-
-					term.write(format:format(name:sub(1, 1):upper() .. name:sub(2)))
-					term.setTextColour(colours.white)
-					term.write(string.rep(' ', max_category_length - #model.resources_list[i].name + 1))
-					term.write(string.format('%6s', model.resources_list[i].count))
-
-					if model.resources_expanded_categories[model.resources_list[i].name] then
-						term.write ' -'
-					else
-						term.write ' +'
-						i = model.resources_list[i].next - 1
-					end
-				else
-					term.write ' '
-					term.write(format:format('@' .. model.resources_list[i].resource.label))
-				end
-			end
-
-			i = i + 1
-			y = y + 1
-		end
-	end
-
 	local function redraw()
+		local width, height = term.getSize()
+
 		term.setBackgroundColour(colours.grey)
 		term.clear()
 
-		redraw_header()
+		local y = model.items_start - model.scroll
+		local index = 1
 
-		if model.tab == 'resources' then
-			redraw_resource_list()
-		else
-			for i = 1, #capture.instructions do
-				term.setCursorPos(2, i + 2)
-				term.write(capture.instructions[i].description)
-			end
+		while model.items[index] do
+			y, index = redraw_tree_item(model.items[index], index == model.selected_item, 2, y, width - 2, model.items_start, height - model.items_start)
 		end
 	end
 
@@ -599,58 +435,59 @@ local function present_captures(capture)
 		local event = { coroutine.yield() }
 
 		if event[1] == 'terminate' then
-			return false
+			return false, timers_captured
+		elseif event[1] == 'timer' then
+			table.insert(timers_captured, event[2])
 		elseif event[1] == 'key' and event[2] == keys.backspace then
 			break
-		elseif event[1] == 'key' and event[2] == keys.pageUp then
-			update_model { tab = 'resources' }
-		elseif event[1] == 'key' and event[2] == keys.pageDown then
-			update_model { tab = 'instructions' }
 		elseif event[1] == 'key' and (event[2] == keys.space or event[2] == keys.enter) then
-			if model.tab == 'resources' and model.resources_selection_index == 0 then
-				update_model {
-					resources_show_all = not model.resources_show_all,
-					resources_list = generate_resources_list(not model.resources_show_all),
-				}
+			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
+				model.items[model.selected_item].expanded = not model.items[model.selected_item].expanded
+			-- elseif model.items[model.selected_item].tree.on_select then
+			-- 	model.items[model.selected_item].tree.on_select()
+			end
+		elseif event[1] == 'key' and event[2] == keys.left then
+			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
+				model.items[model.selected_item].expanded = false
+			end
+		elseif event[1] == 'key' and event[2] == keys.right then
+			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
+				model.items[model.selected_item].expanded = true
 			end
 		elseif event[1] == 'key' and event[2] == keys.down then
-			if model.tab == 'resources' and model.resources_selection_index < #model.resources_list then
-				update_model {
-					resources_selection_index = model.resources_list[model.resources_selection_index]
-						and model.resources_list[model.resources_selection_index].type == 'category'
-						and not model.resources_expanded_categories[model.resources_list[model.resources_selection_index].name]
-						and model.resources_list[model.resources_selection_index].next
-						or model.resources_selection_index + 1,
-				}
+			local current_item = model.items[model.selected_item]
+			local next_index = current_item.expanded and current_item.next_expanded or current_item.next_contracted
+			
+			if model.items[next_index] then
+				local height = select(2, term.getSize())
+				local scroll = model.scroll
+				if model.items[next_index].draw_y > height - 1 then
+					scroll = scroll + model.items[next_index].draw_y - height + 1
+				end
+				update_model { selected_item = next_index, scroll = scroll }
 			end
 		elseif event[1] == 'key' and event[2] == keys.up then
-			if model.tab == 'resources' and model.resources_selection_index > 0 then
-				update_model {
-					resources_selection_index = model.resources_list[model.resources_selection_index]
-						and model.resources_list[model.resources_selection_index].type == 'category'
-						and model.resources_list[model.resources_selection_index].previous > 0
-						and not model.resources_expanded_categories[model.resources_list[model.resources_list[model.resources_selection_index].previous].name]
-						and model.resources_list[model.resources_selection_index].previous
-						or model.resources_selection_index - 1,
-				}
+			local next_index = model.items[model.selected_item].previous_peer
+			
+			if next_index and model.items[next_index] then
+				while model.items[next_index].expanded do
+					next_index = model.items[next_index].last_child
+				end
+			elseif model.items[model.selected_item - 1] then
+				next_index = model.selected_item - 1
+			end
+
+			if model.items[next_index] then
+				local scroll = model.scroll
+				if model.items[next_index].draw_y < model.items_start then
+					scroll = scroll + model.items[next_index].draw_y - model.items_start
+				end
+				update_model { selected_item = next_index, scroll = scroll }
 			end
 		elseif event[1] == 'key' and (event[2] == keys.left or event[2] == keys.right) then
-			if model.tab == 'resources' and model.resources_selection_index > 0 then
-				local expand = event[2] == keys.right
-				local this_item = model.resources_list[model.resources_selection_index]
-				local this_category = this_item.type == 'category' and this_item.name
-				local expand_list = this_category and {} or model.resources_expanded_categories
-
-				if this_category then
-					for k, v in pairs(model.resources_expanded_categories) do
-						expand_list[k] = v
-					end
-					expand_list[this_category] = expand or nil
-					update_model { resources_expanded_categories = expand_list }
-				end
-			end
+			
 		elseif event[1] == 'term_resize' then
-			update_model { width = term.getSize(), half_width = math.floor(term.getSize() / 2) }
+			
 		end
 	end
 
@@ -658,7 +495,7 @@ local function present_captures(capture)
 		term.setPaletteColour(2 ^ i, table.unpack(palette[i + 1]))
 	end
 
-	return true
+	return true, timers_captured
 end
 
 --------------------------------------------------------------------------------
@@ -671,50 +508,90 @@ if ccemux then
 	end
 end
 
+local event_queue = {}
 local event = args
 local filter = nil
 local program_co = coroutine.create(program_fn)
-local is_capturing = false
-local capture_ready = false
 local last_frame = currentTime()
 local fps_avg = 0
 local frame_time_avg = 0
 local avg_samples = 10
+local last_capture_trees = nil
 
-local function begin_frame()
-	v3d_wrapper.begin_frame()
-end
+local function show_capture(error_tree)
+	local trees = {}
 
-local function finish_frame()
-	return v3d_wrapper.finish_frame()
-end
+	local object_types = {}
 
-local function begin_capture()
-	v3d_wrapper.begin_capture()
-	is_capturing = true
-	capture_ready = false
-end
+	for instance, type in pairs(v3d_state.object_types) do
+		if type ~= 'v3d' then
+			type = type
+			if not object_types[type] then
+				object_types[type] = {}
+				table.insert(object_types, type)
+			end
+			table.insert(object_types[type], instance)
+		end
+	end
 
-local function finish_capture()
-	is_capturing = false
-	capture_ready = false
+	table.sort(object_types)
 
-	local v3d_capture = v3d_wrapper.finish_capture()
+	local object_tree = {
+		content = 'Objects',
+		children = {},
+		default_expanded = not error_tree,
+	}
 
-	return { v3d_capture }
+	for i = 1, #object_types do
+		local objects = object_types[object_types[i]]
+		local detail_generator = v3d_detail_generators[object_types[i]]
+		local objects_tree = {
+			content = object_types[i]:sub(4),
+			content_right = '&lightGrey;(' .. #objects .. ')',
+			children = {},
+			default_expanded = false,
+		}
+		for j = 1, #objects do
+			local tree = {
+				content = fmtobject(objects[j]),
+				children = {},
+			}
+			table.insert(objects_tree.children, tree)
+			if detail_generator then
+				detail_generator(objects[j], tree.children)
+			end
+		end
+		table.insert(object_tree.children, objects_tree)
+	end
+
+	table.insert(trees, object_tree)
+
+	table.insert(trees, {
+		content = 'Calls',
+		children = last_capture_trees,
+		default_expanded = true,
+	})
+
+	if error_tree then
+		table.insert(trees, error_tree)
+	end
+
+	return present_capture(trees)
 end
 
 while true do
 	if filter == nil or event[1] == filter then
-		begin_frame()
 		local start_time = currentTime()
 		local ok, err = coroutine.resume(program_co, table.unpack(event))
 		local this_frame = currentTime()
 		local delta_time = this_frame - last_frame
-		last_frame = this_frame
 
-		if finish_frame() then
-			capture_ready = is_capturing
+		last_frame = this_frame
+		last_capture_trees = v3d_state.call_trees
+
+		if v3d_state.blit_called then
+			v3d_state.blit_called = false
+			v3d_state.call_trees = {}
 			fps_avg = (fps_avg * avg_samples + 1 / delta_time) / (avg_samples + 1)
 			frame_time_avg = (frame_time_avg * avg_samples + this_frame - start_time) / (avg_samples + 1)
 		end
@@ -726,29 +603,32 @@ while true do
 			term.write(string.format('%.01ffps %.01fms <%.01ffps', fps_avg, frame_time_avg * 1000, 1 / frame_time_avg))
 		end
 
-		if capture_ready then
-			local captures = finish_capture()
-	
-			for _, capture in ipairs(captures) do
-				if not present_captures(capture) then
-					return
-				end
-			end
-		end
-
 		if not ok then
-			error(err, 0)
+			show_capture { content = 'Error', children = {
+				{ content = tostring(err) }
+			}, default_expanded = true, }
+			return
 		elseif coroutine.status(program_co) == 'dead' then
+			if capture_first_frame then
+				show_capture()
+			end
 			break
 		else
 			filter = err
 		end
 	end
 
-	event = { coroutine.yield() }
+	event = table.remove(event_queue, 1) or { coroutine.yield() }
 
-	if event[1] == 'key' and event[2] == capture_key then
-		begin_capture()
+	if (event[1] == 'key' and event[2] == capture_key) or capture_first_frame then
+		local cont, timers = show_capture()
+		if not cont then
+			break
+		end
+		for i = 1, #timers do
+			table.insert(event_queue, { 'timer', timers[i] })
+		end
+		capture_first_frame = false
 	elseif event[1] == 'terminate' then
 		break
 	end

@@ -31,10 +31,6 @@ local libraries = {}
 local oldPath = package.path
 package.path = '/?.lua;/?/?.lua;' .. package.path
 
-if fs.isDir('v3d') then
-	assert(loadfile 'v3d/build.lua')()
-end
-
 local function try_load_library(name, library, setup_fn)
 	local ok, lib = pcall(require, library)
 	if not ok then
@@ -85,12 +81,10 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local v3d_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
 
-	transform = v3d.camera(0, 0, 0, 0, 0, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
-
 	if flags.front_facing then
-		transform = v3d.camera(0, 0, 0, 0, 0, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
+		transform = v3d.camera(0, 0, 0, 0, 0, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect * 2)
 	else
-		transform = v3d.camera(SETTING_CAMERA_X, SETTING_CAMERA_Y, SETTING_CAMERA_Z, SETTING_CAMERA_X_ROTATION, SETTING_CAMERA_Y_ROTATION, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect)
+		transform = v3d.camera(SETTING_CAMERA_X, SETTING_CAMERA_Y, SETTING_CAMERA_Z, SETTING_CAMERA_X_ROTATION, SETTING_CAMERA_Y_ROTATION, 0, math.tan(SETTING_CAMERA_H_FOV) / aspect * 2)
 	end
 
 	for i = 1, model_data.triangles do
