@@ -96,8 +96,8 @@ local V3D_VALIDATION_FAILED = 'V3D_VALIDATION_FAILED'
 --- @field call_trees Tree[]
 --- @field blit_called boolean
 local v3d_state = {
-	object_types = {},
-	object_labels = {},
+	object_types = setmetatable({}, { __mode = 'k' }),
+	object_labels = setmetatable({}, { __mode = 'k' }),
 	next_object_id = 1,
 	call_trees = {},
 	blit_called = false,
@@ -388,7 +388,7 @@ local function present_capture(trees)
 		items = {},
 		selected_item = 1,
 		scroll = 0,
-		items_start = 4,
+		items_start = 2,
 	}
 
 	local previous_peer = 0

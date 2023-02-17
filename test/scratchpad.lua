@@ -1,20 +1,17 @@
 local v3d = require '/v3d'
 
 local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
-local geometry = v3d.create_geometry_builder(v3d.DEFAULT_LAYOUT)
-	:set_data('position', { 0, 1, 0, -1.1, -1, 0, 1.1, -1, 0 })
-	:set_data('colour', { colours.red })
-	:build()
+local geometry = v3d.create_debug_cube():build()
 local transform = v3d.camera(0, 0, 2, 0, math.pi / 2)
 local pipeline = v3d.create_pipeline {
-	layout = v3d.DEFAULT_LAYOUT,
+	layout = v3d.DEBUG_CUBE_LAYOUT,
 	colour_attribute = 'colour',
 }
 
 while true do
     transform = transform * v3d.rotate(0, 0.05, 0)
     framebuffer:clear(colours.lightBlue)
-    pipeline:render_geometry(geometry, framebuffer, transform)
+    pipeline:render_geometry("hello", false, nil)
     framebuffer:blit_term_subpixel(term)
     sleep(0.05)
 end

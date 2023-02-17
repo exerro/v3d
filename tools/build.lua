@@ -286,6 +286,7 @@ do -- produce compiled api_reference.md
 end
 
 do -- produce compiled v3dd.lua
+	local meta_aliases = build_config.v3dd_meta_aliases
 	local type_checkers = build_config.v3dd_type_checkers
 	local structural_types = build_config.v3dd_structural_types
 	local fn_logging_blacklist = build_config.v3dd_fn_logging_blacklist
@@ -299,6 +300,7 @@ function convert_instance_${INSTANCE_TYPE_NAME}(instance, instance_label)
 	if v3d_state.object_types[instance] then return end
 	register_object(instance, "${INSTANCE_TYPE_NAME}", instance_label)
 	${INSTANCE_FUNCTION_OVERRIDES}
+	${INSTANCE_METATABLE}
 end
 ]]
 
@@ -348,10 +350,11 @@ local param_${PT_PARAM_NAME}_tree = {
 	children = {}
 }
 table.insert(call_tree.children, param_${PT_PARAM_NAME}_tree)
-${PT_DETAILS}
 if validation_enabled and not (${PT_TYPECHECK}) then
 	validation_failed = true
 	table.insert(param_${PT_PARAM_NAME}_tree.children, { content = "&red;ERROR: Expected type '${PT_TYPENAME}', got " .. type(${PT_VALUE_NAME}) })
+else
+	${PT_DETAILS}
 end]]
 
 	local PARAM_TEMPLATE_UNLOGGED = [[
@@ -589,6 +592,7 @@ ${SDF_SUB_DETAILS}]]
 	--- @return string
 	local function generate_converter(type)
 		local function_overrides = {}
+		local operator_overrides = {}
 
 		for i = 1, #type.functions do
 			local fn = type.functions[i]
@@ -597,13 +601,31 @@ ${SDF_SUB_DETAILS}]]
 			table.insert(function_overrides, (fn_text:gsub('\n', '\n\t')))
 		end
 
-		-- TODO: metamethod overrides
+		for i = 1, #type.operators do
+			local op = type.operators[i]
+			local fn = meta_aliases[type.name .. '.' .. op.operator]
+
+			if not fn then
+				error('Missing operator alias for ' .. type.name .. '.' .. op.operator)
+			end
+
+			table.insert(operator_overrides, '__' .. op.operator .. ' = instance.' .. fn)
+		end
+
+		local instance_metatable = ''
+
+		if #operator_overrides > 0 then
+			instance_metatable = 'setmetatable(instance, {\n\t\t'
+			                  .. table.concat(operator_overrides, ',\n\t\t')
+			                  .. '\n\t})'
+		end
 
 		return (CONVERT_INSTANCE_TEMPLATE
 			:gsub('%${INSTANCE_TYPE_NAME}', type.name)
 			:gsub('%${INSTANCE_FUNCTION_OVERRIDES}', function()
 				return table.concat(function_overrides, '\n\t')
-			end))
+			end)
+			:gsub('%${INSTANCE_METATABLE}', instance_metatable))
 	end
 
 	--- @param field NameType
