@@ -193,6 +193,7 @@ program_environment.package.loaded[v3d_require_path] = v3d_wrapper
 --- @field next_contracted integer
 --- @field last_child integer
 --- @field indent integer
+--- @field draw_y integer
 
 --- @param items TreeItem[]
 --- @param tree Tree
@@ -201,11 +202,12 @@ program_environment.package.loaded[v3d_require_path] = v3d_wrapper
 local function tree_to_items(items, tree, previous_peer, indent)
 	local seq = {
 		tree = tree,
-		expanded = tree.default_expanded or false,
+		expanded = tree.default_expanded and tree.children and #tree.children > 0 or false,
 		previous_peer = previous_peer,
 		next_expanded = #items + 2,
 		-- note: deliberately incomplete! we finish this at the end of the function
 		indent = indent,
+		draw_y = 0,
 	}
 	table.insert(items, seq)
 	local previous_peer = nil
@@ -293,6 +295,67 @@ local function trim_segments_right(segments, length)
 	return r
 end
 
+--- @param item TreeItem
+--- @param y integer
+--- @return integer next_y, integer next_index
+local function redraw_tree_item(item, selected, x, y, w, by, bh)
+	local initial_colour = colours.white
+	local is_expanded = item.expanded
+	local left = rich_content_to_segments(
+		is_expanded and item.tree.content_expanded or item.tree.content or '',
+		initial_colour)
+	local right = rich_content_to_segments(
+		is_expanded and item.tree.content_right_expanded or item.tree.content_right or '',
+		initial_colour)
+	local right_anchor = x + w
+	local left_max_width = w
+
+	if selected then
+		term.setBackgroundColour(colours.black)
+		term.setCursorPos(x, y)
+		term.write((' '):rep(w))
+	else
+		term.setBackgroundColour(colours.grey)
+	end
+
+	x = x + item.indent * 2
+	w = w - item.indent * 2
+
+	if item.tree.children and #item.tree.children > 0 then
+		table.insert(left, 1, { text = string.char(is_expanded and 31 or 16) .. ' ', colour = colours.lightGrey })
+	-- elseif item.tree.on_select then -- TODO
+	-- 	left_max_width = left_max_width - 2
+	-- 	table.insert(left, 1, { text = '| ', colour = colours.lightGrey })
+	-- 	table.insert(right, { text = ' >', colour = colours.purple })
+	else
+		table.insert(left, 1, { text = '\166 ', colour = colours.lightGrey })
+	end
+
+	item.draw_y = y
+
+	if y >= by and y < by + bh then
+		right = trim_segments_left(right, w)
+		term.setCursorPos(right_anchor - segments_length(right), y)
+
+		for _, segment in ipairs(right) do
+			term.setTextColour(segment.colour)
+			term.write(segment.text)
+		end
+
+		term.setCursorPos(x, y)
+		left = trim_segments_right(left, left_max_width)
+
+		for _, segment in ipairs(left) do
+			term.setTextColour(segment.colour)
+			term.write(segment.text)
+		end
+	end
+
+	y = y + 1
+
+	return y, item.expanded and item.next_expanded or item.next_contracted
+end
+
 --- @param trees Tree[]
 local function present_capture(trees)
 	local palette = {}
@@ -319,9 +382,12 @@ local function present_capture(trees)
 	local timers_captured = {}
 
 	--- @class CaptureViewModel
+	--- @field items TreeItem[]
 	local model = {
 		items = {},
 		selected_item = 1,
+		scroll = 0,
+		items_start = 4,
 	}
 
 	local previous_peer = 0
@@ -348,75 +414,16 @@ local function present_capture(trees)
 		end
 	end
 
-	--- @param item TreeItem
-	--- @param y integer
-	--- @return integer next_y, integer next_index
-	local function redraw_tree_item(item, selected, x, y, w, by, bh)
-		local initial_colour = colours.white
-		local is_expanded = item.expanded
-		local left = rich_content_to_segments(
-			is_expanded and item.tree.content_expanded or item.tree.content or '',
-			initial_colour)
-		local right = rich_content_to_segments(
-			is_expanded and item.tree.content_right_expanded or item.tree.content_right or '',
-			initial_colour)
-		local right_anchor = x + w
-		local left_max_width = w
-
-		if selected then
-			term.setBackgroundColour(colours.black)
-			term.setCursorPos(x, y)
-			term.write((' '):rep(w))
-		else
-			term.setBackgroundColour(colours.grey)
-		end
-
-		x = x + item.indent * 2
-		w = w - item.indent * 2
-
-		if item.tree.children and #item.tree.children > 0 then
-			table.insert(left, 1, { text = is_expanded and 'v ' or '> ', colour = colours.lightGrey })
-		-- elseif item.tree.on_select then -- TODO
-		-- 	left_max_width = left_max_width - 2
-		-- 	table.insert(left, 1, { text = '| ', colour = colours.lightGrey })
-		-- 	table.insert(right, { text = ' >', colour = colours.purple })
-		else
-			table.insert(left, 1, { text = '| ', colour = colours.lightGrey })
-		end
-
-		if y >= by and y < by + bh then
-			right = trim_segments_left(right, w)
-			term.setCursorPos(right_anchor - segments_length(right), y)
-
-			for _, segment in ipairs(right) do
-				term.setTextColour(segment.colour)
-				term.write(segment.text)
-			end
-
-			term.setCursorPos(x, y)
-			left = trim_segments_right(left, left_max_width)
-
-			for _, segment in ipairs(left) do
-				term.setTextColour(segment.colour)
-				term.write(segment.text)
-			end
-
-			y = y + 1
-		end
-
-		return y, item.expanded and item.next_expanded or item.next_contracted
-	end
-
 	local function redraw()
 		local width, height = term.getSize()
 
 		term.setBackgroundColour(colours.grey)
 		term.clear()
 
-		local y = 4
+		local y = model.items_start - model.scroll
 		local index = 1
 
-		while y < height - 1 and model.items[index] do
+		while model.items[index] do
 			y, index = redraw_tree_item(model.items[index], index == model.selected_item, 2, y, width - 2, 4, height - 4)
 		end
 	end
@@ -435,15 +442,28 @@ local function present_capture(trees)
 		elseif event[1] == 'key' and (event[2] == keys.space or event[2] == keys.enter) then
 			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
 				model.items[model.selected_item].expanded = not model.items[model.selected_item].expanded
-			elseif model.items[model.selected_item].tree.on_select then
-				model.items[model.selected_item].tree.on_select()
+			-- elseif model.items[model.selected_item].tree.on_select then
+			-- 	model.items[model.selected_item].tree.on_select()
+			end
+		elseif event[1] == 'key' and event[2] == keys.left then
+			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
+				model.items[model.selected_item].expanded = false
+			end
+		elseif event[1] == 'key' and event[2] == keys.right then
+			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
+				model.items[model.selected_item].expanded = true
 			end
 		elseif event[1] == 'key' and event[2] == keys.down then
 			local current_item = model.items[model.selected_item]
 			local next_index = current_item.expanded and current_item.next_expanded or current_item.next_contracted
 			
 			if model.items[next_index] then
-				update_model { selected_item = next_index }
+				local height = select(2, term.getSize())
+				local scroll = model.scroll
+				if model.items[next_index].draw_y > height - 1 then
+					scroll = scroll + model.items[next_index].draw_y - height + 1
+				end
+				update_model { selected_item = next_index, scroll = scroll }
 			end
 		elseif event[1] == 'key' and event[2] == keys.up then
 			local next_index = model.items[model.selected_item].previous_peer
@@ -452,10 +472,16 @@ local function present_capture(trees)
 				while model.items[next_index].expanded do
 					next_index = model.items[next_index].last_child
 				end
-
-				update_model { selected_item = next_index }
 			elseif model.items[model.selected_item - 1] then
-				update_model { selected_item = model.selected_item - 1 }
+				next_index = model.selected_item - 1
+			end
+
+			if model.items[next_index] then
+				local scroll = model.scroll
+				if model.items[next_index].draw_y < model.items_start then
+					scroll = scroll + model.items[next_index].draw_y - model.items_start
+				end
+				update_model { selected_item = next_index, scroll = scroll }
 			end
 		elseif event[1] == 'key' and (event[2] == keys.left or event[2] == keys.right) then
 			

@@ -211,22 +211,22 @@ end]]
 	build_config.v3dd_extra_field_details.V3DGeometry = [[
 local face_data = { content = 'Raw face data', children = {} }
 local vertex_data = { content = 'Raw vertex data', children = {} }
-local face_fmt = '&lightGrey;[%' .. #tostring(instance.vertex_offset - 1)
-              .. 'd / %' .. #tostring(instance.faces) .. 'd]: &reset;'
-local vertex_fmt = '&lightGrey;[%' .. #tostring(#instance)
-              .. 'd / %' .. #tostring(instance.vertices) .. 'd]: &reset;'
+local face_fmt = '&lightGrey;[f%0' .. #tostring(instance.faces) .. 'd %'
+              .. #tostring(instance.vertex_offset - 1) .. 'd]: &reset;%s&reset;'
+local vertex_fmt = '&lightGrey;[v%0' .. #tostring(instance.vertices) .. 'd %'
+              .. #tostring(#instance) .. 'd]: &reset;%s&reset;'
 
 table.insert(trees, face_data)
 table.insert(trees, vertex_data)
 
 for i = 1, instance.vertex_offset do
 	local face_n = math.floor((i - 1) / instance.layout.face_stride) + 1
-	face_data.children[i] = { content = face_fmt:format(i, face_n) .. fmtobject(instance[i]) }
+	face_data.children[i] = { content = face_fmt:format(face_n, i, fmtobject(instance[i])) }
 end
 
 for i = instance.vertex_offset + 1, #instance do
 	local vertex_n = math.floor((i - instance.vertex_offset - 1) / instance.layout.vertex_stride) + 1
-	table.insert(vertex_data.children, { content = vertex_fmt:format(i, vertex_n) .. fmtobject(instance[i]) })
+	table.insert(vertex_data.children, { content = vertex_fmt:format(vertex_n, i, fmtobject(instance[i])) })
 end]]
 
 	-- pretty print attributes as list and cull_face as ref for V3DPipelineOptions

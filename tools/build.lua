@@ -309,6 +309,7 @@ function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
 	local call_tree = {
 		content = string.format("&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(${WF_PS_N})",${WF_FMT_PARAMS}),
 		content_expanded = "&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(...)",
+		default_expanded = false,
 		children = {},
 	}
 	${WF_OVERLOADS}
@@ -323,7 +324,7 @@ function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
 	${WF_PRE_HOOK}
 	local return_value = ${WF_FUNCTION_NAME}_orig(${WF_FN_SELF}${WF_FN_PARAMS})
 	${WF_RETURN_CONVERT}
-	local return_tree = { content = "&purple;return &reset;" .. fmtobject(return_value), children = {} }
+	local return_tree = { content = "&purple;return &reset;" .. fmtobject(return_value), children = {}, default_expanded = true }
 	table.insert(call_tree.children, return_tree)
 	${WF_RETURN_DETAILS}
 	${WF_POST_HOOK}
