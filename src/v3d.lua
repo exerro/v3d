@@ -513,8 +513,9 @@ local V3DPipeline = {}
 -- TODO: support returning depth as 2nd param
 -- TODO: screen X/Y, depth (new & old), face index
 --- A fragment shader runs for every pixel being drawn, accepting the
---- interpolated UV coordinates of that pixel if UV interpolation is enabled in
---- the pipeline settings.
+--- interpolated attributes for that pixel. See
+--- [[V3DPipelineOptions.attributes]] and
+--- [[V3DPipelineOptions.pack_attributes]].
 --- The shader should return a value to be written directly to the framebuffer.
 --- Note: if `nil` is returned, no pixel is written, and the depth value is not
 --- updated for that pixel.

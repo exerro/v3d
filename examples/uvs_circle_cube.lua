@@ -14,7 +14,9 @@ local pipeline = v3d.create_pipeline {
 	attributes = { 'uv', 'face_index' },
 	pack_attributes = false,
     fragment_shader = function(uniforms, u, v, fi)
-        if math.sqrt((u - 0.3) ^ 2 + (v - 0.3) ^ 2) % 0.2 < 0.1 then
+        local cx = 0.5 + math.sin(-uniforms.t * 3) * 0.2
+        local cy = 0.5 + math.cos(-uniforms.t * 3) * 0.2
+        if (math.sqrt((u - cx) ^ 2 + (v - cy) ^ 2) - uniforms.t / 5) % 0.2 < 0.1 then
             -- here, we're not inside the circle, so discard the pixel
             return nil
         end
@@ -23,6 +25,7 @@ local pipeline = v3d.create_pipeline {
     end,
 }
 local cube = v3d.create_debug_cube():cast(layout):build()
+pipeline:set_uniform('t', 0.1)
 
 local rotation = 0
 while true do
@@ -34,5 +37,6 @@ while true do
     framebuffer:clear(colours.white)
     pipeline:render_geometry(cube, framebuffer, transform)
     framebuffer:blit_term_subpixel(term)
+    pipeline:set_uniform('t', pipeline:get_uniform 't' + 0.05)
     sleep(0.05)
 end
