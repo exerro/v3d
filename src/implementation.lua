@@ -931,6 +931,19 @@ return function(_, geometry, fb, transform, model_transform)
 	local pxd = (fb.width - 1) / 2
 	local pyd = (fb.height - 1) / 2
 
+	local stat_total_time = 0
+	local stat_rasterize_time = 0
+	local stat_candidate_faces = 0
+	local stat_drawn_faces = 0
+	local stat_culled_faces = 0
+	local stat_clipped_faces = 0
+	local stat_discarded_faces = 0
+	local stat_candidate_fragments = 0
+	local stat_fragments_occluded = 0
+	local stat_fragments_shaded = 0
+	local stat_fragments_discarded = 0
+	local stat_fragments_drawn = 0
+
 	local scale_y = -pyd - 0.5
 	local scale_x = opt_pixel_aspect_ratio * (pyd - 0.5)
 
@@ -979,6 +992,8 @@ return function(_, geometry, fb, transform, model_transform)
 
 		-- #marker FACE_CULLING
 
+		-- #marker STAT_CANDIDATE_FACE
+
 		if not cull_face then
 			-- TODO: make this split polygons
 			if sp0z <= clipping_plane and sp1z <= clipping_plane and sp2z <= clipping_plane then
@@ -993,9 +1008,29 @@ return function(_, geometry, fb, transform, model_transform)
 				local _ptri_p2y = pyd + sp2y * _ptri_p2w * scale_y
 				-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
 				-- #marker RASTERIZE_TRIANGLE_SOURCE
+				-- #marker STAT_DRAW_FACE
+			else
+				-- #marker STAT_DISCARD_FACE
 			end
+		else
+			-- #marker STAT_CULL_FACE
 		end
 	end
+
+	return {
+		total_time = stat_total_time,
+		rasterize_time = stat_rasterize_time,
+		candidate_faces = stat_candidate_faces,
+		drawn_faces = stat_drawn_faces,
+		culled_faces = stat_culled_faces,
+		clipped_faces = stat_clipped_faces,
+		discarded_faces = stat_discarded_faces,
+		candidate_fragments = stat_candidate_fragments,
+		fragments_occluded = stat_fragments_occluded,
+		fragments_shaded = stat_fragments_shaded,
+		fragments_discarded = stat_fragments_discarded,
+		fragments_drawn = stat_fragments_drawn,
+	}
 end
 ]]
 
@@ -1010,6 +1045,19 @@ local function create_pipeline(options)
 	local opt_depth_store = options.depth_store ~= false
 	local opt_depth_test = options.depth_test ~= false
 	local opt_fragment_shader = options.fragment_shader or nil
+	local opt_statistics = options.statistics or {}
+	local stat_measure_total_time = opt_statistics.measure_total_time or false
+	local stat_measure_rasterize_time = opt_statistics.measure_rasterize_time or false
+	local stat_count_candidate_faces = opt_statistics.count_candidate_faces or false
+	local stat_count_drawn_faces = opt_statistics.count_culled_faces or false
+	local stat_count_culled_faces = opt_statistics.count_culled_faces or false
+	local stat_count_clipped_faces = opt_statistics.count_clipped_faces or false
+	local stat_count_discarded_faces = opt_statistics.count_discarded_faces or false
+	local stat_count_candidate_fragments = opt_statistics.count_candidate_fragments or false
+	local stat_count_fragments_occluded = opt_statistics.count_fragments_occluded or false
+	local stat_count_fragments_shaded = opt_statistics.count_fragments_shaded or false
+	local stat_count_fragments_discarded = opt_statistics.count_fragments_discarded or false
+	local stat_count_fragments_drawn = opt_statistics.count_fragments_drawn or false
 
 	local pipeline = {}
 	local uniforms = {}
@@ -1026,6 +1074,20 @@ local function create_pipeline(options)
 		pack_attributes = opt_pack_attributes,
 		pixel_aspect_ratio = opt_pixel_aspect_ratio,
 		position_attribute = opt_position_attribute,
+		statistics = {
+			measure_total_time = stat_measure_total_time,
+			measure_rasterize_time = stat_measure_rasterize_time,
+			count_candidate_faces = stat_count_candidate_faces,
+			count_drawn_faces = stat_count_drawn_faces,
+			count_culled_faces = stat_count_culled_faces,
+			count_clipped_faces = stat_count_clipped_faces,
+			count_discarded_faces = stat_count_discarded_faces,
+			count_candidate_fragments = stat_count_candidate_fragments,
+			count_fragments_occluded = stat_count_fragments_occluded,
+			count_fragments_shaded = stat_count_fragments_shaded,
+			count_fragments_discarded = stat_count_fragments_discarded,
+			count_fragments_drawn = stat_count_fragments_drawn,
+		}
 	}
 
 	local geometry_face_attributes = {}
@@ -1070,6 +1132,39 @@ local function create_pipeline(options)
 
 	do -- opt_pixel_aspect_ratio
 		pipeline_source = pipeline_source:gsub('opt_pixel_aspect_ratio', opt_pixel_aspect_ratio)
+	end
+
+	do -- STAT_TOTAL_TIME
+
+	end
+
+	do -- STAT_RASTERIZE_TIME
+
+	end
+
+	do -- STAT_CANDIDATE_FACE
+		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_DRAW_FACE',
+			stat_count_drawn_faces and 'stat_drawn_faces = stat_drawn_faces + 1' or '')
+	end
+
+	do -- STAT_CANDIDATE_FACE
+		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CANDIDATE_FACE',
+			stat_count_candidate_faces and 'stat_candidate_faces = stat_candidate_faces + 1' or '')
+	end
+
+	do -- STAT_CULL_FACE
+		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CULL_FACE',
+			stat_count_culled_faces and opt_cull_face and 'stat_culled_faces = stat_culled_faces + 1' or '')
+	end
+
+	do -- STAT_CLIP_FACE
+		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CLIP_FACE',
+			stat_count_clipped_faces and 'stat_clipped_faces = stat_clipped_faces + 1' or '')
+	end
+
+	do -- STAT_DISCARD_FACE
+		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_DISCARD_FACE',
+			stat_count_discarded_faces and 'stat_discarded_faces = stat_discarded_faces + 1' or '')
 	end
 
 	do -- POSITION_ASSIGNMENT
@@ -1230,6 +1325,12 @@ local function create_pipeline(options)
 
 	do -- PIXEL_DRAW_ADVANCE
 		local pda = ''
+		-- count_fragments_shaded
+		-- count_fragments_discarded
+
+		if stat_count_candidate_fragments then
+			pda = pda .. 'stat_candidate_fragments = stat_candidate_fragments + 1\n'
+		end
 
 		for _, attr in ipairs(interpolate_attributes) do
 			for i = 1, attr.size do
@@ -1266,7 +1367,12 @@ local function create_pipeline(options)
 			end
 
 			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms' .. fs_params .. ')\n'
-			          .. 'if fs_colour ~= nil then\n'
+
+			if stat_count_fragments_shaded then
+				pda = pda .. 'stat_fragments_shaded = stat_fragments_shaded + 1\n'
+			end
+
+			pda = pda .. 'if fs_colour ~= nil then\n'
 			          .. 'fb_colour[index] = fs_colour\n'
 		else
 			pda = pda .. 'fb_colour[index] = colour\n'
@@ -1276,11 +1382,22 @@ local function create_pipeline(options)
 			pda = pda .. 'fb_depth[index] = row_left_w\n'
 		end
 
+		if stat_count_fragments_drawn then
+			pda = pda .. 'stat_fragments_drawn = stat_fragments_drawn + 1\n'
+		end
+
 		if opt_fragment_shader then
+			if stat_count_fragments_discarded then
+				pda = pda .. 'stat_fragments_discarded = stat_fragments_discarded + 1\n'
+			end
+	
 			pda = pda .. 'end\n'
 		end
 
 		if opt_depth_test then
+			if stat_count_fragments_occluded then
+				pda = pda .. 'else\n\tstat_fragments_occluded = stat_fragments_occluded + 1\n'
+			end
 			pda = pda .. 'end\n'
 		end
 

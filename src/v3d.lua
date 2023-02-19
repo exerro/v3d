@@ -278,7 +278,6 @@ local V3DLayout = {}
 --- @field is_numeric boolean
 --- Sum of the sizes of previous attributes of the same type.
 --- @field offset integer
-local V3DLayoutAttribute = {}
 
 --- TODO
 --- @param name string
@@ -524,6 +523,34 @@ local V3DPipeline = {}
 --- certain special values listed under [[@V3DUniforms]].
 --- @alias V3DFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
 
+--- @class V3DStatisticsOptions
+--- @field measure_total_time boolean | nil
+--- @field measure_rasterize_time boolean | nil
+--- @field count_candidate_faces boolean | nil
+--- @field count_drawn_faces boolean | nil
+--- @field count_culled_faces boolean | nil
+--- @field count_clipped_faces boolean | nil
+--- @field count_discarded_faces boolean | nil
+--- @field count_candidate_fragments boolean | nil
+--- @field count_fragments_occluded boolean | nil
+--- @field count_fragments_shaded boolean | nil
+--- @field count_fragments_discarded boolean | nil
+--- @field count_fragments_drawn boolean | nil
+
+--- @class V3DStatistics
+--- @field total_time number
+--- @field rasterize_time number
+--- @field candidate_faces integer
+--- @field drawn_faces integer
+--- @field culled_faces integer
+--- @field clipped_faces integer
+--- @field discarded_faces integer
+--- @field candidate_fragments integer
+--- @field fragments_occluded integer
+--- @field fragments_shaded integer
+--- @field fragments_discarded integer
+--- @field fragments_drawn integer
+
 --- Pipeline options describe the settings used to create a pipeline. Most
 --- fields are optional and have a sensible default. Not using or disabling
 --- features may lead to a performance gain, for example disabling depth testing
@@ -588,14 +615,14 @@ local V3DPipeline = {}
 --- should be their width/height, for example 2/3 for non-subpixel characters.
 --- Defaults to `1`.
 --- @field pixel_aspect_ratio number | nil
-local V3DPipelineOptions = {}
+--- @field statistics V3DStatisticsOptions | nil
 
 --- Draw geometry to the framebuffer using the transforms given.
 --- @param geometry V3DGeometry List of geometry to draw.
 --- @param framebuffer V3DFramebuffer Framebuffer to draw to.
 --- @param transform V3DTransform Transform applied to all vertices.
 --- @param model_transform V3DTransform | nil Transform applied to all vertices before `transform`, if specified.
---- @return nil
+--- @return V3DStatistics
 function V3DPipeline:render_geometry(geometry, framebuffer, transform, model_transform) end
 
 --- Set a uniform value which can be accessed from shaders.

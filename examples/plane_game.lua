@@ -1,7 +1,7 @@
 
 if fs.isDir 'v3d' then shell.run 'v3d/build' end
-package.path = "/" .. fs.getDir(shell.getRunningProgram()) .. "/?.lua;" .. package.path
-package.path = "/" .. fs.getDir(fs.getDir(shell.getRunningProgram())) .. "/?.lua;" .. package.path
+package.path = "/" .. fs.getDir(_ENV.__v3dd_program_path or shell.getRunningProgram()) .. "/?.lua;" .. package.path
+package.path = "/" .. fs.getDir(fs.getDir(_ENV.__v3dd_program_path or shell.getRunningProgram())) .. "/?.lua;" .. package.path
 --- @type v3d
 local v3d = require '/v3d'
 local simplex = require 'util.simplex'
@@ -232,7 +232,7 @@ local function handle_event(event, ...)
 
 	if event == 'timer' and ev_parameters[1] == update_timer then
 		local t = os.clock()
-		local dt = t - update_time
+		local dt = math.min(0.1, t - update_time)
 		update_time = t
 		update_timer = startTimer(REFRESH_INTERVAL)
 		update(dt)

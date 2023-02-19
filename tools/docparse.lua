@@ -24,6 +24,7 @@ local luatools = require 'luatools'
 --- @class Type
 --- @field name string
 --- @field extends string | nil
+--- @field is_structural boolean
 --- @field docstring string
 --- @field fields NameType[]
 --- @field operators OperatorOverload[]
@@ -38,12 +39,16 @@ local MISSING_DOCUMENTATION = 'Missing documentation.'
 --- @param group AnnotatedGroup
 --- @return Type | { codename: string }
 local function parse_class(group)
-	assert(#group == 5)
-	assert(group[1].text == 'local')
-	assert(group[2].type == 'word')
-	assert(group[3].text == '=')
-	assert(group[4].text == '{')
-	assert(group[5].text == '}')
+	if group[1] and group[1].text == 'local' then
+		assert(#group == 5)
+		assert(group[1].text == 'local')
+		assert(group[2].type == 'word')
+		assert(group[3].text == '=')
+		assert(group[4].text == '{')
+		assert(group[5].text == '}')
+	else
+		assert(#group == 0)
+	end
 
 	local classname = group.annotations[1].content
 	local docstring = group.annotations[1].pretext or MISSING_DOCUMENTATION
@@ -57,10 +62,12 @@ local function parse_class(group)
 	local class = {
 		name = classname,
 		extends = extends,
+		is_structural = not group[2],
 		docstring = docstring,
 		fields = {},
 		operators = {},
 		functions = {},
+		codename = group[2] and group[2].text or classname,
 	}
 
 	for i = 2, #group.annotations do
@@ -94,8 +101,6 @@ local function parse_class(group)
 			error('Unknown annotation for class: \'@' .. group.annotations[i].annotation .. '\'', 0)
 		end
 	end
-
-	class.codename = group[2].text
 
 	return class
 end
@@ -219,6 +224,7 @@ local function parse_alias(group)
 	return {
 		name = typename,
 		extends = extends,
+		is_structural = true,
 		docstring = docstring,
 		fields = {},
 		operators = {},

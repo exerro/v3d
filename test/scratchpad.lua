@@ -6,7 +6,12 @@ local transform = v3d.camera(0, 0, 2, 0, math.pi / 2)
 local pipeline = v3d.create_pipeline {
 	layout = v3d.DEBUG_CUBE_LAYOUT,
 	colour_attribute = 'colour',
+	cull_face = false,
 }
+
+local h = assert(io.open('v3d/gen/pipeline_source.lua', 'w'))
+h:write(pipeline.source)
+h:close()
 
 while true do
     transform = transform * v3d.rotate(0, 0.05, 0)

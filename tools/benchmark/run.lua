@@ -14,12 +14,12 @@
 --- @field validate_renders boolean | nil
 
 local args = { ... }
-local root_dir = shell.getRunningProgram():match("^.+/") or ""
+local root_dir = (_ENV.__v3dd_program_path or shell.getRunningProgram()):match("^.+/") or ""
 
 package.path = "/" .. root_dir .. "?.lua;" .. package.path
 
 if root_dir:sub(1, -2):find "/" then
-	local parent_dir = root_dir:match "([^/]+/)[^/]*/"
+	local parent_dir = root_dir:match "^(.+/)[^/]-/[^/]-/$"
 	package.path = "/" .. parent_dir .. "?.lua;" .. package.path
 end
 
@@ -231,7 +231,7 @@ local function benchmark(
 	repeat
 		clear_fn()
 		local t0d = clock()
-		draw_fn()
+		local return_value = draw_fn()
 		local td = clock() - t0d
 		local t0p = clock()
 		if present_buffers == 'all' then
@@ -249,6 +249,7 @@ local function benchmark(
 			draw_time = td,
 			present_time = tp,
 			total_time = td + tp,
+			return_value = return_value,
 		})
 		if clock() - ty > 0.2 then
 			--- @diagnostic disable-next-line: undefined-field

@@ -288,7 +288,6 @@ end
 do -- produce compiled v3dd.lua
 	local meta_aliases = build_config.v3dd_meta_aliases
 	local type_checkers = build_config.v3dd_type_checkers
-	local structural_types = build_config.v3dd_structural_types
 	local fn_logging_blacklist = build_config.v3dd_fn_logging_blacklist
 	local fn_pre_hooks = build_config.v3dd_fn_pre_body
 	local fn_post_hooks = build_config.v3dd_fn_post_body
@@ -422,7 +421,7 @@ ${SDF_SUB_DETAILS}]]
 			type_checker = type_checkers[param_type]
 
 			if not type_checker and v3d_types[param_type] then
-				if structural_types[param_type] then
+				if v3d_types[param_type].is_structural then
 					needs_structural_check = v3d_types[param_type]
 					type_checker = 'type(%s) == \'table\''
 				else
@@ -553,7 +552,7 @@ ${SDF_SUB_DETAILS}]]
 					      and 'if ' .. fn_param_names[#parameters + 1] .. '== nil then\n\t\t'
 					       or '\n\t\t')
 					local params = generate_overload_params(fn_all_param_names, parameters, fn_hook, logged)
-	
+
 					s = s .. params:gsub('\n', '\n\t\t') .. '\n'
 					      .. (j < #fn_overloads and '\n\telse' or '\n\tend\n')
 				end
@@ -562,7 +561,7 @@ ${SDF_SUB_DETAILS}]]
 		end)
 
 		local return_type = fn.overloads[1].returns
-		if is_class(return_type) and not structural_types[return_type] then
+		if is_class(return_type) and not v3d_types[return_type].is_structural then
 			local label_param = 'nil'
 			for j = 1, #fn.overloads[1].parameters do
 				if fn.overloads[1].parameters[j].name == 'label' then
@@ -638,7 +637,7 @@ ${SDF_SUB_DETAILS}]]
 			           .. 'field_' .. field.name .. '_tree.children)'
 
 			if field_is_optional then
-				sub_details = 'if instance.' .. field.name .. ' then'
+				sub_details = 'if instance.' .. field.name .. ' then '
 				           .. sub_details .. ' end'
 			end
 		end
@@ -695,7 +694,7 @@ ${SDF_SUB_DETAILS}]]
 		end
 
 		for i = 1, #v3d_types do
-			if is_class(v3d_types[i].name) and not structural_types[v3d_types[i].name] then
+			if is_class(v3d_types[i].name) and not v3d_types[i].is_structural then
 				table.insert(generated_content, generate_converter(v3d_types[i]))
 			end
 		end

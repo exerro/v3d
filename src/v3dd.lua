@@ -41,6 +41,9 @@ local program_environment = setmetatable({}, getmetatable(_ENV))
 local v3dd_debug_marker = tostring {} :sub(8)
 local program_fn
 
+program_environment.__v3dd = true
+program_environment.__v3dd_program_path = program
+
 do
 	for k, v in pairs(_ENV) do
 		program_environment[k] = v
@@ -360,7 +363,12 @@ end
 --- @param trees Tree[]
 local function present_capture(trees)
 	local palette = {}
+	local graphics_mode = term.getGraphicsMode and term.getGraphicsMode()
 	do -- setup
+		if graphics_mode then
+			term.setGraphicsMode(false)
+		end
+
 		term.setBackgroundColour(colours.black)
 		term.setTextColour(colours.white)
 		term.clear()
@@ -495,6 +503,10 @@ local function present_capture(trees)
 		term.setPaletteColour(2 ^ i, table.unpack(palette[i + 1]))
 	end
 
+	if graphics_mode then
+		term.setGraphicsMode(graphics_mode)
+	end
+
 	return true, timers_captured
 end
 
@@ -604,9 +616,13 @@ while true do
 		end
 
 		if not ok then
-			show_capture { content = 'Error', children = {
-				{ content = tostring(err) }
-			}, default_expanded = true, }
+			local err_tree = { content = 'Error', children = {}, default_expanded = true, }
+
+			for line in tostring(err):gmatch '[^\n]+' do
+				table.insert(err_tree.children, { content = '&red;' .. line })
+			end
+
+			show_capture(err_tree)
 			return
 		elseif coroutine.status(program_co) == 'dead' then
 			if capture_first_frame then

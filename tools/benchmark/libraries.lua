@@ -101,11 +101,11 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	end
 
 	local function draw_fn()
-		v3d_render(pipeline, geom, fb, transform)
+		return v3d_render(pipeline, geom, fb, transform)
 	end
 
 	local function present_fn()
-		v3d_present(fb, term.current(), 0, 0, true)
+		return v3d_present(fb, term.current(), 0, 0, true)
 	end
 
 	return clear_fn, draw_fn, present_fn

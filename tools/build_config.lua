@@ -8,13 +8,6 @@
 --- The key to this table should be the type documented in v3d.lua, but should
 --- omit `| nil` since this is handled automatically.
 --- @field v3dd_type_checkers { [string]: string }
---- Lookup table for V3D types which are considered structural. Structural types
---- don't have an "identity" - there is no attempt to wrap them into something
---- v3d interfaces with.
---- Keys to this table should be V3D classes.
---- Note: types that don't have any fields or methods are implicitly considered
---- structural, e.g. `V3DFragmentShader`.
---- @field v3dd_structural_types { [string]: boolean }
 --- Blacklist for functions which should not participate in logging to the
 --- capture call tree. These functions will still be wrapped with validation,
 --- but that validation will simply error on each failure rather than adding a
@@ -54,7 +47,6 @@
 local build_config = {
 	v3dd_meta_aliases = {},
 	v3dd_type_checkers = {},
-	v3dd_structural_types = {},
 	v3dd_fn_logging_blacklist = {},
 	v3dd_fn_pre_body = {},
 	v3dd_fn_post_body = {},
@@ -77,11 +69,6 @@ do -- type checkers
 	build_config.v3dd_type_checkers['table'] = 'type(%s) == \'table\''
 	build_config.v3dd_type_checkers['true | false'] = 'type(%s) == \'boolean\''
 	build_config.v3dd_type_checkers['any'] = 'true'
-end
-
-do -- structural types
-	build_config.v3dd_structural_types['V3DPipelineOptions'] = true
-	build_config.v3dd_structural_types['V3DLayoutAttribute'] = true
 end
 
 do -- fn logging blacklist
@@ -127,6 +114,22 @@ for _, uniform in ipairs(self:list_uniforms()) do
 end
 
 uniforms_tree.content_right = '&lightGrey;' .. uniforms_count .. ' uniforms'
+]]
+
+	build_config.v3dd_fn_pre_body['v3d.create_pipeline'] = [[
+options.statistics = {
+	measure_total_time = true,
+	measure_rasterize_time = true,
+	count_candidate_faces = true,
+	count_culled_faces = true,
+	count_clipped_faces = true,
+	count_discarded_faces = true,
+	count_candidate_fragments = true,
+	count_fragments_occluded = true,
+	count_fragments_shaded = true,
+	count_fragments_discarded = true,
+	count_fragments_drawn = true,
+}
 ]]
 end
 
