@@ -702,6 +702,19 @@ ${SDF_SUB_DETAILS}]]
 		wrapper_tokens = luatools.tokenise(table.concat(generated_content, '\n'))
 	end
 
+	local statistics_tokens = {}
+	do
+		local generated_content = {}
+		local statistics_fields = v3d_types.V3DStatistics.fields
+
+		for i = 1, #statistics_fields do
+			table.insert(generated_content, 'v3d_state.statistics.' .. statistics_fields[i].name .. ' = 0')
+			table.insert(generated_content, 'v3d_state.statistics[' .. i .. '] = "' .. statistics_fields[i].name .. '"')
+		end
+
+		statistics_tokens = luatools.tokenise(table.concat(generated_content, '\n'))
+	end
+
 	local tokens = luatools.tokenise(v3dd_text)
 
 	-- replace GENERATE_WRAPPER marker with wrapper tokens
@@ -710,7 +723,10 @@ ${SDF_SUB_DETAILS}]]
 			for j = 1, #wrapper_tokens do
 				table.insert(tokens, i + j, wrapper_tokens[j])
 			end
-			break
+		elseif tokens[i].text:find '--%s*#marker%s+INIT_STATISTICS' then
+			for j = 1, #statistics_tokens do
+				table.insert(tokens, i + j, statistics_tokens[j])
+			end
 		end
 	end
 

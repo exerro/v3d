@@ -104,8 +104,11 @@ local v3d_state = {
 	next_object_id = 1,
 	call_trees = {},
 	blit_called = false,
+	statistics = {},
 }
 local v3d_detail_generators = {}
+
+--- #marker INIT_STATISTICS
 
 local function fmtobject(v)
 	if type(v) == 'number' then
@@ -174,7 +177,7 @@ do -- generate the wrapper
 		-- we don't wanna wrap_layout the original since that would mutate it
 		local layout_copy = v3d_wrapper[layout_name]
 			:add_face_attribute(s, 0):drop_attribute(s) -- we take a copy like this
-		convert_instance_V3DLayout(layout_copy, layout_name)
+		convert_instance_V3DLayout(layout_copy, 'v3d.' .. layout_name)
 		v3d_wrapper[layout_name] = layout_copy
 	end
 end
@@ -529,8 +532,9 @@ local fps_avg = 0
 local frame_time_avg = 0
 local avg_samples = 10
 local last_capture_trees = nil
+local capture_queued = capture_first_frame
 
-local function show_capture(error_tree)
+local function show_capture(error_tree, frame_duration)
 	local trees = {}
 
 	local object_types = {}
@@ -547,6 +551,38 @@ local function show_capture(error_tree)
 	end
 
 	table.sort(object_types)
+
+	local frame_tree = {
+		content = 'Frame details',
+		children = {},
+		default_expanded = not error_tree,
+	}
+
+	local frame_statistics = {
+		content = 'Aggregate &cyan;render_geometry&reset; statistics',
+		children = {},
+		default_expanded = false,
+	}
+
+	table.insert(frame_tree.children, {
+		content = string.format('Average FPS:            &orange;%d', fps_avg)
+	})
+
+	table.insert(frame_tree.children, {
+		content = string.format('Average frame duration: &orange;%02.3fms&reset;', frame_time_avg * 1000)
+	})
+
+	if frame_duration then
+		table.insert(frame_tree.children, {
+			content = string.format('This frame duration:    &orange;%02.3fms&reset; (about &orange;%d fps&reset;)', frame_duration * 1000, 1 / frame_duration)
+		})
+	end
+
+	for i = 1, #v3d_state.statistics do
+		local k = v3d_state.statistics[i]
+		local v = v3d_state.statistics[k]
+		table.insert(frame_statistics.children, { content = '&lightBlue;' .. k .. ': ' .. fmtobject(v) })
+	end
 
 	local object_tree = {
 		content = 'Objects',
@@ -576,6 +612,8 @@ local function show_capture(error_tree)
 		table.insert(object_tree.children, objects_tree)
 	end
 
+	table.insert(frame_tree.children, frame_statistics)
+	table.insert(trees, frame_tree)
 	table.insert(trees, object_tree)
 
 	table.insert(trees, {
@@ -595,17 +633,32 @@ while true do
 	if filter == nil or event[1] == filter then
 		local start_time = currentTime()
 		local ok, err = coroutine.resume(program_co, table.unpack(event))
-		local this_frame = currentTime()
-		local delta_time = this_frame - last_frame
-
-		last_frame = this_frame
-		last_capture_trees = v3d_state.call_trees
 
 		if v3d_state.blit_called then
+			local this_frame = currentTime()
+			local delta_time = this_frame - last_frame
+	
+			last_frame = this_frame
+			last_capture_trees = v3d_state.call_trees
+	
 			v3d_state.blit_called = false
 			v3d_state.call_trees = {}
 			fps_avg = (fps_avg * avg_samples + 1 / delta_time) / (avg_samples + 1)
 			frame_time_avg = (frame_time_avg * avg_samples + this_frame - start_time) / (avg_samples + 1)
+
+			if capture_queued then
+				local cont, timers = show_capture(nil, delta_time)
+				if not cont then
+					break
+				end
+				for i = 1, #timers do
+					table.insert(event_queue, { 'timer', timers[i] })
+				end
+			end
+
+			for i = 1, #v3d_state.statistics do
+				v3d_state.statistics[v3d_state.statistics[i]] = 0
+			end
 		end
 
 		if fps_enabled then
@@ -622,11 +675,11 @@ while true do
 				table.insert(err_tree.children, { content = '&red;' .. line })
 			end
 
-			show_capture(err_tree)
+			show_capture(err_tree, nil)
 			return
 		elseif coroutine.status(program_co) == 'dead' then
-			if capture_first_frame then
-				show_capture()
+			if capture_queued then
+				show_capture(nil, nil)
 			end
 			break
 		else
@@ -636,15 +689,8 @@ while true do
 
 	event = table.remove(event_queue, 1) or { coroutine.yield() }
 
-	if (event[1] == 'key' and event[2] == capture_key) or capture_first_frame then
-		local cont, timers = show_capture()
-		if not cont then
-			break
-		end
-		for i = 1, #timers do
-			table.insert(event_queue, { 'timer', timers[i] })
-		end
-		capture_first_frame = false
+	if event[1] == 'key' and event[2] == capture_key then
+		capture_queued = true
 	elseif event[1] == 'terminate' then
 		break
 	end

@@ -157,6 +157,12 @@ do -- fn post body
 	build_config.v3dd_fn_post_body['V3DFramebuffer.blit_term_subpixel_depth'] = 'v3d_state.blit_called = true'
 	build_config.v3dd_fn_post_body['V3DFramebuffer.blit_graphics'] = 'v3d_state.blit_called = true'
 	build_config.v3dd_fn_post_body['V3DFramebuffer.blit_graphics_depth'] = 'v3d_state.blit_called = true'
+
+	build_config.v3dd_fn_post_body['V3DPipeline.render_geometry'] = [[
+for k, v in pairs(return_value) do
+	v3d_state.statistics[k] = v3d_state.statistics[k] + v
+end
+]]
 end
 
 do -- field blacklist
