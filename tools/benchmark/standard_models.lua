@@ -35,8 +35,20 @@ local cube_polygons -- defined at bottom of file
 --------------------------------------------------------------------------------
 
 table.insert(models, {
-	id = 'box',
-	name = 'Box',
+	id = 'empty',
+	name = 'Empty',
+	format = 'flat',
+	default_details = { 0 },
+	create_model = function(detail)
+		return { 0, 0, 0, 0, 0, 0, 0, 0, 0, colours.red }
+	end
+})
+
+--------------------------------------------------------------------------------
+
+table.insert(models, {
+	id = 'boxbtf',
+	name = 'Box BtF',
 	format = 'flat',
 	default_details = { 4, 8, 25 },
 	create_model = function(detail)
@@ -62,6 +74,49 @@ table.insert(models, {
 					table.insert(data, cube_polygons[i + 6] * dx + x)
 					table.insert(data, cube_polygons[i + 7] * dy)
 					table.insert(data, cube_polygons[i + 8] * dz + z)
+					table.insert(data, cube_polygons[i + 9])
+				end
+
+				x = x + dx
+			end
+
+			z = z + dz
+		end
+
+		return data
+	end
+})
+
+--------------------------------------------------------------------------------
+
+table.insert(models, {
+	id = 'boxftb',
+	name = 'Box FtB',
+	format = 'flat',
+	default_details = { 4, 8, 25 },
+	create_model = function(detail)
+		local data = {}
+
+		local z = -5 + 5 * 2 / detail * (detail - 1)
+		local dz = -5 * 2 / detail
+
+		local dy = -dz
+
+		for _ = 1, detail do
+			local x = -5
+			local dx = -x * 2 / detail
+
+			for _ = 1, detail do
+				for i = 1, #cube_polygons, 10 do
+					table.insert(data, cube_polygons[i + 0] * dx + x)
+					table.insert(data, cube_polygons[i + 1] * dy)
+					table.insert(data, cube_polygons[i + 2] * -dz + z)
+					table.insert(data, cube_polygons[i + 3] * dx + x)
+					table.insert(data, cube_polygons[i + 4] * dy)
+					table.insert(data, cube_polygons[i + 5] * -dz + z)
+					table.insert(data, cube_polygons[i + 6] * dx + x)
+					table.insert(data, cube_polygons[i + 7] * dy)
+					table.insert(data, cube_polygons[i + 8] * -dz + z)
 					table.insert(data, cube_polygons[i + 9])
 				end
 
@@ -121,20 +176,20 @@ cube_polygons = {
 	--  0,  0.5,  1,  0, -0.5,  1,  1,  0.5,  1, colours.blue,
 	--  0, -0.5,  1,  1, -0.5,  1,  1,  0.5,  1, colours.cyan,
 	-- back
-	 1,  0.5,  0,  1, -0.5,  0,  0,  0.5,  0, colours.brown,
-	 1, -0.5,  0,  0, -0.5,  0,  0,  0.5,  0, colours.yellow,
+	 1,  0.5, -0.5,  1, -0.5, -0.5,  0,  0.5, -0.5, colours.brown,
+	 1, -0.5, -0.5,  0, -0.5, -0.5,  0,  0.5, -0.5, colours.yellow,
 	-- left
-	 0,  0.5,  0,  0, -0.5,  0,  0,  0.5,  1, colours.lightBlue,
-	 0, -0.5,  0,  0, -0.5,  1,  0,  0.5,  1, colours.pink,
+	 0,  0.5, -0.5,  0, -0.5, -0.5,  0,  0.5,  0.5, colours.lightBlue,
+	 0, -0.5, -0.5,  0, -0.5,  0.5,  0,  0.5,  0.5, colours.pink,
 	-- right
-	 1,  0.5,  1,  1, -0.5,  1,  1,  0.5,  0, colours.red,
-	 1, -0.5,  1,  1, -0.5,  0,  1,  0.5,  0, colours.orange,
+	 1,  0.5,  0.5,  1, -0.5,  0.5,  1,  0.5, -0.5, colours.red,
+	 1, -0.5,  0.5,  1, -0.5, -0.5,  1,  0.5, -0.5, colours.orange,
 	-- top
-	 0,  0.5,  0,  0,  0.5,  1,  1,  0.5,  0, colours.green,
-	 0,  0.5,  1,  1,  0.5,  1,  1,  0.5,  0, colours.lime,
+	 0,  0.5, -0.5,  0,  0.5,  0.5,  1,  0.5, -0.5, colours.green,
+	 0,  0.5,  0.5,  1,  0.5,  0.5,  1,  0.5, -0.5, colours.lime,
 	-- bottom
-	 1, -0.5,  0,  1, -0.5,  1,  0, -0.5,  0, colours.purple,
-	 1, -0.5,  1,  0, -0.5,  1,  0, -0.5,  0, colours.magenta,
+	 1, -0.5, -0.5,  1, -0.5,  0.5,  0, -0.5, -0.5, colours.purple,
+	 1, -0.5,  0.5,  0, -0.5,  0.5,  0, -0.5, -0.5, colours.magenta,
 }
 
 --------------------------------------------------------------------------------

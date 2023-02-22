@@ -1388,9 +1388,9 @@ local function create_pipeline(options)
 
 		if opt_fragment_shader then
 			if stat_count_fragments_discarded then
-				pda = pda .. 'stat_fragments_discarded = stat_fragments_discarded + 1\n'
+				pda = pda .. 'else\nstat_fragments_discarded = stat_fragments_discarded + 1\n'
 			end
-	
+
 			pda = pda .. 'end\n'
 		end
 

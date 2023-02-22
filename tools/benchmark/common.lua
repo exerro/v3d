@@ -41,6 +41,35 @@ local function copy(t)
 	return r
 end
 
+--- @param t table
+--- @param k string
+--- @param v any
+local function write(t, k, v)
+	local parts = {}
+	for part in k:gmatch('[^%.]+') do
+		table.insert(parts, part)
+	end
+	for i = 1, #parts - 1 do
+		if not t[parts[i]] then
+			t[parts[i]] = {}
+		end
+		t = t[parts[i]]
+	end
+	t[parts[#parts]] = v
+end
+
+--- @param t table
+--- @param k string
+--- @return any
+local function read(t, k)
+	--- @type any
+	local r = t
+	for part in k:gmatch('[^%.]+') do
+		r = r and r[k] or nil
+	end
+	return r
+end
+
 --------------------------------------------------------------------------------
 
 --- Add a datapoint to this dataset and return the dataset. Does not make a copy
@@ -66,7 +95,7 @@ function Dataset:add_permutation(key, values, filter)
 		else
 			for j = 1, #values do
 				local t = copy(self[i])
-				t[key] = values[j]
+				write(t, key, values[j])
 				table.insert(new_datapoints, t)
 			end
 		end
@@ -76,6 +105,7 @@ function Dataset:add_permutation(key, values, filter)
 		self[i] = new_datapoints[i]
 	end
 
+	-- TODO: ???
 	for i = #self, #new_datapoints + 1, -1 do
 		self[i] = nil
 	end
@@ -105,7 +135,7 @@ end
 function Dataset:filter_values(values)
 	return self:filter(function(dp)
 		for k, v in pairs(values) do
-			if dp[k] ~= v then
+			if read(dp, k) ~= v then
 				return false
 			end
 		end
@@ -141,14 +171,14 @@ function Dataset:distinct(...)
 	for i = 1, #self do
 		local t = lookup
 		for j = 1, #keys do
-			local v = self[i][keys[j]]
+			local v = read(self[i], keys[j])
 			if not t[v] then
 				t[v] = {}
 				if j == #keys then
 					local rr = {}
 
 					for k = 1, #keys do
-						rr[keys[k]] = self[i][keys[k]]
+						write(rr, keys[k], read(self[i], keys[k]))
 					end
 
 					table.insert(r, rr)
@@ -195,11 +225,7 @@ end
 --- @param s string
 --- @return string
 local function strip_colours(s)
-	for k in pairs(colours) do
-		s = s:gsub("&" .. k .. ";", "")
-	end
-
-	return s
+	return (s:gsub("&%w+;", ""))
 end
 
 --- @param cells { [integer]: { [integer]: string } }
@@ -269,7 +295,7 @@ local function cell_to_actions(padding, cell_line, background_colour, text_colou
 
 		table.insert(actions, function()
 			term.write(cell_line:sub(ii, s - 1))
-			term.setTextColour(colours[colour])
+			term.setTextColour(colour == 'reset' and text_colour or colours[colour])
 		end)
 
 		i = f + 1

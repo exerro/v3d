@@ -61,10 +61,16 @@ do
 			min_duration = 0
 			table.remove(args, i)
 			i = i - 1
-		elseif args[i] == '-tmax' then
+		elseif args[i] == '-thigh' then
 			warmup_iterations = 20
 			min_iterations = 50
 			min_duration = 0.5
+			table.remove(args, i)
+			i = i - 1
+		elseif args[i] == '-tmax' then
+			warmup_iterations = 50
+			min_iterations = 200
+			min_duration = 1
 			table.remove(args, i)
 			i = i - 1
 		elseif args[i] == '-sall' then
@@ -97,6 +103,20 @@ do
 					1 / cd.total_time,
 					cd.total_time * 1000,
 					cd.draw_time / cd.total_time * 100)
+			end
+			table.remove(args, i)
+			i = i - 1
+		elseif args[i] == '-s' then
+			function cell_formatter(cd)
+				return string.format("%02.3fms (%02.3fms / %d)\n"
+					.. "draw &cyan;%d&reset; | cull &cyan;%d&reset; | clip &cyan;%d&reset; | disc &cyan;%d&reset;\n"
+					.. "test &cyan;%d&reset; -> occl &cyan;%d&reset; | shade &cyan;%d&reset; -> disc &cyan;%d&reset; | draw &cyan;%d&reset;",
+					cd.draw_time * 1000, cd.draw_time * 1000 * cd.n, cd.n,
+					cd.drawn_faces, cd.culled_faces,
+					cd.clipped_faces, cd.discarded_faces,
+					cd.candidate_fragments, cd.fragments_occluded,
+					cd.fragments_shaded, cd.fragments_discarded,
+					cd.fragments_drawn)
 			end
 			table.remove(args, i)
 			i = i - 1
@@ -228,6 +248,7 @@ local function benchmark(
 	local iterations = 0
 	local t0 = clock()
 	local ty = t0
+	local duration_remaining = min_duration
 	repeat
 		clear_fn()
 		local t0d = clock()
@@ -256,7 +277,8 @@ local function benchmark(
 			os.queueEvent 'benchmark_yield'; os.pullEvent 'benchmark_yield'
 			ty = clock()
 		end
-	until iterations >= min_iterations and clock() - t0 >= min_duration
+		duration_remaining = duration_remaining - td - tp
+	until iterations >= min_iterations and (duration_remaining < 0 or clock() - t0 >= min_duration * 3)
 
 	return iterations
 end
@@ -362,12 +384,37 @@ for _, this_chart_selectors in ipairs(chart_selectors) do
 				:filter_values(column)
 				:filter_values(row)
 				:reduce(function(a, b, n)
+					local has_statistics = type(b.return_value) == 'table'
 					return {
+						n = n,
+						drawn_faces = a.drawn_faces + (has_statistics and b.return_value.drawn_faces or 0) / n,
+						culled_faces = a.culled_faces + (has_statistics and b.return_value.culled_faces or 0) / n,
+						clipped_faces = a.clipped_faces + (has_statistics and b.return_value.clipped_faces or 0) / n,
+						discarded_faces = a.discarded_faces + (has_statistics and b.return_value.discarded_faces or 0) / n,
+						candidate_fragments = a.candidate_fragments + (has_statistics and b.return_value.candidate_fragments or 0) / n,
+						fragments_occluded = a.fragments_occluded + (has_statistics and b.return_value.fragments_occluded or 0) / n,
+						fragments_shaded = a.fragments_shaded + (has_statistics and b.return_value.fragments_shaded or 0) / n,
+						fragments_discarded = a.fragments_discarded + (has_statistics and b.return_value.fragments_discarded or 0) / n,
+						fragments_drawn = a.fragments_drawn + (has_statistics and b.return_value.fragments_drawn or 0) / n,
 						draw_time = a.draw_time + b.draw_time / n,
 						present_time = a.present_time + b.present_time / n,
 						total_time = a.total_time + b.total_time / n,
 					}
-				end, { draw_time = 0, present_time = 0, total_time = 0 })
+				end, {
+					n = 0,
+					drawn_faces = 0,
+					culled_faces = 0,
+					clipped_faces = 0,
+					discarded_faces = 0,
+					candidate_fragments = 0,
+					fragments_occluded = 0,
+					fragments_shaded = 0,
+					fragments_discarded = 0,
+					fragments_drawn = 0,
+					draw_time = 0,
+					present_time = 0,
+					total_time = 0,
+				})
 
 			return cell_formatter(cell_data)
 		end,

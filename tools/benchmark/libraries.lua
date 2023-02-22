@@ -73,9 +73,26 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 		attributes = flags.fragment_shader and { 'position' } or nil,
 		pack_attributes = false,
 		fragment_shader = flags.fragment_shader and function(_, x, y, z)
+			if y > 0 then
+				return nil
+			end
 			local idx = math.floor(x) % 4 * 4 + (math.floor(z) + math.floor(y)) % 4
 			return 2 ^ idx
 		end,
+		statistics = flags.statistics and {
+			measure_total_time = true,
+			measure_rasterize_time = true,
+			count_candidate_faces = true,
+			count_drawn_faces = true,
+			count_culled_faces = true,
+			count_clipped_faces = true,
+			count_discarded_faces = true,
+			count_candidate_fragments = true,
+			count_fragments_occluded = true,
+			count_fragments_shaded = true,
+			count_fragments_discarded = true,
+			count_fragments_drawn = true,
+		} or nil,
 	}
 	local v3d_present = flags.depth_present and fb.blit_term_subpixel_depth or fb.blit_term_subpixel
 	local v3d_render = pipeline.render_geometry
