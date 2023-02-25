@@ -492,13 +492,6 @@ function V3DTransform:transform(data, translate) end
 --- @field options V3DPipelineOptions
 --- Source code used to load the pipeline's `render_geometry` function.
 --- @field source string
--- TODO: remove this!
---- The syntax error in this pipeline's source code, if present. Note: if this
---- field is not `nil`, the pipeline will not be usable. However, this need not
---- be explicitly handled by the application as such an error would indicate a
---- bug in v3d. This field exists so that debuggers can access the error
---- message.
---- @field source_error string | nil
 local V3DPipeline = {}
 
 --- Specifies which face to cull, either the front or back face.

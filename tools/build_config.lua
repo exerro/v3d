@@ -259,6 +259,15 @@ for i = instance.vertex_offset + 1, #instance do
 	})
 end]]
 
+	-- add option to save source
+	build_config.v3dd_extra_field_details.V3DPipeline = [[
+local save_tree = {
+	content = 'Save pipeline source',
+	action = { command = 'save-pipeline-source', source = instance.source }
+}
+
+table.insert(trees, save_tree)]]
+
 	-- pretty print attributes as list and cull_face as ref for V3DPipelineOptions
 	build_config.v3dd_extra_field_details.V3DPipelineOptions = [[
 local attributes = {}

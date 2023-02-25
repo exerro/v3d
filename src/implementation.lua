@@ -839,97 +839,23 @@ end
 --------------------------------------------------------------------------------
 
 
-local RASTERIZE_FLAT_TRIANGLE_SOURCE = [[
-for base_index = _pflat_it_a, _pflat_it_b, fb_width do
-	local column_min_x = math_ceil(_pflat_tri_left_x)
-	local column_max_x = math_ceil(_pflat_tri_right_x)
-
-	-- #marker ROW_CALCULATIONS
-
-	if column_min_x < 0 then column_min_x = 0 end
-	if column_max_x > fb_width_m1 then column_max_x = fb_width_m1 end
-
-	for x = column_min_x, column_max_x do
-		local index = base_index + x
-		-- #marker PIXEL_DRAW_ADVANCE
-	end
-
-	_pflat_tri_left_x = _pflat_tri_left_x + _pflat_tri_left_gradient_x
-	_pflat_tri_right_x = _pflat_tri_right_x + _pflat_tri_right_gradient_x
-	-- #marker ROW_ADVANCE
-end
-]]
-
-local RASTERIZE_TRIANGLE_SOURCE = [[
--- #marker VERTEX_ORDERING
-if _ptri_p0y == _ptri_p2y then return end -- skip early if we have a perfectly flat triangle
-
-local f = (_ptri_p1y - _ptri_p0y) / (_ptri_p2y - _ptri_p0y)
-local pMx = _ptri_p0x * (1 - f) + _ptri_p2x * f
-
--- #marker MIDPOINT_CALCULATION
-
-if pMx > _ptri_p1x then
-	pMx, _ptri_p1x = _ptri_p1x, pMx
-	-- #marker MIDPOINT_SWAP
-end
-
-local row_top_min = math_floor(_ptri_p0y + 0.5)
-local row_bottom_min = math_floor(_ptri_p1y + 0.5)
-local row_top_max = row_bottom_min - 1
-local row_bottom_max = math_ceil(_ptri_p2y - 0.5)
-
-if row_top_min < 0 then row_top_min = 0 end
-if row_bottom_min < 0 then row_bottom_min = 0 end
-if row_top_max > fb_height_m1 then row_top_max = fb_height_m1 end
-if row_bottom_max > fb_height_m1 then row_bottom_max = fb_height_m1 end
-
-if row_top_min <= row_top_max then
-	local tri_delta_y = _ptri_p1y - _ptri_p0y
-	if tri_delta_y > 0 then
-		local _pflat_tri_left_gradient_x = (pMx - _ptri_p0x) / tri_delta_y
-		local _pflat_tri_right_gradient_x = (_ptri_p1x - _ptri_p0x) / tri_delta_y
-		local tri_projection = row_top_min + 0.5 - _ptri_p0y
-		local _pflat_tri_left_x = _ptri_p0x + _pflat_tri_left_gradient_x * tri_projection - 0.5
-		local _pflat_tri_right_x = _ptri_p0x + _pflat_tri_right_gradient_x * tri_projection - 1.5
-		-- #marker TOP_HALF_CALCULATIONS
-
-		local _pflat_it_a, _pflat_it_b = row_top_min * fb_width + 1, row_top_max * fb_width + 1
-
-		-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
-	end
-end
-
-if row_bottom_min <= row_bottom_max then
-	local tri_delta_y = _ptri_p2y - _ptri_p1y
-
-	if tri_delta_y > 0 then
-		local _pflat_tri_left_gradient_x = (_ptri_p2x - pMx) / tri_delta_y
-		local _pflat_tri_right_gradient_x = (_ptri_p2x - _ptri_p1x) / tri_delta_y
-		local tri_projection = row_bottom_min + 0.5 - _ptri_p1y
-		local _pflat_tri_left_x = pMx + _pflat_tri_left_gradient_x * tri_projection - 0.5
-		local _pflat_tri_right_x = _ptri_p1x + _pflat_tri_right_gradient_x * tri_projection - 1.5
-		-- #marker BOTTOM_HALF_CALCULATIONS
-
-		local _pflat_it_a, _pflat_it_b = row_bottom_min * fb_width + 1, row_bottom_max * fb_width + 1
-
-		-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE
-	end
-end
-]]
-
 local RENDER_GEOMETRY_SOURCE = [[
 local upvalue_uniforms, upvalue_opt_fragment_shader = ...
 return function(_, geometry, fb, transform, model_transform)
 	local uniforms = upvalue_uniforms
 	local opt_fragment_shader = upvalue_opt_fragment_shader
 	local math = math
-	local math_ceil, math_floor = math.ceil, math.floor
-	local fb_colour, fb_depth, fb_width = fb.colour, fb.depth, fb.width
-	local clipping_plane = -0.0001
-	local fb_width_m1, fb_height_m1 = fb_width - 1, fb.height - 1
-	local pxd = (fb.width - 1) / 2
-	local pyd = (fb.height - 1) / 2
+	local math_ceil = math.ceil
+	local math_floor = math.floor
+	local fb_colour = fb.colour
+	local fb_depth = fb.depth
+	local fb_width = fb.width
+	local fb_width_m1 = fb_width - 1
+	local fb_height_m1 = fb.height - 1
+	local screen_dx = (fb.width - 1) / 2
+	local screen_dy = (fb.height - 1) / 2
+	local screen_sy = -screen_dy - 0.5
+	local screen_sx = ${PIXEL_ASPECT_RATIO} * (screen_dy - 0.5)
 
 	local stat_total_time = 0
 	local stat_rasterize_time = 0
@@ -944,77 +870,88 @@ return function(_, geometry, fb, transform, model_transform)
 	local stat_fragments_discarded = 0
 	local stat_fragments_drawn = 0
 
-	local scale_y = -pyd - 0.5
-	local scale_x = opt_pixel_aspect_ratio * (pyd - 0.5)
-
 	-- TODO: implement this properly
 	if model_transform then
 		transform = transform:combine(model_transform)
 	end
 
-	local fxx = transform[ 1]
-	local fxy = transform[ 2]
-	local fxz = transform[ 3]
-	local fdx = transform[ 4]
-	local fyx = transform[ 5]
-	local fyy = transform[ 6]
-	local fyz = transform[ 7]
-	local fdy = transform[ 8]
-	local fzx = transform[ 9]
-	local fzy = transform[10]
-	local fzz = transform[11]
-	local fdz = transform[12]
+	local transform_xx = transform[ 1]
+	local transform_xy = transform[ 2]
+	local transform_xz = transform[ 3]
+	local transform_dx = transform[ 4]
+	local transform_yx = transform[ 5]
+	local transform_yy = transform[ 6]
+	local transform_yz = transform[ 7]
+	local transform_dy = transform[ 8]
+	local transform_zx = transform[ 9]
+	local transform_zy = transform[10]
+	local transform_zz = transform[11]
+	local transform_dz = transform[12]
 
 	local vertex_offset = geometry.vertex_offset
 	local face_offset = 0
 
-	-- #marker FRAGMENT_PACKED_PARAMS
+	-- #embed FRAGMENT_PACKED_PARAMS
 
 	for _ = 1, geometry.vertices, 3 do
-		-- #marker POSITION_ASSIGNMENT
-		-- #marker ATTRIBUTE_ASSIGNMENT
-		-- #marker COLOUR_ASSIGNMENT
-		-- #marker INCREMENT_OFFSETS
+		local p0x=geometry[vertex_offset + ${P0X_OFFSET}]
+		local p0y=geometry[vertex_offset + ${P0Y_OFFSET}]
+		local p0z=geometry[vertex_offset + ${P0Z_OFFSET}]
+		local p1x=geometry[vertex_offset + ${P1X_OFFSET}]
+		local p1y=geometry[vertex_offset + ${P1Y_OFFSET}]
+		local p1z=geometry[vertex_offset + ${P1Z_OFFSET}]
+		local p2x=geometry[vertex_offset + ${P2X_OFFSET}]
+		local p2y=geometry[vertex_offset + ${P2Y_OFFSET}]
+		local p2z=geometry[vertex_offset + ${P2Z_OFFSET}]
 
-		local sp0x = fxx * p0x + fxy * p0y + fxz * p0z + fdx
-		local sp0y = fyx * p0x + fyy * p0y + fyz * p0z + fdy
-		local sp0z = fzx * p0x + fzy * p0y + fzz * p0z + fdz
+		-- #embed VERTEX_ATTRIBUTE_ASSIGNMENT
+		-- #embed FACE_ATTRIBUTE_ASSIGNMENT
 
-		local sp1x = fxx * p1x + fxy * p1y + fxz * p1z + fdx
-		local sp1y = fyx * p1x + fyy * p1y + fyz * p1z + fdy
-		local sp1z = fzx * p1x + fzy * p1y + fzz * p1z + fdz
+		local colour = ${FACE_COLOUR_SNIPPET}
 
-		local sp2x = fxx * p2x + fxy * p2y + fxz * p2z + fdx
-		local sp2y = fyx * p2x + fyy * p2y + fyz * p2z + fdy
-		local sp2z = fzx * p2x + fzy * p2y + fzz * p2z + fdz
+		local transformed_p0x = transform_xx * p0x + transform_xy * p0y + transform_xz * p0z + transform_dx
+		local transformed_p0y = transform_yx * p0x + transform_yy * p0y + transform_yz * p0z + transform_dy
+		local transformed_p0z = transform_zx * p0x + transform_zy * p0y + transform_zz * p0z + transform_dz
+
+		local transformed_p1x = transform_xx * p1x + transform_xy * p1y + transform_xz * p1z + transform_dx
+		local transformed_p1y = transform_yx * p1x + transform_yy * p1y + transform_yz * p1z + transform_dy
+		local transformed_p1z = transform_zx * p1x + transform_zy * p1y + transform_zz * p1z + transform_dz
+
+		local transformed_p2x = transform_xx * p2x + transform_xy * p2y + transform_xz * p2z + transform_dx
+		local transformed_p2y = transform_yx * p2x + transform_yy * p2y + transform_yz * p2z + transform_dy
+		local transformed_p2z = transform_zx * p2x + transform_zy * p2y + transform_zz * p2z + transform_dz
 
 		local cull_face
 
-		-- #marker FACE_CULLING
+		-- #embed FACE_CULLING
 
-		-- #marker STAT_CANDIDATE_FACE
+		-- #increment_statistic candidate_faces
 
 		if not cull_face then
 			-- TODO: make this split polygons
-			if sp0z <= clipping_plane and sp1z <= clipping_plane and sp2z <= clipping_plane then
-				local _ptri_p0w = -1 / sp0z
-				local _ptri_p0x = pxd + sp0x * _ptri_p0w * scale_x
-				local _ptri_p0y = pyd + sp0y * _ptri_p0w * scale_y
-				local _ptri_p1w = -1 / sp1z
-				local _ptri_p1x = pxd + sp1x * _ptri_p1w * scale_x
-				local _ptri_p1y = pyd + sp1y * _ptri_p1w * scale_y
-				local _ptri_p2w = -1 / sp2z
-				local _ptri_p2x = pxd + sp2x * _ptri_p2w * scale_x
-				local _ptri_p2y = pyd + sp2y * _ptri_p2w * scale_y
-				-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
-				-- #marker RASTERIZE_TRIANGLE_SOURCE
-				-- #marker STAT_DRAW_FACE
+			if transformed_p0z <= ${CLIPPING_PLANE} and transformed_p1z <= ${CLIPPING_PLANE} and transformed_p2z <= ${CLIPPING_PLANE} then
+				local rasterize_p0_w = -1 / transformed_p0z
+				local rasterize_p0_x = screen_dx + transformed_p0x * rasterize_p0_w * screen_sx
+				local rasterize_p0_y = screen_dy + transformed_p0y * rasterize_p0_w * screen_sy
+				local rasterize_p1_w = -1 / transformed_p1z
+				local rasterize_p1_x = screen_dx + transformed_p1x * rasterize_p1_w * screen_sx
+				local rasterize_p1_y = screen_dy + transformed_p1y * rasterize_p1_w * screen_sy
+				local rasterize_p2_w = -1 / transformed_p2z
+				local rasterize_p2_x = screen_dx + transformed_p2x * rasterize_p2_w * screen_sx
+				local rasterize_p2_y = screen_dy + transformed_p2y * rasterize_p2_w * screen_sy
+
+				-- #embed TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS
+				-- #embed TRIANGLE_RASTERIZATION
+				-- #increment_statistic drawn_faces
 			else
-				-- #marker STAT_DISCARD_FACE
+				-- #increment_statistic discarded_faces
 			end
 		else
-			-- #marker STAT_CULL_FACE
+			-- #increment_statistic culled_faces
 		end
+
+		vertex_offset = vertex_offset + ${VERTEX_STRIDE_3}
+		face_offset = face_offset + ${FACE_STRIDE}
 	end
 
 	return {
@@ -1033,6 +970,116 @@ return function(_, geometry, fb, transform, model_transform)
 	}
 end
 ]]
+
+local FACE_CULLING_EMBED = [[
+local d1x = transformed_p1x - transformed_p0x
+local d1y = transformed_p1y - transformed_p0y
+local d1z = transformed_p1z - transformed_p0z
+local d2x = transformed_p2x - transformed_p0x
+local d2y = transformed_p2y - transformed_p0y
+local d2z = transformed_p2z - transformed_p0z
+local cx = d1y*d2z - d1z*d2y
+local cy = d1z*d2x - d1x*d2z
+local cz = d1x*d2y - d1y*d2x
+cull_face = cx * transformed_p0x + cy * transformed_p0y + cz * transformed_p0z ${CULL_FACE_COMPARISON_OPERATOR} 0
+]]
+
+local TRIANGLE_RASTERIZATION_EMBED = [[
+-- #embed VERTEX_ORDERING
+
+local midpoint_scalar = (rasterize_p1_y - rasterize_p0_y) / (rasterize_p2_y - rasterize_p0_y)
+local rasterize_pM_x = rasterize_p0_x * (1 - midpoint_scalar) + rasterize_p2_x * midpoint_scalar
+
+-- #embed MIDPOINT_CALCULATION
+
+if rasterize_pM_x > rasterize_p1_x then
+	rasterize_pM_x, rasterize_p1_x = rasterize_p1_x, rasterize_pM_x
+	-- #embed MIDPOINT_SWAP
+end
+
+local row_top_min = math_floor(rasterize_p0_y + 0.5)
+local row_bottom_min = math_floor(rasterize_p1_y + 0.5)
+local row_top_max = row_bottom_min - 1
+local row_bottom_max = math_ceil(rasterize_p2_y - 0.5)
+
+if row_top_min < 0 then row_top_min = 0 end
+if row_bottom_min < 0 then row_bottom_min = 0 end
+if row_top_max > fb_height_m1 then row_top_max = fb_height_m1 end
+if row_bottom_max > fb_height_m1 then row_bottom_max = fb_height_m1 end
+
+if row_top_min <= row_top_max then
+	local tri_dy = rasterize_p1_y - rasterize_p0_y
+	if tri_dy > 0 then
+		-- #embed FLAT_TRIANGLE_CALCULATIONS(top, p0, p0, pM, p1)
+
+		local row_min_index = row_top_min * fb_width + 1
+		local row_max_index = row_top_max * fb_width + 1
+
+		-- #embed FLAT_TRIANGLE_RASTERIZATION
+	end
+end
+
+if row_bottom_min <= row_bottom_max then
+	local tri_dy = rasterize_p2_y - rasterize_p1_y
+
+	if tri_dy > 0 then
+		-- #embed FLAT_TRIANGLE_CALCULATIONS(bottom, pM, p1, p2, p2)
+
+		local row_min_index = row_bottom_min * fb_width + 1
+		local row_max_index = row_bottom_max * fb_width + 1
+
+		-- #embed FLAT_TRIANGLE_RASTERIZATION
+	end
+end
+]]
+
+local FLAT_TRIANGLE_RASTERIZATION_EMBED = [[
+for base_index = row_min_index, row_max_index, fb_width do
+	local row_min_column = math_ceil(tri_left_x)
+	local row_max_column = math_ceil(tri_right_x)
+
+	-- #embed ROW_CALCULATIONS
+
+	if row_min_column < 0 then row_min_column = 0 end
+	if row_max_column > fb_width_m1 then row_max_column = fb_width_m1 end
+
+	for x = row_min_column, row_max_column do
+		local index = base_index + x
+		-- #increment_statistic candidate_fragments
+		-- #embed COLUMN_DRAW_PIXEL_ENTRY
+		-- #embed COLUMN_ADVANCE
+	end
+
+	tri_left_x = tri_left_x + tri_left_dx_dy
+	tri_right_x = tri_right_x + tri_right_dx_dy
+	-- #embed ROW_ADVANCE
+end
+]]
+
+local COLUMN_DRAW_PIXEL_DEPTH_TESTED_EMBED = [[
+if row_w > fb_depth[index] then
+	-- #embed COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED
+else
+	-- #increment_statistic fragments_occluded
+end]]
+
+local COLUMN_DRAW_PIXEL_FRAGMENT_SHADER_EMBED = [[
+-- #embed FRAGMENT_SHADER_CALCULATE_ATTRIBUTES
+
+local fs_colour = opt_fragment_shader(uniforms${FRAGMENT_SHADER_PARAMETERS})
+-- #increment_statistic fragments_shaded
+if fs_colour ~= nil then
+	fb_colour[index] = fs_colour
+	-- #embed COLUMN_DRAW_PIXEL_DEPTH_STORE
+	-- #increment_statistic fragments_drawn
+else
+	-- #increment_statistic fragments_discarded
+end]]
+
+local COLUMN_DRAW_PIXEL_FIXED_COLOUR_EMBED = [[
+fb_colour[index] = colour
+-- #embed COLUMN_DRAW_PIXEL_DEPTH_STORE
+-- #increment_statistic fragments_drawn]]
 
 local function create_pipeline(options)
 	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
@@ -1112,380 +1159,333 @@ local function create_pipeline(options)
 	end
 
 	local pipeline_source = RENDER_GEOMETRY_SOURCE
-		:gsub('-- #marker RASTERIZE_TRIANGLE_SOURCE', RASTERIZE_TRIANGLE_SOURCE)
-		:gsub('-- #marker RASTERIZE_FLAT_TRIANGLE_SOURCE', RASTERIZE_FLAT_TRIANGLE_SOURCE)
-
-	if opt_pack_attributes then -- FRAGMENT_PACKED_PARAMS
-		local fpp = ''
-		for _, attr in ipairs(attributes) do
-			fpp = fpp .. 'local fs_params_' .. attr.name .. '={}\n'
-		end
-		fpp = fpp .. 'local fs_params = {'
-		for _, attr in ipairs(attributes) do
-			fpp = fpp .. attr.name .. '=' .. 'fs_params_' .. attr.name .. ','
-		end
-		fpp = fpp .. '}\n'
-		pipeline_source = pipeline_source:gsub('-- #marker FRAGMENT_PACKED_PARAMS', fpp)
-	else
-		pipeline_source = pipeline_source:gsub('-- #marker FRAGMENT_PACKED_PARAMS', '')
-	end
-
-	do -- opt_pixel_aspect_ratio
-		pipeline_source = pipeline_source:gsub('opt_pixel_aspect_ratio', opt_pixel_aspect_ratio)
-	end
 
 	do -- STAT_TOTAL_TIME
-
+		-- TODO
 	end
 
 	do -- STAT_RASTERIZE_TIME
-
+		-- TODO
 	end
 
-	do -- STAT_CANDIDATE_FACE
-		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_DRAW_FACE',
-			stat_count_drawn_faces and 'stat_drawn_faces = stat_drawn_faces + 1' or '')
-	end
-
-	do -- STAT_CANDIDATE_FACE
-		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CANDIDATE_FACE',
-			stat_count_candidate_faces and 'stat_candidate_faces = stat_candidate_faces + 1' or '')
-	end
-
-	do -- STAT_CULL_FACE
-		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CULL_FACE',
-			stat_count_culled_faces and opt_cull_face and 'stat_culled_faces = stat_culled_faces + 1' or '')
-	end
-
-	do -- STAT_CLIP_FACE
-		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_CLIP_FACE',
-			stat_count_clipped_faces and 'stat_clipped_faces = stat_clipped_faces + 1' or '')
-	end
-
-	do -- STAT_DISCARD_FACE
-		pipeline_source = pipeline_source:gsub('--%s*#marker%s+STAT_DISCARD_FACE',
-			stat_count_discarded_faces and 'stat_discarded_faces = stat_discarded_faces + 1' or '')
-	end
-
-	do -- POSITION_ASSIGNMENT
-		local position_base_offset = opt_layout:get_attribute(opt_position_attribute).offset
-		pipeline_source = pipeline_source:gsub(
-			'-- #marker POSITION_ASSIGNMENT',
-			'local p0x=geometry[vertex_offset+' .. (position_base_offset + 1) .. ']\n' ..
-			'local p0y=geometry[vertex_offset+' .. (position_base_offset + 2) .. ']\n' ..
-			'local p0z=geometry[vertex_offset+' .. (position_base_offset + 3) .. ']\n' ..
-			'local p1x=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 1) .. ']\n' ..
-			'local p1y=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 2) .. ']\n' ..
-			'local p1z=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride + 3) .. ']\n' ..
-			'local p2x=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 1) .. ']\n' ..
-			'local p2y=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 2) .. ']\n' ..
-			'local p2z=geometry[vertex_offset+' .. (position_base_offset + opt_layout.vertex_stride * 2 + 3) .. ']'
-		)
-	end
-
-	do -- ATTRIBUTE_ASSIGNMENT
-		local aa = ''
-
-		for _, attr in ipairs(geometry_vertex_attributes) do
-			local base_offset = attr.offset
-
-			for i = 1, attr.size do
-				aa = aa .. 'local p0_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + i) .. ']\n'
-				        .. 'local p1_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride + i) .. ']\n'
-				        .. 'local p2_va_' .. attr.name .. (i - 1) .. '=geometry[vertex_offset+' .. (base_offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
-			end
-		end
-
-		for _, attr in ipairs(geometry_face_attributes) do
-			local base_offset = attr.offset
-
-			for i = 1, attr.size do
-				if opt_pack_attributes then
-					aa = aa .. 'fs_params_' .. attr.name .. '[' .. i .. ']'
-				else
-					aa = aa .. 'local fa_' .. attr.name .. (i - 1)
+	do -- embeds
+		local embeds = {
+			FRAGMENT_PACKED_PARAMS = function()
+				if not opt_pack_attributes then
+					return ''
 				end
-				aa = aa .. '=geometry[face_offset+' .. (base_offset + i) .. ']\n'
-			end
-		end
 
-		pipeline_source = pipeline_source:gsub('-- #marker ATTRIBUTE_ASSIGNMENT', aa)
-	end
+				local result = ''
+				for _, attr in ipairs(attributes) do
+					result = result .. 'local fs_params_' .. attr.name .. '={}\n'
+				end
+				result = result .. 'local fs_params = {'
+				for _, attr in ipairs(attributes) do
+					result = result .. attr.name .. '=' .. 'fs_params_' .. attr.name .. ','
+				end
+				result = result .. '}\n'
+				return result
+			end,
+			FACE_CULLING = opt_cull_face and FACE_CULLING_EMBED or '',
+			TRIANGLE_RASTERIZATION = TRIANGLE_RASTERIZATION_EMBED,
+			FLAT_TRIANGLE_RASTERIZATION = FLAT_TRIANGLE_RASTERIZATION_EMBED,
+			VERTEX_ATTRIBUTE_ASSIGNMENT = function()
+				local result = ''
 
-	if opt_colour_attribute then -- COLOUR_ASSIGNMENT
-		local colour_base_offset = opt_layout:get_attribute(opt_colour_attribute).offset
-		pipeline_source = pipeline_source:gsub(
-			'-- #marker COLOUR_ASSIGNMENT',
-			'local colour=geometry[face_offset+' .. (colour_base_offset + 1) .. ']\n'
-		)
-	else
-		pipeline_source = pipeline_source:gsub('-- #marker COLOUR_ASSIGNMENT', 'local colour=1')
-	end
+				for _, attr in ipairs(geometry_vertex_attributes) do
+					for i = 1, attr.size do
+						result = result .. 'local p0_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + i) .. ']\n'
+						                .. 'local p1_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + opt_layout.vertex_stride + i) .. ']\n'
+						                .. 'local p2_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
+					end
+				end
 
-	do -- INCREMENT_OFFSETS
-		pipeline_source = pipeline_source:gsub(
-			'-- #marker INCREMENT_OFFSETS',
-			'vertex_offset = vertex_offset + ' .. (opt_layout.vertex_stride * 3) .. '\n' ..
-			'face_offset = face_offset + ' .. opt_layout.face_stride)
-	end
+				return result
+			end,
+			FACE_ATTRIBUTE_ASSIGNMENT = function()
+				local result = ''
 
-	if opt_cull_face then
-		pipeline_source = pipeline_source:gsub(
-			'-- #marker FACE_CULLING',
-			'local d1x = sp1x - sp0x\n' ..
-			'local d1y = sp1y - sp0y\n' ..
-			'local d1z = sp1z - sp0z\n' ..
-			'local d2x = sp2x - sp0x\n' ..
-			'local d2y = sp2y - sp0y\n' ..
-			'local d2z = sp2z - sp0z\n' ..
-			'local cx = d1y*d2z - d1z*d2y\n' ..
-			'local cy = d1z*d2x - d1x*d2z\n' ..
-			'local cz = d1x*d2y - d1y*d2x\n' ..
-			'local d = cx * sp0x + cy * sp0y + cz * sp0z\n' ..
-			'cull_face = d * ' .. opt_cull_face .. ' > 0\n')
-	else
-		pipeline_source = pipeline_source:gsub('-- #marker FACE_CULLING', 'cull_face = false')
-	end
+				for _, attr in ipairs(geometry_face_attributes) do
+					for i = 1, attr.size do
+						if opt_pack_attributes then
+							result = result .. 'fs_params_' .. attr.name .. '[' .. i .. ']'
+						else
+							result = result .. 'local fa_' .. attr.name .. (i - 1)
+						end
+						result = result .. ' = geometry[face_offset+' .. (attr.offset + i) .. ']\n'
+					end
+				end
 
-	do -- RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT
-		local rtvpd = ''
+				return result
+			end,
+			TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS = function()
+				local result = ''
 
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				rtvpd = rtvpd .. 'local _ptri_p0_va_' .. attr.name .. (i - 1) .. '=p0_va_' .. attr.name .. (i - 1) .. '\n'
-				              .. 'local _ptri_p1_va_' .. attr.name .. (i - 1) .. '=p1_va_' .. attr.name .. (i - 1) .. '\n'
-				              .. 'local _ptri_p2_va_' .. attr.name .. (i - 1) .. '=p2_va_' .. attr.name .. (i - 1) .. '\n'
-			end
-		end
-
-		pipeline_source = pipeline_source:gsub('-- #marker RASTERIZE_TRIANGLE_ATTR_PARAM_DEFAULT', rtvpd)
-	end
-
-	do -- VERTEX_ORDERING
-		local params = '_ptri_pAx,_ptri_pAy,_ptri_pBx,_ptri_pBy'
-
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			params = params .. ',_ptri_pAw,_ptri_pBw'
-		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				params = params .. ',_ptri_pA_va_' .. attr.name .. (i - 1)
-				                .. ',_ptri_pB_va_' .. attr.name .. (i - 1)
-			end
-		end
-
-		local vo = 'if _ptri_p0y > _ptri_p1y then ' .. params:gsub('A', 0):gsub('B', 1) .. '=' .. params:gsub('A', 1):gsub('B', 0) .. ' end\n'
-		        .. 'if _ptri_p1y > _ptri_p2y then ' .. params:gsub('A', 1):gsub('B', 2) .. '=' .. params:gsub('A', 2):gsub('B', 1) .. ' end\n'
-		        .. 'if _ptri_p0y > _ptri_p1y then ' .. params:gsub('A', 0):gsub('B', 1) .. '=' .. params:gsub('A', 1):gsub('B', 0) .. ' end\n'
-
-		pipeline_source = pipeline_source:gsub('-- #marker VERTEX_ORDERING', vo)
-	end
-
-	do -- MIDPOINT_CALCULATION, MIDPOINT_SWAP
-		local calculation = ''
-		local swap = ''
-
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			calculation = calculation .. 'local pMw = _ptri_p0w * (1 - f) + _ptri_p2w * f\n'
-			swap = swap .. 'pMw, _ptri_p1w = _ptri_p1w, pMw\n'
-		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				calculation = calculation .. 'local pM_va_' .. s .. ' = (_ptri_p0_va_' ..s .. ' * _ptri_p0w * (1 - f) + _ptri_p2_va_' .. s .. ' * _ptri_p2w * f) / pMw\n'
-				swap = swap .. 'pM_va_' .. s .. ', _ptri_p1_va_' .. s .. ' = _ptri_p1_va_' .. s .. ', pM_va_' .. s .. '\n'
-			end
-		end
-
-		pipeline_source = pipeline_source:gsub('-- #marker MIDPOINT_CALCULATION', calculation)
-		                                 :gsub('-- #marker MIDPOINT_SWAP', swap)
-	end
-
-	do -- ROW_CALCULATIONS
-		local rc = ''
-
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			rc = rc .. 'local row_total_delta_x = _pflat_tri_right_x - _pflat_tri_left_x + 1\n'
-			        .. 'local row_delta_w = (_pflat_tri_right_w - _pflat_tri_left_w) / row_total_delta_x\n'
-			        .. 'local row_left_w = _pflat_tri_left_w + (column_min_x - _pflat_tri_left_x) * row_delta_w\n'
-		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				rc = rc .. 'local row_delta_va_' .. s .. ' = (_pflat_tri_right_va_' .. s .. '_w - _pflat_tri_left_va_' .. s .. '_w) / row_total_delta_x\n'
-				        .. 'local row_left_va_' .. s .. ' = _pflat_tri_left_va_' .. s .. '_w + (column_min_x - _pflat_tri_left_x) * row_delta_va_' .. s .. '\n'
-			end
-		end
-
-		pipeline_source = pipeline_source:gsub('-- #marker ROW_CALCULATIONS', rc)
-	end
-
-	do -- PIXEL_DRAW_ADVANCE
-		local pda = ''
-		-- count_fragments_shaded
-		-- count_fragments_discarded
-
-		if stat_count_candidate_fragments then
-			pda = pda .. 'stat_candidate_fragments = stat_candidate_fragments + 1\n'
-		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				pda = pda .. 'local fs_p_va_' .. s .. ' = row_left_va_' .. s .. ' / row_left_w\n'
-			end
-		end
-
-		if opt_depth_test then
-			pda = pda .. 'if row_left_w > fb_depth[math_floor(index)] then\n'
-		end
-
-		if opt_fragment_shader then
-			local fs_params = ''
-
-			if opt_pack_attributes then
-				fs_params = fs_params .. ',fs_params'
 				for _, attr in ipairs(interpolate_attributes) do
 					for i = 1, attr.size do
-						pda = pda .. 'fs_params_' .. attr.name .. '[' .. i .. ']=fs_p_va_' .. attr.name .. (i - 1) .. '\n'
+						result = result .. 'local rasterize_p0_va_' .. attr.name .. (i - 1) .. '=p0_va_' .. attr.name .. (i - 1) .. '\n'
+						                .. 'local rasterize_p1_va_' .. attr.name .. (i - 1) .. '=p1_va_' .. attr.name .. (i - 1) .. '\n'
+						                .. 'local rasterize_p2_va_' .. attr.name .. (i - 1) .. '=p2_va_' .. attr.name .. (i - 1) .. '\n'
 					end
 				end
-			else
-				for _, attr in ipairs(attributes) do
+
+				return result
+			end,
+			VERTEX_ORDERING = function()
+				local to_swap = { 'rasterize_pN_x', 'rasterize_pN_y' }
+
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					table.insert(to_swap, 'rasterize_pN_w')
+				end
+
+				for _, attr in ipairs(interpolate_attributes) do
 					for i = 1, attr.size do
-						if attr.type == 'vertex' then
-							fs_params = fs_params .. ',fs_p_va_'
-						else
-							fs_params = fs_params .. ',fa_'
-						end
-						fs_params = fs_params .. attr.name .. (i - 1)
+						table.insert(to_swap, 'rasterize_pN_va_' .. attr.name .. (i - 1))
 					end
 				end
-			end
 
-			pda = pda .. 'local fs_colour = opt_fragment_shader(uniforms' .. fs_params .. ')\n'
+				local function swap_test(a, b)
+					local result = 'if rasterize_pA_y > rasterize_pB_y then\n'
 
-			if stat_count_fragments_shaded then
-				pda = pda .. 'stat_fragments_shaded = stat_fragments_shaded + 1\n'
-			end
+					for i = 1, #to_swap do
+						local sA = to_swap[i]:gsub('N', 'A')
+						local sB = to_swap[i]:gsub('N', 'B')
+						result = result .. '\t' .. sA .. ', ' .. sB .. ' = ' .. sB .. ', ' .. sA .. '\n'
+					end
 
-			pda = pda .. 'if fs_colour ~= nil then\n'
-			          .. 'fb_colour[index] = fs_colour\n'
-		else
-			pda = pda .. 'fb_colour[index] = colour\n'
-		end
+					return (result .. 'end'):gsub('A', a):gsub('B', b)
+				end
 
-		if opt_depth_store then
-			pda = pda .. 'fb_depth[index] = row_left_w\n'
-		end
+				return swap_test(0, 1) .. '\n' .. swap_test(1, 2) .. '\n' .. swap_test(0, 1)
+			end,
+			MIDPOINT_CALCULATION = function()
+				local calculation = ''
 
-		if stat_count_fragments_drawn then
-			pda = pda .. 'stat_fragments_drawn = stat_fragments_drawn + 1\n'
-		end
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					calculation = calculation .. 'local rasterize_pM_w = rasterize_p0_w * (1 - midpoint_scalar) + rasterize_p2_w * midpoint_scalar\n'
+				end
 
-		if opt_fragment_shader then
-			if stat_count_fragments_discarded then
-				pda = pda .. 'else\nstat_fragments_discarded = stat_fragments_discarded + 1\n'
-			end
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						calculation = calculation .. 'local rasterize_pM_va_' .. s .. ' = (rasterize_p0_va_' ..s .. ' * rasterize_p0_w * (1 - midpoint_scalar) + rasterize_p2_va_' .. s .. ' * rasterize_p2_w * midpoint_scalar) / rasterize_pM_w\n'
+					end
+				end
 
-			pda = pda .. 'end\n'
-		end
+				return calculation
+			end,
+			MIDPOINT_SWAP = function()
+				local swap = ''
 
-		if opt_depth_test then
-			if stat_count_fragments_occluded then
-				pda = pda .. 'else\n\tstat_fragments_occluded = stat_fragments_occluded + 1\n'
-			end
-			pda = pda .. 'end\n'
-		end
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					swap = swap .. 'rasterize_pM_w, rasterize_p1_w = rasterize_p1_w, rasterize_pM_w\n'
+				end
 
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			pda = pda .. 'row_left_w = row_left_w + row_delta_w\n'
-		end
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						swap = swap .. 'rasterize_pM_va_' .. s .. ', rasterize_p1_va_' .. s .. ' = rasterize_p1_va_' .. s .. ', rasterize_pM_va_' .. s .. '\n'
+					end
+				end
 
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				pda = pda .. 'row_left_va_' .. s .. '=row_left_va_' .. s .. ' + row_delta_va_' .. s .. '\n'
-			end
-		end
+				return swap
+			end,
+			FLAT_TRIANGLE_CALCULATIONS = function(name, top_left, top_right, bottom_left, bottom_right)
+				local result = 'local tri_y_correction = row_' .. name .. '_min + 0.5 - rasterize_' .. top_right .. '_y\n'
+				            .. 'local tri_left_dx_dy = (rasterize_' .. bottom_left .. '_x - rasterize_' .. top_left .. '_x) / tri_dy\n'
+				            .. 'local tri_right_dx_dy = (rasterize_' .. bottom_right .. '_x - rasterize_' .. top_right .. '_x) / tri_dy\n'
+				            .. 'local tri_left_x = rasterize_' .. top_left .. '_x + tri_left_dx_dy * tri_y_correction - 0.5\n'
+				            .. 'local tri_right_x = rasterize_' .. top_right .. '_x + tri_right_dx_dy * tri_y_correction - 1.5\n'
 
-		pipeline_source = pipeline_source:gsub('-- #marker PIXEL_DRAW_ADVANCE', pda)
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					result = result .. 'local tri_left_dw_dy = (rasterize_' .. bottom_left .. '_w - rasterize_' .. top_left .. '_w) / tri_dy\n'
+					                .. 'local tri_right_dw_dy = (rasterize_' .. bottom_right .. '_w - rasterize_' .. top_right .. '_w) / tri_dy\n'
+					                .. 'local tri_left_w = rasterize_' .. top_left .. '_w + tri_left_dw_dy * tri_y_correction\n'
+					                .. 'local tri_right_w = rasterize_' .. top_right .. '_w + tri_right_dw_dy * tri_y_correction\n'
+				end
+
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						result = result .. 'local tri_left_va_d' .. s .. 'w_dy = (rasterize_' .. bottom_left .. '_va_' .. s .. ' * rasterize_' .. bottom_left .. '_w - rasterize_' .. top_left .. '_va_' .. s .. ' * rasterize_' .. top_left .. '_w) / tri_dy\n'
+						                .. 'local tri_right_va_d' .. s .. 'w_dy = (rasterize_' .. bottom_right .. '_va_' .. s .. ' * rasterize_' .. bottom_right .. '_w - rasterize_' .. top_right .. '_va_' .. s .. ' * rasterize_' .. top_right .. '_w) / tri_dy\n'
+						                .. 'local tri_left_va_' .. s .. '_w = rasterize_' .. top_left .. '_va_' .. s .. ' * rasterize_' .. top_left .. '_w + tri_left_va_d' .. s .. 'w_dy * tri_y_correction\n'
+						                .. 'local tri_right_va_' .. s .. '_w = rasterize_' .. top_right .. '_va_' .. s .. ' * rasterize_' .. top_right .. '_w + tri_right_va_d' .. s .. 'w_dy * tri_y_correction\n'
+					end
+				end
+
+				return result
+			end,
+			ROW_CALCULATIONS = function()
+				local result = ''
+
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					result = result .. 'local row_x_correction = row_min_column - tri_left_x\n'
+					                .. 'local row_dx = tri_right_x - tri_left_x + 1\n' -- TODO: + 1 ???
+					                .. 'local row_dw_dx = (tri_right_w - tri_left_w) / row_dx\n'
+					                .. 'local row_w = tri_left_w + row_dw_dx * row_x_correction\n'
+				end
+
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						result = result .. 'local row_va_d' .. s .. 'w_dx = (tri_right_va_' .. s .. '_w - tri_left_va_' .. s .. '_w) / row_dx\n'
+						                .. 'local row_va_' .. s .. '_w = tri_left_va_' .. s .. '_w + row_va_d' .. s .. 'w_dx * row_x_correction\n'
+					end
+				end
+
+				return result
+			end,
+			FRAGMENT_SHADER_CALCULATE_ATTRIBUTES = function()
+				local result = ''
+
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						result = result .. 'local fs_p_va_' .. s .. ' = row_va_' .. s .. '_w / row_w\n'
+
+						if opt_pack_attributes then
+							result = result .. 'fs_params_' .. attr.name .. '[' .. i .. '] = fs_p_va_' .. attr.name .. (i - 1) .. '\n'
+						end
+					end
+				end
+
+				return result
+			end,
+			COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED = opt_fragment_shader and COLUMN_DRAW_PIXEL_FRAGMENT_SHADER_EMBED
+			                                                           or COLUMN_DRAW_PIXEL_FIXED_COLOUR_EMBED,
+			COLUMN_DRAW_PIXEL_DEPTH_STORE = opt_depth_store and 'fb_depth[index] = row_w\n' or '',
+			COLUMN_DRAW_PIXEL_ENTRY = opt_depth_test and COLUMN_DRAW_PIXEL_DEPTH_TESTED_EMBED
+			                                          or '-- #embed COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED\n',
+			COLUMN_ADVANCE = function()
+				local result = ''
+
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					result = result .. 'row_w = row_w + row_dw_dx\n'
+				end
+
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						result = result .. 'row_va_' .. s .. '_w = row_va_' .. s .. '_w + row_va_d' .. s .. 'w_dx\n'
+					end
+				end
+
+				return result
+			end,
+			ROW_ADVANCE = function()
+				local result = ''
+
+				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
+					result = result .. 'tri_left_w = tri_left_w + tri_left_dw_dy\n'
+					                .. 'tri_right_w = tri_right_w + tri_right_dw_dy\n'
+				end
+
+				for _, attr in ipairs(interpolate_attributes) do
+					for i = 1, attr.size do
+						local s = attr.name .. (i - 1)
+						result = result .. 'tri_left_va_' .. s .. '_w = tri_left_va_' .. s .. '_w + tri_left_va_d' .. s .. 'w_dy\n'
+						                .. 'tri_right_va_' .. s .. '_w = tri_right_va_' .. s .. '_w + tri_right_va_d' .. s .. 'w_dy\n'
+					end
+				end
+
+				return result
+			end,
+		}
+		local count
+
+		repeat
+			pipeline_source, count = pipeline_source:gsub('(\t+)%-%-%s*#embed%s+([%w_]+)([^\n]*)\n', function(indent, name, params)
+				local embed = embeds[name]
+
+				if not embed then
+					error(name)
+				end
+
+				if type(embed) == 'function' then
+					local ps = {}
+					for p in params:sub(2, -2):gmatch '[^,]+' do
+						table.insert(ps, (p:gsub('^%s+', '', 1):gsub('%s+$', '', 1)))
+					end
+					embed = embed(table.unpack(ps))
+				end
+
+				--- @cast embed string
+
+				return indent .. embed:gsub('\n', '\n' .. indent) .. '\n'
+			end)
+		until count == 0
 	end
 
-	do -- ROW_ADVANCE
-		local ra = ''
+	do -- variables
+		local position_base_offset = opt_layout:get_attribute(opt_position_attribute).offset
+		local face_colour_snippet = '1'
 
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			ra = ra .. '_pflat_tri_left_w = _pflat_tri_left_w + _pflat_tri_left_gradient_w\n'
-			        .. '_pflat_tri_right_w = _pflat_tri_right_w + _pflat_tri_right_gradient_w\n'
+		if opt_colour_attribute then
+			local colour_base_offset = opt_layout:get_attribute(opt_colour_attribute).offset
+			face_colour_snippet = 'geometry[face_offset+' .. (colour_base_offset + 1) .. ']'
 		end
 
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				ra = ra .. '_pflat_tri_left_va_' .. s .. '_w = _pflat_tri_left_va_' .. s .. '_w + _pflat_tri_left_gradient_va_' .. s .. '_w\n'
-				        .. '_pflat_tri_right_va_' .. s .. '_w = _pflat_tri_right_va_' .. s .. '_w + _pflat_tri_right_gradient_va_' .. s .. '_w\n'
+		local replacements = {
+			['${PIXEL_ASPECT_RATIO}'] = opt_pixel_aspect_ratio,
+			['${P0X_OFFSET}'] = position_base_offset + 1,
+			['${P0Y_OFFSET}'] = position_base_offset + 2,
+			['${P0Z_OFFSET}'] = position_base_offset + 3,
+			['${P1X_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 1,
+			['${P1Y_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 2,
+			['${P1Z_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 3,
+			['${P2X_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 1,
+			['${P2Y_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 2,
+			['${P2Z_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 3,
+			['${FACE_COLOUR_SNIPPET}'] = face_colour_snippet,
+			['${VERTEX_STRIDE_3}'] = opt_layout.vertex_stride * 3,
+			['${FACE_STRIDE}'] = opt_layout.face_stride,
+			['${CULL_FACE_COMPARISON_OPERATOR}'] = opt_cull_face == v3d.CULL_FRONT_FACE and '<' or '>',
+			['${CLIPPING_PLANE}'] = '0.0001',
+			['${FRAGMENT_SHADER_PARAMETERS}'] = function()
+				local fs_params = ''
+
+				if opt_pack_attributes then
+					fs_params = fs_params .. ', fs_params'
+				else
+					for _, attr in ipairs(attributes) do
+						for i = 1, attr.size do
+							if attr.type == 'vertex' then
+								fs_params = fs_params .. ', fs_p_va_'
+							else
+								fs_params = fs_params .. ', fa_'
+							end
+							fs_params = fs_params .. attr.name .. (i - 1)
+						end
+					end
+				end
+
+				return fs_params
 			end
-		end
+		}
 
-		pipeline_source = pipeline_source:gsub('-- #marker ROW_ADVANCE', ra)
+		pipeline_source = pipeline_source:gsub('%${[%w_]+}', function(name)
+			local replacement = replacements[name]
+
+			if type(replacement) == 'function' then
+				replacement = replacement()
+			end
+
+			return replacement
+		end)
 	end
 
-	do -- TOP_HALF_CALCULATIONS
-		local thc = ''
-
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			thc = thc .. 'local _pflat_tri_left_gradient_w = (pMw - _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p1w - _ptri_p0w) / tri_delta_y\n'
-			          .. 'local _pflat_tri_left_w = _ptri_p0w + _pflat_tri_left_gradient_w * tri_projection\n'
-			          .. 'local _pflat_tri_right_w = _ptri_p0w + _pflat_tri_right_gradient_w * tri_projection\n'
+	for k, v in pairs(pipeline.options.statistics) do -- statistics
+		local name = k:match '^count_(.+)$'
+		if name then
+			local replace = '--%s*#increment_statistic%s+' .. name
+			local replace_with = v and 'stat_' .. name .. ' = stat_' .. name .. ' + 1' or ''
+			pipeline_source = pipeline_source:gsub(replace, replace_with)
 		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				thc = thc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (pM_va_' .. s .. ' * pMw - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
-				          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p1_va_' .. s .. ' * _ptri_p1w - _ptri_p0_va_' .. s .. ' * _ptri_p0w) / tri_delta_y\n'
-				          .. 'local _pflat_tri_left_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
-				          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p0_va_' .. s .. ' * _ptri_p0w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
-			end
-		end
-
-		pipeline_source = pipeline_source:gsub('-- #marker TOP_HALF_CALCULATIONS', thc)
 	end
-
-	do -- BOTTOM_HALF_CALCULATIONS
-		local bhc = ''
-
-		if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-			bhc = bhc .. 'local _pflat_tri_left_gradient_w = (_ptri_p2w - pMw) / tri_delta_y\n'
-			          .. 'local _pflat_tri_right_gradient_w = (_ptri_p2w - _ptri_p1w) / tri_delta_y\n'
-			          .. 'local _pflat_tri_left_w = pMw + _pflat_tri_left_gradient_w * tri_projection\n'
-			          .. 'local _pflat_tri_right_w = _ptri_p1w + _pflat_tri_right_gradient_w * tri_projection\n'
-		end
-
-		for _, attr in ipairs(interpolate_attributes) do
-			for i = 1, attr.size do
-				local s = attr.name .. (i - 1)
-				bhc = bhc .. 'local _pflat_tri_left_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - pM_va_' .. s .. ' * pMw) / tri_delta_y\n'
-				          .. 'local _pflat_tri_right_gradient_va_' .. s .. '_w = (_ptri_p2_va_' .. s .. ' * _ptri_p2w - _ptri_p1_va_' .. s .. ' * _ptri_p1w) / tri_delta_y\n'
-				          .. 'local _pflat_tri_left_va_' .. s .. '_w = pM_va_' .. s .. ' * pMw + _pflat_tri_left_gradient_va_' .. s .. '_w * tri_projection\n'
-				          .. 'local _pflat_tri_right_va_' .. s .. '_w = _ptri_p1_va_' .. s .. ' * _ptri_p1w + _pflat_tri_right_gradient_va_' .. s .. '_w * tri_projection\n'
-			end
-		end
-
-		pipeline_source = pipeline_source:gsub('-- #marker BOTTOM_HALF_CALCULATIONS', bhc)
-	end
-
-	local f, err = load(pipeline_source, 'pipeline source')
 
 	pipeline.source = pipeline_source
-	pipeline.source_error = err
-
-	pipeline.render_geometry = f and f(uniforms, opt_fragment_shader)
+	pipeline.render_geometry = assert(load(pipeline_source, 'pipeline source'))(uniforms, opt_fragment_shader)
 
 	pipeline.set_uniform = function(_, name, value)
 		uniforms[name] = value

@@ -85,6 +85,9 @@ end
 --- @field content_right_expanded string | nil
 --- @field default_expanded boolean | nil
 --- @field children Tree[] | nil
+--- @field action
+---        | { command: 'save-pipeline-source', source: string }
+---        | { command: 'show-pixels-drawn', geometry: V3DGeometry, transform: V3DTransform, model_transform: V3DTransform | nil }
 
 --------------------------------------------------------------------------------
 
@@ -330,10 +333,10 @@ local function redraw_tree_item(item, selected, x, y, w, by, bh)
 
 	if item.tree.children and #item.tree.children > 0 then
 		table.insert(left, 1, { text = string.char(is_expanded and 31 or 16) .. ' ', colour = colours.lightGrey })
-	-- elseif item.tree.on_select then -- TODO
-	-- 	left_max_width = left_max_width - 2
-	-- 	table.insert(left, 1, { text = '| ', colour = colours.lightGrey })
-	-- 	table.insert(right, { text = ' >', colour = colours.purple })
+	elseif item.tree.action then
+		left_max_width = left_max_width - 2
+		table.insert(left, 1, { text = '\166 ', colour = colours.lightGrey })
+		table.insert(left, { text = ' >', colour = colours.purple })
 	else
 		table.insert(left, 1, { text = '\166 ', colour = colours.lightGrey })
 	end
@@ -367,6 +370,7 @@ end
 local function present_capture(trees)
 	local palette = {}
 	local graphics_mode = term.getGraphicsMode and term.getGraphicsMode()
+
 	do -- setup
 		if graphics_mode then
 			term.setGraphicsMode(false)
@@ -454,8 +458,39 @@ local function present_capture(trees)
 		elseif event[1] == 'key' and (event[2] == keys.space or event[2] == keys.enter) then
 			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
 				model.items[model.selected_item].expanded = not model.items[model.selected_item].expanded
-			-- elseif model.items[model.selected_item].tree.on_select then
-			-- 	model.items[model.selected_item].tree.on_select()
+			elseif model.items[model.selected_item].tree.action then
+				local action = model.items[model.selected_item].tree.action
+
+				if action.command == 'save-pipeline-source' then
+					term.setCursorPos(1, model.items[model.selected_item].draw_y)
+					term.setBackgroundColour(colours.black)
+					term.setTextColour(colours.white)
+					term.clearLine()
+
+					local path
+					
+					if read then
+						local recommended = 'v3d/gen/pipeline.lua'
+						path = read(nil, nil, function(s)
+							if recommended:sub(1, #s) == s then
+								return { recommended:sub(#s + 1) }
+							end
+							return {}
+						end, nil)
+					else
+						path = io.read()
+					end
+
+					if path ~= '' then
+						local h = assert(io.open(path, 'w'))
+						h:write(action.source)
+						h:close()
+					end
+				elseif action.command == 'show-pixels-drawn' then
+					-- TODO
+				else
+					error 'Unknown command'
+				end
 			end
 		elseif event[1] == 'key' and event[2] == keys.left then
 			if model.items[model.selected_item].tree.children and #model.items[model.selected_item].tree.children > 0 then
@@ -559,7 +594,7 @@ local function show_capture(error_tree, frame_duration)
 	}
 
 	local frame_statistics = {
-		content = 'Aggregate &cyan;render_geometry&reset; statistics',
+		content = 'Aggregate &cyan;:render_geometry&reset; statistics',
 		children = {},
 		default_expanded = false,
 	}
@@ -647,6 +682,7 @@ while true do
 			frame_time_avg = (frame_time_avg * avg_samples + this_frame - start_time) / (avg_samples + 1)
 
 			if capture_queued then
+				capture_queued = false
 				local cont, timers = show_capture(nil, delta_time)
 				if not cont then
 					break
@@ -675,10 +711,12 @@ while true do
 				table.insert(err_tree.children, { content = '&red;' .. line })
 			end
 
+			last_capture_trees = v3d_state.call_trees
 			show_capture(err_tree, nil)
 			return
 		elseif coroutine.status(program_co) == 'dead' then
 			if capture_queued then
+				last_capture_trees = v3d_state.call_trees
 				show_capture(nil, nil)
 			end
 			break
