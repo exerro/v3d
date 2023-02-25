@@ -169,6 +169,7 @@ do -- field blacklist
 	build_config.v3dd_field_detail_blacklist['V3DLayout.attributes'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.colour'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.depth'] = true
+	build_config.v3dd_field_detail_blacklist['V3DPipeline.source'] = true
 end
 
 do -- extra field details
@@ -261,11 +262,16 @@ end]]
 
 	-- add option to save source
 	build_config.v3dd_extra_field_details.V3DPipeline = [[
+local view_tree = {
+	content = 'View source code',
+	action = { command = 'view-pipeline-source', source = instance.source }
+}
 local save_tree = {
-	content = 'Save pipeline source',
+	content = 'Save source code',
 	action = { command = 'save-pipeline-source', source = instance.source }
 }
 
+table.insert(trees, view_tree)
 table.insert(trees, save_tree)]]
 
 	-- pretty print attributes as list and cull_face as ref for V3DPipelineOptions

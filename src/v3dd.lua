@@ -87,6 +87,7 @@ end
 --- @field children Tree[] | nil
 --- @field action
 ---        | { command: 'save-pipeline-source', source: string }
+---        | { command: 'view-pipeline-source', source: string }
 ---        | { command: 'show-pixels-drawn', geometry: V3DGeometry, transform: V3DTransform, model_transform: V3DTransform | nil }
 
 --------------------------------------------------------------------------------
@@ -486,6 +487,13 @@ local function present_capture(trees)
 						h:write(action.source)
 						h:close()
 					end
+				elseif action.command == 'view-pipeline-source' then
+					local filename = '_v3d_temp_pipeline_source_' .. tostring {} :gsub('table:%s+', '')
+					local h = assert(io.open(filename, 'w'))
+					h:write(action.source:gsub('\t', '    '))
+					h:close()
+					shell.execute('edit', filename)
+					fs.delete(filename)
 				elseif action.command == 'show-pixels-drawn' then
 					-- TODO
 				else
