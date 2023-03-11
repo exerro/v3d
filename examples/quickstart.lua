@@ -8,7 +8,7 @@ local framebuffer = v3d.create_framebuffer_subpixel(width, height, 'Screen buffe
 
 local transform = v3d.camera(0, 0, 2)
 
--- TODO
+-- Create a layout with position, UVs, and colour.
 local layout = v3d.create_layout()
 	:add_vertex_attribute('position', 3, true)
 	:add_vertex_attribute('uv', 2, true)
@@ -139,7 +139,9 @@ while true do
 	-- cube1:rotate_y(1.0 * dt)
 	-- cube2:rotate_y(0.8 * dt)
 	-- cube2:rotate_z(0.6 * dt)
-	
+
+	transform = transform * v3d.rotate(0.4 * dt, 0.5 * dt, 0.1 * dt)
+
 	-- Update the time uniform for the effect pipeline.
 	local new_time = effect_pipeline:get_uniform 'u_time' + dt
 

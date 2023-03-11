@@ -750,6 +750,16 @@ local function transform_transform(transform, data, translate)
 	return { r1, r2, r3 }
 end
 
+local function transform_inverse(transform)
+	local t = create_identity_transform()
+
+	error 'TODO'
+
+	-- TODO: populate t[1 .. 12] with correct values
+
+	return t
+end
+
 local transform_mt = { __mul = transform_combine }
 
 function create_identity_transform()
@@ -757,6 +767,7 @@ function create_identity_transform()
 
 	t.combine = transform_combine
 	t.transform = transform_transform
+	t.inverse = transform_inverse
 
 	return setmetatable(t, transform_mt)
 end
@@ -854,7 +865,7 @@ return function(_, geometry, fb, transform, model_transform)
 	local fb_height_m1 = fb.height - 1
 	local screen_dx = (fb.width - 1) / 2
 	local screen_dy = (fb.height - 1) / 2
-	local screen_sy = -screen_dy - 0.5
+	local screen_sy = -(screen_dy - 0.5)
 	local screen_sx = ${PIXEL_ASPECT_RATIO} * (screen_dy - 0.5)
 
 	local stat_total_time = 0

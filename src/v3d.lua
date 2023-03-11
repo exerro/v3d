@@ -474,6 +474,11 @@ function V3DTransform:combine(transform) end
 --- @nodiscard
 function V3DTransform:transform(data, translate) end
 
+--- TODO
+--- @return V3DTransform
+--- @nodiscard
+function V3DTransform:inverse() end
+
 
 --------------------------------------------------------------------------------
 --[ Pipelines ]-----------------------------------------------------------------
