@@ -396,7 +396,7 @@ function V3DGeometryBuilder:map(attribute_name, fn) end
 --- Transform the data for `attribute_name` using the transform provided.
 --- @param attribute_name string Name of the numeric, 3 component vertex attribute to transform.
 --- @param transform V3DTransform Transformation to apply.
---- @param translate boolean Whether vertices should be translated.
+--- @param translate boolean | nil Whether vertices should be translated. Defaults to true unless a 4-component attribute is given, in which case vertices are translated if the 4th component is equal to 1.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:transform(attribute_name, transform, translate) end
 
@@ -466,6 +466,8 @@ local V3DTransform = {}
 --- @nodiscard
 function V3DTransform:combine(transform) end
 
+-- TODO: do we want more efficient versions of this?
+--       e.g. add an offset parameter to transform large sets of data
 --- Apply this transformation to the data provided, returning a new table with
 --- the modified X, Y, and Z position components.
 --- @param data { [1]: number, [2]: number, [3]: number } Data to be transformed.

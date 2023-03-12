@@ -537,9 +537,28 @@ local function geometry_builder_map(gb, attribute_name, fn)
 	return gb
 end
 
-local function geometry_builder_transform(gb, attribute_name, transform)
-	-- TODO
-	error 'NYI'
+local function geometry_builder_transform(gb, attribute_name, transform, translate)
+	local attr_size = gb.layout:get_attribute(attribute_name).size
+	local tr_fn = transform.transform
+
+	if translate == nil and attr_size ~= 4 then
+		translate = true
+	end
+
+	local data = gb.attribute_data[attribute_name]
+	local vertex_data = {}
+
+	for i = 1, #data, attr_size do
+		local translate_this = translate == nil and data[i + 3] == 1 or translate or false
+		vertex_data[1] = data[i]
+		vertex_data[2] = data[i + 1]
+		vertex_data[3] = data[i + 2]
+		local result = tr_fn(transform, vertex_data, translate_this)
+		data[i] = result[1]
+		data[i + 1] = result[2]
+		data[i + 2] = result[3]
+	end
+
 	return gb
 end
 

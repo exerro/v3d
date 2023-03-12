@@ -308,7 +308,7 @@ local ${WF_FUNCTION_NAME}_orig = instance.${WF_FUNCTION_NAME}
 function instance${WF_METHOD_STR}${WF_FUNCTION_NAME}(${WF_FN_PARAMS})
 	local validation_failed = false
 	local call_tree = {
-		content = string.format("&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(${WF_PS_N})",${WF_FMT_PARAMS}),
+		content = string.format("&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(${WF_PS_N})"${WF_FMT_PARAMS}),
 		content_expanded = "&cyan;${WF_FUNCTION_PREFIX}${WF_FUNCTION_NAME}&reset;(...)",
 		default_expanded = false,
 		children = {},
@@ -525,7 +525,7 @@ ${SDF_SUB_DETAILS}]]
 			return table.concat(map_list(fn_param_names, function() return '%s' end), ', ')
 		end)
 		wrapper = wrapper:gsub('${WF_FMT_PARAMS}', table.concat(map_list(fn_param_names,
-			function(it) return 'fmtobject(' .. it .. ')' end), ','))
+			function(it) return ',fmtobject(' .. it .. ')' end)))
 
 		wrapper = wrapper:gsub('${WF_OVERLOADS}', function()
 			local fn_all_param_names = map_list(fn_param_names)
