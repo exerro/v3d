@@ -427,8 +427,8 @@ ${SDF_SUB_DETAILS}]]
 				else
 					type_checker = 'v3d_state.object_types[%s] == \'' .. param_type .. '\''
 				end
-			elseif param_type == 'string | V3DLayoutAttribute' then
-				needs_attribute_check = v3d_types.V3DLayoutAttribute
+			elseif param_type == 'V3DAttributeName | V3DAttribute' then
+				needs_attribute_check = v3d_types.V3DAttribute
 				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
 			elseif param_type:find '%[%]$' or param_type:find '^%b{}$' then
 				-- TODO: check contents of the table?

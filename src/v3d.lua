@@ -246,7 +246,7 @@ function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
 --- TODO
 --- @class V3DLayout
 --- TODO
---- @field attributes V3DLayoutAttribute[]
+--- @field attributes V3DAttribute[]
 --- TODO
 --- @field private attribute_lookup { [string]: integer | nil }
 --- TODO
@@ -255,13 +255,17 @@ function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
 --- @field face_stride integer
 local V3DLayout = {}
 
+--- Name of an attribute. Should be a string matching the following Lua pattern:
+--- `[a-zA-Z][a-zA-Z0-9_]*`.
+--- @alias V3DAttributeName string
+
 --- An attribute in a layout. Attributes represent a unit of data that can form
 --- vertices or faces of geometry. For example, "position" might be an
 --- attribute, as well as "colour" or "uv". Attributes have a number of fields
 --- that describe how much information is stored, and how it may be used.
---- @class V3DLayoutAttribute
+--- @class V3DAttribute
 --- Name of the attribute.
---- @field name string
+--- @field name V3DAttributeName
 --- Number of components in this attribute, e.g. 3D position would have a size
 --- of `3`.
 --- @field size integer
@@ -280,7 +284,7 @@ local V3DLayout = {}
 --- @field offset integer
 
 --- TODO
---- @param name string
+--- @param name V3DAttributeName
 --- @param size integer
 --- @param is_numeric true | false
 --- @return V3DLayout
@@ -288,26 +292,26 @@ local V3DLayout = {}
 function V3DLayout:add_vertex_attribute(name, size, is_numeric) end
 
 --- TODO
---- @param name string
+--- @param name V3DAttributeName
 --- @param size integer
 --- @return V3DLayout
 --- @nodiscard
 function V3DLayout:add_face_attribute(name, size) end
 
 --- TODO
---- @param attribute string | V3DLayoutAttribute
+--- @param attribute V3DAttributeName | V3DAttribute
 --- @return V3DLayout
 --- @nodiscard
 function V3DLayout:drop_attribute(attribute) end
 
 --- TODO
---- @param attribute string | V3DLayoutAttribute
+--- @param attribute V3DAttributeName | V3DAttribute
 --- @return boolean
 function V3DLayout:has_attribute(attribute) end
 
 --- TODO
---- @param name string
---- @return V3DLayoutAttribute | nil
+--- @param name V3DAttributeName
+--- @return V3DAttribute | nil
 function V3DLayout:get_attribute(name) end
 
 
@@ -359,13 +363,13 @@ function V3DGeometry:to_builder() end
 --- [[@V3DGeometryBuilder.build]]. Can be changed with
 --- [[@V3DGeometryBuilder.cast]].
 --- @field layout V3DLayout
---- @field private attribute_data { [string]: any[] }
+--- @field private attribute_data { [V3DAttributeName]: any[] }
 local V3DGeometryBuilder = {}
 
 --- Set the data for an attribute, replacing any existing data.
 ---
 --- See also: [[@V3DGeometryBuilder.append_data]]
---- @param attribute_name string Name of the attribute to set the data for.
+--- @param attribute_name V3DAttributeName Name of the attribute to set the data for.
 --- @param data any[] New data, which replaces any existing data.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:set_data(attribute_name, data) end
@@ -373,7 +377,7 @@ function V3DGeometryBuilder:set_data(attribute_name, data) end
 --- Append data to the end of the existing data for an attribute.
 ---
 --- See also: [[@V3DGeometryBuilder.set_data]]
---- @param attribute_name string Name of the attribute to append data to.
+--- @param attribute_name V3DAttributeName Name of the attribute to append data to.
 --- @param data any[] New data to append.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:append_data(attribute_name, data) end
@@ -386,7 +390,7 @@ function V3DGeometryBuilder:append_data(attribute_name, data) end
 ---
 --- Note, it's fine to return the same table and mutate it (and arguably more
 --- performant if you do that).
---- @param attribute_name string Name of the attribute to apply `fn` to.
+--- @param attribute_name V3DAttributeName Name of the attribute to apply `fn` to.
 --- @param fn fun(data: any[]): any[] Function called with the data for this attribute, which should return the new data.
 --- @return V3DGeometryBuilder
 function V3DGeometryBuilder:map(attribute_name, fn) end
@@ -394,7 +398,7 @@ function V3DGeometryBuilder:map(attribute_name, fn) end
 -- TODO: implement this!
 -- TODO: should work with 4 component attributes too!
 --- Transform the data for `attribute_name` using the transform provided.
---- @param attribute_name string Name of the numeric, 3 component vertex attribute to transform.
+--- @param attribute_name V3DAttributeName Name of the numeric, 3 component vertex attribute to transform.
 --- @param transform V3DTransform Transformation to apply.
 --- @param translate boolean | nil Whether vertices should be translated. Defaults to true unless a 4-component attribute is given, in which case vertices are translated if the 4th component is equal to 1.
 --- @return V3DGeometryBuilder

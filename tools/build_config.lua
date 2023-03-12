@@ -141,7 +141,7 @@ end
 --       * framebuffer contents valid before blit
 --       * layout new attribute doesn't exist
 --       * layout drop_attribute attribute does exist
---       * geometry builder transform applied to a 3/4+ component attribute
+--       * geometry builder transform applied to a 3/4+ component numeric attribute
 --       * geometry builder build checks data lengths and data existing
 --       * camera fov > 0
 --       * pipeline option has colour attribute xor fragment shader
@@ -150,6 +150,7 @@ end
 --       * pipeline option layout colour_attribute attribute is 1 component face
 --       * pipeline option pixel aspect ratio > 0
 --       * pipeline render_geometry layouts match
+--       * attribute name matches regex
 
 do -- fn post body
 	-- notify blit called after relevant functions
