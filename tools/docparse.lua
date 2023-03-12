@@ -24,7 +24,7 @@ local luatools = require 'luatools'
 --- @class Type
 --- @field name string
 --- @field extends string | nil
---- @field is_structural boolean
+--- @field kind 'class' | 'structural-class' | 'alias'
 --- @field docstring string
 --- @field fields NameType[]
 --- @field operators OperatorOverload[]
@@ -62,7 +62,7 @@ local function parse_class(group)
 	local class = {
 		name = classname,
 		extends = extends,
-		is_structural = not group[2],
+		kind = group[2] and 'class' or 'structural-class',
 		docstring = docstring,
 		fields = {},
 		operators = {},
@@ -224,7 +224,7 @@ local function parse_alias(group)
 	return {
 		name = typename,
 		extends = extends,
-		is_structural = true,
+		kind = 'alias',
 		docstring = docstring,
 		fields = {},
 		operators = {},

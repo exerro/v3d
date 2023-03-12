@@ -175,6 +175,9 @@ function v3d.create_texture_sampler(texture_uniform, width_uniform, height_unifo
 --------------------------------------------------------------------------------
 
 
+--- @alias CCTermAPI {}
+
+
 --- Stores the colour and depth of rendered triangles.
 --- @class V3DFramebuffer
 --- Width of the framebuffer in pixels. Note, if you're using subpixel
@@ -208,14 +211,14 @@ function V3DFramebuffer:clear_depth(depth_reciprocal) end
 
 --- Render the framebuffer to the terminal, drawing a high resolution image
 --- using subpixel conversion.
---- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @return nil
 function V3DFramebuffer:blit_term_subpixel(term, dx, dy) end
 
 --- Similar to `blit_subpixel` but draws the depth instead of colour.
---- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
@@ -223,14 +226,14 @@ function V3DFramebuffer:blit_term_subpixel(term, dx, dy) end
 function V3DFramebuffer:blit_term_subpixel_depth(term, dx, dy, update_palette) end
 
 --- TODO
---- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @return nil
 function V3DFramebuffer:blit_graphics(term, dx, dy) end
 
 --- TODO
---- @param term table CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
 --- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 --- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 --- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
@@ -326,7 +329,7 @@ function V3DLayout:get_attribute(name) end
 --- compiled to draw geometry of a specific layout as quickly as possible.
 ---
 --- Use [[@V3DGeometryBuilder.build]] to create a geometry instance.
---- @class V3DGeometry: { [integer]: any }
+--- @class V3DGeometry
 --- [[@V3DLayout]] of this geometry, which defines the format data is stored in.
 --- @field layout V3DLayout
 --- Number of vertices contained within this geometry.
@@ -513,6 +516,14 @@ local V3DPipeline = {}
 --- Pseudo-class listing the engine-provided uniform values for shaders.
 --- @alias V3DUniforms { [string]: unknown }
 
+--- Variant of [[@V3DFragmentShader]] which accepts geometry attributes as an
+--- unpacked list of parameters.
+--- @alias V3DPackedFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
+
+--- Variant of [[@V3DFragmentShader]] which accepts geometry attributes as a
+--- packed string-keyed table of parameters.
+--- @alias V3DUnpackedFragmentShader fun(uniforms: V3DUniforms, attr_values: { [string]: unknown[] }): integer | nil
+
 -- TODO: support returning depth as 2nd param
 -- TODO: screen X/Y, depth (new & old), face index
 --- A fragment shader runs for every pixel being drawn, accepting the
@@ -525,7 +536,7 @@ local V3DPipeline = {}
 ---
 --- `uniforms` is a table containing the values for all user-set uniforms, plus
 --- certain special values listed under [[@V3DUniforms]].
---- @alias V3DFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
+--- @alias V3DFragmentShader V3DPackedFragmentShader | V3DUnpackedFragmentShader
 
 --- @class V3DStatisticsOptions
 --- @field measure_total_time boolean | nil

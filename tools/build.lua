@@ -421,7 +421,7 @@ ${SDF_SUB_DETAILS}]]
 			type_checker = type_checkers[param_type]
 
 			if not type_checker and v3d_types[param_type] then
-				if v3d_types[param_type].is_structural then
+				if v3d_types[param_type].kind == 'structural-class' then
 					needs_structural_check = v3d_types[param_type]
 					type_checker = 'type(%s) == \'table\''
 				else
@@ -561,7 +561,7 @@ ${SDF_SUB_DETAILS}]]
 		end)
 
 		local return_type = fn.overloads[1].returns
-		if is_class(return_type) and not v3d_types[return_type].is_structural then
+		if is_class(return_type) and v3d_types[return_type].kind == 'class' then
 			local label_param = 'nil'
 			for j = 1, #fn.overloads[1].parameters do
 				if fn.overloads[1].parameters[j].name == 'label' then
@@ -694,7 +694,7 @@ ${SDF_SUB_DETAILS}]]
 		end
 
 		for i = 1, #v3d_types do
-			if is_class(v3d_types[i].name) and not v3d_types[i].is_structural then
+			if is_class(v3d_types[i].name) and v3d_types[i].kind == 'class' then
 				table.insert(generated_content, generate_converter(v3d_types[i]))
 			end
 		end
@@ -754,6 +754,143 @@ ${SDF_SUB_DETAILS}]]
 	print(OUTPUT_PATH)
 	term.setTextColour(colours.lightGrey)
 	print(string.format('  minification: %d / %d (%d%%)', #content, pre_minify_len, #content / pre_minify_len * 100 + 0.5))
+	term.setTextColour(colours.white)
+end
+
+do -- produce compiled v3d.d.ts
+	local header_text = '// ' .. license_text:gsub('\n', '\n// ') .. '\n'
+	                 .. 'type integer = number;\n'
+	local content = header_text
+
+	local type_mappings = {
+		['fun(data: any[]): any[]'] = '(data: any[]) => any[]'
+	}
+
+	local alias_mappings = {
+		V3DUniforms = {
+			expected = '{ [string]: unknown }',
+			replace_with = '{ [name: string]: unknown }',
+		},
+		V3DPackedFragmentShader = {
+			expected = 'fun(uniforms: V3DUniforms, ...: unknown): integer | nil',
+			replace_with = '(uniforms: V3DUniforms, ...attr_values: unknown[]) => integer | null',
+		},
+		V3DUnpackedFragmentShader = {
+			expected = 'fun(uniforms: V3DUniforms, attr_values: { [string]: unknown[] }): integer | nil',
+			replace_with = '(uniforms: V3DUniforms, attr_values: { [name: string]: unknown[] }) => integer | null',
+		},
+	}
+
+	local function type_to_ts(type)
+		type = type_mappings[type] or type
+		type = type:gsub('(|?%s*)nil$', '%1null')
+		return type
+	end
+
+	local function type_annotation(type)
+		local infix = ': '
+		type = type_to_ts(type)
+		if type:find '|%s*null$' then
+			infix = '?: '
+		end
+		return infix .. type
+	end
+
+	--- @param fn Function
+	local function function_to_ts(fn, prefix)
+		local result = ''
+
+		for i = 1, #fn.overloads do
+			local ov = fn.overloads[i]
+			local needs_comma = false
+
+			result = result .. '/** ' .. fn.docstring .. ' */\n'
+			result = result .. prefix .. fn.name .. '('
+
+			if fn.is_method then
+				result = result .. 'this: void'
+				needs_comma = true
+			end
+
+			for j = 1, #ov.parameters do
+				local param = ov.parameters[j]
+				if needs_comma then
+					result = result .. ', '
+				end
+				result = result .. param.name .. type_annotation(param.type)
+				needs_comma = true
+			end
+
+			result = result .. '): ' .. type_to_ts(ov.returns)
+		end
+
+		return result
+	end
+
+	for i = 1, #v3d_library_type.fields do
+		local field = v3d_library_type.fields[i]
+		content = content .. '/** ' .. field.docstring .. '*/\n'
+		content = content .. 'export const ' .. field.name .. ': ' .. type_to_ts(field.type) .. '\n'
+	end
+
+	for i = 1, #v3d_library_type.functions do
+		local fn = v3d_library_type.functions[i]
+		content = content .. function_to_ts(fn, 'export declare function ') .. '\n'
+	end
+
+	for i = 1, #v3d_types do
+		if v3d_types[i] ~= v3d_library_type then
+			content = content .. '/** ' .. v3d_types[i].docstring .. '*/\n'
+
+			if v3d_types[i].kind == 'alias' then
+				assert(#v3d_types[i].fields == 0)
+				assert(#v3d_types[i].functions == 0)
+				assert(#v3d_types[i].operators == 0)
+				local alias_type = v3d_types[i].extends
+
+				if alias_mappings[v3d_types[i].name] then
+					assert(alias_mappings[v3d_types[i].name].expected == alias_type)
+					alias_type = alias_mappings[v3d_types[i].name].replace_with
+				else
+					alias_type = type_to_ts(alias_type)
+				end
+
+				content = content .. 'export type ' .. v3d_types[i].name
+				                  .. ' = ' .. alias_type .. ';\n'
+			else
+				content = content .. 'export class ' .. v3d_types[i].name
+
+				if v3d_types[i].extends then
+					content = content .. ' extends ' .. type_to_ts(v3d_types[i].extends)
+				end
+
+				content = content .. ' {'
+
+				for j = 1, #v3d_types[i].fields do
+					local field = v3d_types[i].fields[j]
+					content = content .. '\n\t/** ' .. field.docstring:gsub('\n', '\n\t') .. ' */'
+					content = content .. '\n\t' .. field.name .. type_annotation(field.type)
+				end
+
+				for j = 1, #v3d_types[i].functions do
+					local fn = v3d_types[i].functions[j]
+					content = content .. '\n\t' .. function_to_ts(fn, ''):gsub('\n', '\n\t')
+				end
+
+				content = content .. '\n}\n'
+			end
+		end
+	end
+
+	local OUTPUT_PATH = gen_path .. 'v3d.d.ts'
+	local h = assert(io.open(OUTPUT_PATH, 'w'))
+	h:write(content)
+	h:close()
+
+	term.setTextColour(colours.lightGrey)
+	term.write('Compiled typescript declarations to ')
+	term.setTextColour(colours.cyan)
+	print(OUTPUT_PATH)
 	term.setTextColour(colours.white)
 end
 
