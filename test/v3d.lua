@@ -1,13 +1,105 @@
 
-local dir = fs.getDir(fs.getDir(shell.getRunningProgram()))
-
-shell.run(dir .. '/build')
 local v3d = require '/v3d'
 
 local function assertEquals(expected, actual)
 	if expected ~= actual then
 		error('Assertion failed: ' .. textutils.serialize(actual) .. ' ~= expected ' .. textutils.serialize(expected), 2)
 	end
+end
+
+--------------------------------------------------------------------------------
+--[[ Formats ]]-----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	local format = v3d.create_format()
+
+	format = format:add_attachment('a', 'palette-index', 2)
+	assertEquals(true, format:has_attachment 'a')
+	assertEquals('a', format:get_attachment 'a' .name)
+	assertEquals('palette-index', format:get_attachment 'a' .type)
+	assertEquals(2, format:get_attachment 'a' .components)
+	assertEquals(format:get_attachment 'a', format.attachments[1])
+
+	format = format:add_attachment('b', 'exp-palette-index', 1)
+	assertEquals(true, format:has_attachment 'b')
+	assertEquals('b', format:get_attachment 'b' .name)
+	assertEquals('exp-palette-index', format:get_attachment 'b' .type)
+	assertEquals(1, format:get_attachment 'b' .components)
+	assertEquals(format:get_attachment 'b', format.attachments[2])
+	assertEquals(true, format:has_attachment 'a')
+	assertEquals('a', format:get_attachment 'a' .name)
+	assertEquals('palette-index', format:get_attachment 'a' .type)
+	assertEquals(2, format:get_attachment 'a' .components)
+	assertEquals(format:get_attachment 'a', format.attachments[1])
+
+	local drop_layout = format:drop_attachment 'a'
+	assertEquals(false, drop_layout == format)
+	assertEquals(false, drop_layout:has_attachment 'a')
+	assertEquals(true, drop_layout:has_attachment 'b')
+	assertEquals('b', format:get_attachment 'b' .name)
+	assertEquals('exp-palette-index', format:get_attachment 'b' .type)
+	assertEquals(1, format:get_attachment 'b' .components)
+	assertEquals(format:get_attachment 'b', format.attachments[2])
+	assertEquals(drop_layout:get_attachment 'b', drop_layout.attachments[1])
+end
+
+--------------------------------------------------------------------------------
+--[[ Layouts ]]-----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	local layout = v3d.create_layout()
+
+	layout = layout:add_face_attribute('a', 2)
+	assertEquals(true, layout:has_attribute 'a')
+	assertEquals('a', layout:get_attribute 'a' .name)
+	assertEquals(2, layout:get_attribute 'a' .size)
+	assertEquals('face', layout:get_attribute 'a' .type)
+	assertEquals(false, layout:get_attribute 'a' .is_numeric)
+	assertEquals(0, layout:get_attribute 'a' .offset)
+	assertEquals(0, layout.vertex_stride)
+	assertEquals(2, layout.face_stride)
+	assertEquals(layout:get_attribute 'a', layout.attributes[1])
+
+	layout = layout:add_face_attribute('b', 3)
+	assertEquals(true, layout:has_attribute 'b')
+	assertEquals('b', layout:get_attribute 'b' .name)
+	assertEquals(3, layout:get_attribute 'b' .size)
+	assertEquals('face', layout:get_attribute 'b' .type)
+	assertEquals(false, layout:get_attribute 'b' .is_numeric)
+	assertEquals(2, layout:get_attribute 'b' .offset)
+	assertEquals(0, layout.vertex_stride)
+	assertEquals(5, layout.face_stride)
+	assertEquals(layout:get_attribute 'b', layout.attributes[2])
+	assertEquals(true, layout:has_attribute 'a')
+	assertEquals('a', layout:get_attribute 'a' .name)
+	assertEquals(2, layout:get_attribute 'a' .size)
+	assertEquals('face', layout:get_attribute 'a' .type)
+	assertEquals(false, layout:get_attribute 'a' .is_numeric)
+	assertEquals(0, layout:get_attribute 'a' .offset)
+	assertEquals(layout:get_attribute 'a', layout.attributes[1])
+
+	layout = layout:add_vertex_attribute('c', 4, true)
+	assertEquals(true, layout:has_attribute 'c')
+	assertEquals('c', layout:get_attribute 'c' .name)
+	assertEquals(4, layout:get_attribute 'c' .size)
+	assertEquals('vertex', layout:get_attribute 'c' .type)
+	assertEquals(true, layout:get_attribute 'c' .is_numeric)
+	assertEquals(0, layout:get_attribute 'c' .offset)
+	assertEquals(4, layout.vertex_stride)
+	assertEquals(5, layout.face_stride)
+	assertEquals(layout:get_attribute 'c', layout.attributes[3])
+
+	local drop_layout = layout:drop_attribute 'a'
+	assertEquals(false, drop_layout == layout)
+	assertEquals(false, drop_layout:has_attribute 'a')
+	assertEquals(true, drop_layout:has_attribute 'b')
+	assertEquals(0, drop_layout:get_attribute 'b' .offset)
+	assertEquals(4, drop_layout.vertex_stride)
+	assertEquals(3, drop_layout.face_stride)
+	assertEquals(drop_layout:get_attribute 'b', drop_layout.attributes[1])
+	assertEquals(drop_layout:get_attribute 'c', drop_layout.attributes[2])
 end
 
 --------------------------------------------------------------------------------
@@ -115,57 +207,6 @@ do
 end
 
 --------------------------------------------------------------------------------
---[[ Layouts ]]-----------------------------------------------------------------
---------------------------------------------------------------------------------
-
-do
-	local layout = v3d.create_layout()
-
-	layout = layout:add_face_attribute('a', 2)
-	assertEquals(true, layout:has_attribute 'a')
-	assertEquals('a', layout:get_attribute 'a' .name)
-	assertEquals(2, layout:get_attribute 'a' .size)
-	assertEquals('face', layout:get_attribute 'a' .type)
-	assertEquals(false, layout:get_attribute 'a' .is_numeric)
-	assertEquals(0, layout:get_attribute 'a' .offset)
-	assertEquals(0, layout.vertex_stride)
-	assertEquals(2, layout.face_stride)
-	assertEquals(layout:get_attribute 'a', layout.attributes[1])
-
-	layout = layout:add_face_attribute('b', 3)
-	assertEquals(true, layout:has_attribute 'b')
-	assertEquals('b', layout:get_attribute 'b' .name)
-	assertEquals(3, layout:get_attribute 'b' .size)
-	assertEquals('face', layout:get_attribute 'b' .type)
-	assertEquals(false, layout:get_attribute 'b' .is_numeric)
-	assertEquals(2, layout:get_attribute 'b' .offset)
-	assertEquals(0, layout.vertex_stride)
-	assertEquals(5, layout.face_stride)
-	assertEquals(layout:get_attribute 'b', layout.attributes[2])
-
-	layout = layout:add_vertex_attribute('c', 4, true)
-	assertEquals(true, layout:has_attribute 'c')
-	assertEquals('c', layout:get_attribute 'c' .name)
-	assertEquals(4, layout:get_attribute 'c' .size)
-	assertEquals('vertex', layout:get_attribute 'c' .type)
-	assertEquals(true, layout:get_attribute 'c' .is_numeric)
-	assertEquals(0, layout:get_attribute 'c' .offset)
-	assertEquals(4, layout.vertex_stride)
-	assertEquals(5, layout.face_stride)
-	assertEquals(layout:get_attribute 'c', layout.attributes[3])
-
-	local drop_layout = layout:drop_attribute 'a'
-	assertEquals(false, drop_layout == layout)
-	assertEquals(false, drop_layout:has_attribute 'a')
-	assertEquals(true, drop_layout:has_attribute 'b')
-	assertEquals(0, drop_layout:get_attribute 'b' .offset)
-	assertEquals(4, drop_layout.vertex_stride)
-	assertEquals(3, drop_layout.face_stride)
-	assertEquals(drop_layout:get_attribute 'b', drop_layout.attributes[1])
-	assertEquals(drop_layout:get_attribute 'c', drop_layout.attributes[2])
-end
-
---------------------------------------------------------------------------------
 --[[ Geometry ]]----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -199,6 +240,7 @@ end
 -- map
 -- insert
 -- cast
+-- transform
 
 --------------------------------------------------------------------------------
 --[[ Transforms ]]--------------------------------------------------------------
@@ -279,6 +321,4 @@ do
 	assertTableEquals(3, { 11, 42, 93 }, translate_scale_transform_position)
 end
 
--- map
--- insert
--- cast
+-- inverse

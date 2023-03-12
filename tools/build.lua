@@ -413,6 +413,7 @@ ${SDF_SUB_DETAILS}]]
 		local is_optional = false
 		local needs_structural_check = nil
 		local needs_attribute_check = nil
+		local needs_attachment_check = nil
 		local type_checker
 
 		do -- generate 4 fields above
@@ -429,6 +430,9 @@ ${SDF_SUB_DETAILS}]]
 				end
 			elseif param_type == 'V3DAttributeName | V3DAttribute' then
 				needs_attribute_check = v3d_types.V3DAttribute
+				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
+			elseif param_type == 'V3DAttachmentName | V3DAttachment' then
+				needs_attachment_check = v3d_types.V3DAttachment
 				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
 			elseif param_type:find '%[%]$' or param_type:find '^%b{}$' then
 				-- TODO: check contents of the table?
@@ -449,7 +453,7 @@ ${SDF_SUB_DETAILS}]]
 		local content = logged and PARAM_TEMPLATE_LOGGED
 		                        or PARAM_TEMPLATE_UNLOGGED
 
-		-- TODO: use needs_structural_check and needs_attribute_check
+		-- TODO: use needs_structural_check and needs_attribute_check and needs_attachment_check
 
 		local pt_details = ''
 

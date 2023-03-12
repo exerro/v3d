@@ -110,6 +110,79 @@ end
 
 
 --------------------------------------------------------------------------------
+--[ Format functions ]----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function format_add_attachment(format, name, type, components)
+	local new_attachment = {}
+
+	new_attachment.name = name
+	new_attachment.type = type
+	new_attachment.components = components
+
+	--- @type table
+	local new_format = v3d.create_format()
+
+	for i = 1, #format.attachments do
+		new_format.attachments[i] = format.attachments[i]
+		new_format.attachment_lookup[format.attachments[i].name] = i
+	end
+
+	table.insert(new_format.attachments, new_attachment)
+	new_format.attachment_lookup[name] = #new_format.attachments
+
+	return new_format
+end
+
+local function format_drop_attachment(format, attachment)
+	if not format:has_attachment(attachment) then return format end
+	local attachment_name = attachment.name or attachment
+
+	local new_format = v3d.create_format()
+
+	for i = 1, #format.attachments do
+		local attachment = format.attachments[i]
+		if attachment.name ~= attachment_name then
+			new_format = format_add_attachment(new_format, attachment.name, attachment.type, attachment.components)
+		end
+	end
+
+	return new_format
+end
+
+local function format_has_attachment(format, attachment)
+	if type(attachment) == 'table' then
+		local index = format.attachment_lookup[attachment.name]
+		if not index then return false end
+		return format.attachments[index].type == attachment.type
+		   and format.attachments[index].components == attachment.components
+	end
+
+	return format.attachment_lookup[attachment] ~= nil
+end
+
+local function format_get_attachment(format, name)
+	local index = format.attachment_lookup[name]
+	return index and format.attachments[index]
+end
+
+local function create_format()
+	local format = {}
+
+	format.attachments = {}
+	format.attachment_lookup = {}
+
+	format.add_attachment = format_add_attachment
+	format.drop_attachment = format_drop_attachment
+	format.has_attachment = format_has_attachment
+	format.get_attachment = format_get_attachment
+
+	return format
+end
+
+
+--------------------------------------------------------------------------------
 --[ Framebuffer functions ]-----------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -1580,6 +1653,7 @@ do
 		c[name] = fn
 	end
 
+	set_library('create_format', create_format)
 	set_library('create_framebuffer', create_framebuffer)
 	set_library('create_framebuffer_subpixel', create_framebuffer_subpixel)
 	set_library('create_layout', create_layout)
@@ -1598,6 +1672,11 @@ do
 	set_library('GEOMETRY_COLOUR', 1)
 	set_library('GEOMETRY_UV', 2)
 	set_library('GEOMETRY_COLOUR_UV', 3)
+	set_library('COLOUR_FORMAT', v3d.create_format()
+		:add_attachment('colour', 'exp-palette-index', 1))
+	set_library('COLOUR_DEPTH_FORMAT', v3d.create_format()
+		:add_attachment('colour', 'exp-palette-index', 1)
+		:add_attachment('colour', 'depth-reciprocal', 1))
 	set_library('DEFAULT_LAYOUT', v3d.create_layout()
 		:add_vertex_attribute('position', 3, true)
 		:add_face_attribute('colour', 1))

@@ -59,6 +59,9 @@ do -- meta aliases
 end
 
 do -- type checkers
+	build_config.v3dd_type_checkers['V3DAttachmentName'] = 'type(%s) == \'string\''
+	build_config.v3dd_type_checkers['V3DAttributeName'] = 'type(%s) == \'string\''
+	build_config.v3dd_type_checkers['CCTermAPI'] = 'type(%s) == \'table\''
 	build_config.v3dd_type_checkers['V3DFragmentShader'] = 'type(%s) == \'function\''
 	build_config.v3dd_type_checkers['V3DCullFace'] = '%s == v3d_lib.CULL_FRONT_FACE or %s == v3d_lib.CULL_BACK_FACE'
 	build_config.v3dd_type_checkers['V3DUniforms'] = 'type(%s) == \'table\''
@@ -72,6 +75,7 @@ do -- type checkers
 end
 
 do -- fn logging blacklist
+	build_config.v3dd_fn_logging_blacklist['v3d.create_format'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_layout'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_geometry_builder'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_debug_cube'] = true
@@ -81,6 +85,10 @@ do -- fn logging blacklist
 	build_config.v3dd_fn_logging_blacklist['v3d.rotate'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.camera'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_texture_sampler'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.add_attachment'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.drop_attachment'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.has_attachment'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.get_attachment'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.add_vertex_attribute'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.add_face_attribute'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.drop_attribute'] = true
@@ -167,6 +175,7 @@ end
 end
 
 do -- field blacklist
+	build_config.v3dd_field_detail_blacklist['V3DFormat.attachments'] = true
 	build_config.v3dd_field_detail_blacklist['V3DLayout.attributes'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.colour'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.depth'] = true
@@ -174,7 +183,24 @@ do -- field blacklist
 end
 
 do -- extra field details
-	-- show vertex and face attribute lists for V3DLayout
+	-- show attachment lists for V3DFormat
+	build_config.v3dd_extra_field_details.V3DFormat = [[
+local attachment_tree = {
+	content = 'Attachments',
+	children = {},
+}
+table.insert(trees, attachment_tree)
+for i = 1, #instance.attachments do
+	local attachment = instance.attachments[i]
+	table.insert(attachment_tree.children, {
+		content = attachment.name .. ' &lightGrey;(&green;' .. attachment.type .. '&lightGrey;)',
+		content_right = '&lightGrey;' .. attachment.components .. ' components',
+		children = {},
+	})
+end
+
+attachment_tree.content_right = '&lightGrey;' .. #instance.attachments .. ' attachments']]
+
 	build_config.v3dd_extra_field_details.V3DLayout = [[
 local attr_trees = {}
 local attribute_count = { vertex = 0, face = 0 }

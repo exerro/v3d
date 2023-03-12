@@ -25,6 +25,10 @@
 --- @field CULL_FRONT_FACE V3DCullFace
 --- Specify to cull (not draw) the back face (facing away from the camera).
 --- @field CULL_BACK_FACE V3DCullFace
+--- Framebuffer format with just a colour attachment.
+--- @field COLOUR_FORMAT V3DFormat
+--- Framebuffer format with colour and depth attachments.
+--- @field COLOUR_DEPTH_FORMAT V3DFormat
 --- A default layout containing just position and colour attributes.
 --- @field DEFAULT_LAYOUT V3DLayout
 --- A layout containing just position and UV attributes, useful for textures or
@@ -43,6 +47,11 @@
 --- `side_name` | face attribute | 1
 --- @field DEBUG_CUBE_LAYOUT V3DLayout
 local v3d = {}
+
+--- Create an empty [[@V3DFormat]].
+--- @return V3DFormat
+--- @nodiscard
+function v3d.create_format() end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
 ---
@@ -171,74 +180,57 @@ function v3d.create_texture_sampler(texture_uniform, width_uniform, height_unifo
 
 
 --------------------------------------------------------------------------------
---[ Framebuffers ]--------------------------------------------------------------
+--[ Formats ]-------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
---- @alias CCTermAPI {}
+--- TODO
+--- @class V3DFormat
+--- TODO
+--- @field attachments V3DAttachment[]
+--- TODO
+--- @field private attachment_lookup { [V3DAttachmentName]: integer | nil }
+local V3DFormat = {}
 
-
---- Stores the colour and depth of rendered triangles.
---- @class V3DFramebuffer
---- Width of the framebuffer in pixels. Note, if you're using subpixel
---- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
---- width of 102 pixels in its framebuffer.
---- @field width integer
---- Height of the framebuffer in pixels. Note, if you're using subpixel
---- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
---- height of 57 pixels in its framebuffer.
---- @field height integer
---- Stores the colour value of every pixel that's been drawn.
---- @field colour integer[]
---- Stores `1/Z` for every pixel drawn (when depth storing is enabled)
---- @field depth number[]
-local V3DFramebuffer = {}
-
---- Sets every pixel's colour to the provided colour value. If `clear_depth` is
---- not false, this resets the depth values to `0` as well.
---- @param colour integer | nil Defaults to 1 (colours.white)
---- @param clear_depth boolean | nil Whether to clear the depth values. Defaults to `true`.
---- @return nil
-function V3DFramebuffer:clear(colour, clear_depth) end
-
---- Sets every pixel's depth to the provided depth value. Note: the value
---- representing "infinite" depth when nothing has been drawn is 0. The value
---- stored in this buffer should be 1/depth, so something 2 units away will have
---- 0.5 in the depth buffer.
---- @param depth_reciprocal number
---- @return nil
-function V3DFramebuffer:clear_depth(depth_reciprocal) end
-
---- Render the framebuffer to the terminal, drawing a high resolution image
---- using subpixel conversion.
---- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
---- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
---- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
---- @return nil
-function V3DFramebuffer:blit_term_subpixel(term, dx, dy) end
-
---- Similar to `blit_subpixel` but draws the depth instead of colour.
---- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
---- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
---- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
---- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
---- @return nil
-function V3DFramebuffer:blit_term_subpixel_depth(term, dx, dy, update_palette) end
+--- Name of an attachment. Should be a string matching the following Lua
+--- pattern: `[a-zA-Z][a-zA-Z0-9_]*`.
+--- @alias V3DAttachmentName string
 
 --- TODO
---- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
---- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
---- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
---- @return nil
-function V3DFramebuffer:blit_graphics(term, dx, dy) end
+--- @alias V3DAttachmentType 'palette-index' | 'exp-palette-index' | 'depth-reciprocal' | 'any-numeric' | 'any'
 
 --- TODO
---- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
---- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
---- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
---- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
---- @return nil
-function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
+--- @class V3DAttachment
+--- TODO
+--- @field name V3DAttachmentName
+--- TODO
+--- @field type V3DAttachmentType
+--- TODO
+--- @field components integer
+
+--- TODO
+--- @param name V3DAttachmentName
+--- @param type V3DAttachmentType
+--- @param components integer
+--- @return V3DFormat
+--- @nodiscard
+function V3DFormat:add_attachment(name, type, components) end
+
+--- TODO
+--- @param attachment V3DAttachmentName | V3DAttachment
+--- @return V3DFormat
+--- @nodiscard
+function V3DFormat:drop_attachment(attachment) end
+
+--- TODO
+--- @param attachment V3DAttachmentName | V3DAttachment
+--- @return boolean
+function V3DFormat:has_attachment(attachment) end
+
+--- TODO
+--- @param name V3DAttachmentName
+--- @return V3DAttachment | nil
+function V3DFormat:get_attachment(name) end
 
 
 --------------------------------------------------------------------------------
@@ -316,6 +308,78 @@ function V3DLayout:has_attribute(attribute) end
 --- @param name V3DAttributeName
 --- @return V3DAttribute | nil
 function V3DLayout:get_attribute(name) end
+
+
+--------------------------------------------------------------------------------
+--[ Framebuffers ]--------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- ComputerCraft native terminal objects, for example `term` or `window`
+--- objects.
+--- @alias CCTermAPI {}
+
+--- Stores the colour and depth of rendered triangles.
+--- @class V3DFramebuffer
+--- Width of the framebuffer in pixels. Note, if you're using subpixel
+--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
+--- width of 102 pixels in its framebuffer.
+--- @field width integer
+--- Height of the framebuffer in pixels. Note, if you're using subpixel
+--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
+--- height of 57 pixels in its framebuffer.
+--- @field height integer
+--- Stores the colour value of every pixel that's been drawn.
+--- @field colour integer[]
+--- Stores `1/Z` for every pixel drawn (when depth storing is enabled)
+--- @field depth number[]
+local V3DFramebuffer = {}
+
+--- Sets every pixel's colour to the provided colour value. If `clear_depth` is
+--- not false, this resets the depth values to `0` as well.
+--- @param colour integer | nil Defaults to 1 (colours.white)
+--- @param clear_depth boolean | nil Whether to clear the depth values. Defaults to `true`.
+--- @return nil
+function V3DFramebuffer:clear(colour, clear_depth) end
+
+--- Sets every pixel's depth to the provided depth value. Note: the value
+--- representing "infinite" depth when nothing has been drawn is 0. The value
+--- stored in this buffer should be 1/depth, so something 2 units away will have
+--- 0.5 in the depth buffer.
+--- @param depth_reciprocal number
+--- @return nil
+function V3DFramebuffer:clear_depth(depth_reciprocal) end
+
+--- Render the framebuffer to the terminal, drawing a high resolution image
+--- using subpixel conversion.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @return nil
+function V3DFramebuffer:blit_term_subpixel(term, dx, dy) end
+
+--- Similar to `blit_subpixel` but draws the depth instead of colour.
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
+--- @return nil
+function V3DFramebuffer:blit_term_subpixel_depth(term, dx, dy, update_palette) end
+
+--- TODO
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @return nil
+function V3DFramebuffer:blit_graphics(term, dx, dy) end
+
+--- TODO
+--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
+--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
+--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
+--- @return nil
+function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
 
 
 --------------------------------------------------------------------------------
