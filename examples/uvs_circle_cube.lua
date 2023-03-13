@@ -37,7 +37,7 @@ while true do
     framebuffer:clear('colour', colours.white)
 	framebuffer:clear('depth')
     pipeline:render_geometry(cube, framebuffer, transform)
-    framebuffer:blit_term_subpixel(term)
+    framebuffer:blit_term_subpixel(term, 'colour')
     pipeline:set_uniform('t', pipeline:get_uniform 't' + 0.05)
     sleep(0.05)
 end

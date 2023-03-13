@@ -194,7 +194,7 @@ table.insert(trees, attachment_tree)
 for i = 1, #instance.attachments do
 	local attachment = instance.attachments[i]
 	table.insert(attachment_tree.children, {
-		content = attachment.name .. ' &lightGrey;(&green;' .. attachment.type .. '&lightGrey;)',
+		content = attachment.name .. ' &lightGrey;(' .. fmtobject(attachment.type) .. '&lightGrey;)',
 		content_right = '&lightGrey;' .. attachment.components .. ' components',
 		children = {},
 	})

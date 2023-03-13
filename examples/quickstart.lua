@@ -130,7 +130,7 @@ while true do
 	default_pipeline:render_geometry(cube2, framebuffer, transform)
 
 	-- Draw the framebuffer to the screen.
-	framebuffer:blit_term_subpixel(term, 0, 0)
+	framebuffer:blit_term_subpixel(term, 'colour', 0, 0)
 
 	-- Wait a short amount of time.
 	sleep(next_frame_time - os.clock())

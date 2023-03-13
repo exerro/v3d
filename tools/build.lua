@@ -805,6 +805,10 @@ do -- produce compiled v3d.d.ts
 		local result = ''
 
 		for i = 1, #fn.overloads do
+			if i ~= 1 then
+				result = result .. '\n'
+			end
+
 			local ov = fn.overloads[i]
 			local needs_comma = false
 

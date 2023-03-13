@@ -36,7 +36,7 @@ pcall(function()
 		fb:clear('colour', 1)
 		fb:clear('depth')
 		pipeline:render_geometry(cube, fb, transform)
-		fb:blit_term_subpixel(term)
+		fb:blit_term_subpixel(term, 'colour')
 		sleep(0.05)
 	end
 end)

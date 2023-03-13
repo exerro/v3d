@@ -31,6 +31,6 @@ while true do
     pipeline:render_geometry(large_cube, framebuffer, transform)
     pipeline:set_uniform('u_instanceID', 1)
     pipeline:render_geometry(small_cube, framebuffer, transform)
-    framebuffer:blit_term_subpixel(term)
+    framebuffer:blit_term_subpixel(term, 'colour')
     sleep(0.05)
 end

@@ -94,7 +94,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 			count_fragments_drawn = true,
 		} or nil,
 	}
-	local v3d_present = flags.depth_present and fb.blit_term_subpixel_depth or fb.blit_term_subpixel
+	local v3d_present = fb.blit_term_subpixel
 	local v3d_render = pipeline.render_geometry
 	local aspect = fb.width / fb.height
 
@@ -122,7 +122,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	end
 
 	local function present_fn()
-		return v3d_present(fb, term.current(), 0, 0, true)
+		return v3d_present(fb, term.current(), 'colour', 0, 0)
 	end
 
 	return clear_fn, draw_fn, present_fn

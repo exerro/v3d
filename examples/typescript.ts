@@ -16,5 +16,5 @@ while (true) {
 	framebuffer.clear('colour', 1)
 	framebuffer.clear('depth')
 	pipeline.render_geometry(geometry, framebuffer, transform)
-	framebuffer.blit_term_subpixel({})
+	framebuffer.blit_term_subpixel({}, 'colour')
 }

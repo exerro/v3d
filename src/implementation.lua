@@ -200,6 +200,14 @@ end
 --------------------------------------------------------------------------------
 
 
+local attachment_defaults = {
+	['palette-index'] = 0,
+	['exp-palette-index'] = 1,
+	['depth-reciprocal'] = 0,
+	['any-numeric'] = 0,
+	['any'] = 0,
+}
+
 local function framebuffer_get_buffer(fb, attachment)
 	return fb.attachment_data[attachment]
 end
@@ -209,7 +217,7 @@ local function framebuffer_clear(fb, attachment, value)
 
 	if value == nil then
 		local a = fb.format:get_attachment(attachment)
-		value = a.type == 'exp-palette-index' and 1 or 0
+		value = attachment_defaults[a.type] or v3d_internal_error('no default for attachment type ' .. a.type)
 	end
 
 	for i = 1, fb.width * fb.height do
@@ -217,15 +225,14 @@ local function framebuffer_clear(fb, attachment, value)
 	end
 end
 
-local function framebuffer_blit_term_subpixel(fb, term, dx, dy)
+local function framebuffer_blit_term_subpixel(fb, term, attachment, dx, dy)
 	dx = dx or 0
 	dy = dy or 0
 
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
 
-	-- TODO: hardcoded 'colour'
-	local fb_colour, fb_width = fb.attachment_data.colour, fb.width
+	local fb_colour, fb_width = fb.attachment_data[attachment], fb.width
 
 	local xBlit = 1 + dx
 
@@ -251,6 +258,7 @@ local function framebuffer_blit_term_subpixel(fb, term, dx, dy)
 			local c02, c12 = fb_colour[i2], fb_colour[i2 + 1]
 
 			-- TODO: make this a massive decision tree?
+			-- no!
 			-- if two middle pixels are equal, that's a guaranteed colour
 
 			local unique_colour_lookup = { [c00] = 0 }

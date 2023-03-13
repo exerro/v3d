@@ -29,7 +29,7 @@ pcall(function()
 		framebuffer:clear('colour', colours.white)
 		framebuffer:clear('depth')
 		pipeline:render_geometry(cube, framebuffer, transform)
-		framebuffer:blit_term_subpixel(term)
+		framebuffer:blit_term_subpixel(term, 'colour')
 		sleep(0.05)
 	end
 end)

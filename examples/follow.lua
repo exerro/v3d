@@ -175,9 +175,9 @@ parallel.waitForAny(function()
 		end
 
 		if draw_raw then
-			framebuffer:blit_term_subpixel(term.current(), 0, 0)
+			framebuffer:blit_term_subpixel(term.current(), 'colour', 0, 0)
 		else
-			screen_framebuffer:blit_term_subpixel(term.current(), 0, 0)
+			screen_framebuffer:blit_term_subpixel(term.current(), 'colour', 0, 0)
 		end
 
 		sleep(next_frame_time - os.clock())

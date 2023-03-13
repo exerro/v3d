@@ -92,7 +92,7 @@ end
 
 --------------------------------------------------------------------------------
 
---- @alias V3DType 'v3d' | 'V3DFramebuffer' | 'V3DLayout' | 'V3DGeometryBuilder' | 'V3DGeometry' | 'V3DTransform' | 'V3DPipeline'
+--- @alias V3DType 'v3d' | 'V3DFormat' | 'V3DLayout' | 'V3DFramebuffer' | 'V3DGeometryBuilder' | 'V3DGeometry' | 'V3DTransform' | 'V3DPipeline'
 
 local V3D_VALIDATION_FAILED = 'V3D_VALIDATION_FAILED'
 
@@ -158,8 +158,9 @@ do -- generate the wrapper
 	------------------------------------------------------------
 
 	local convert_instance_v3d
-	local convert_instance_V3DFramebuffer
+	local convert_instance_V3DFormat
 	local convert_instance_V3DLayout
+	local convert_instance_V3DFramebuffer
 	local convert_instance_V3DGeometryBuilder
 	local convert_instance_V3DGeometry
 	local convert_instance_V3DTransform
@@ -174,6 +175,18 @@ do -- generate the wrapper
 	end
 
 	convert_instance_v3d(v3d_wrapper, 'v3d')
+
+	-- TODO: automate this:
+
+	for _, format_name in ipairs { 'COLOUR_FORMAT', 'COLOUR_DEPTH_FORMAT' } do
+		local s = tostring {}
+		-- take a copy of the format in a really hacky way, then wrap it
+		-- we don't wanna wrap_format the original since that would mutate it
+		local format_copy = v3d_wrapper[format_name]
+			:add_attachment(s, 'any', 0):drop_attachment(s) -- we take a copy like this
+		convert_instance_V3DFormat(format_copy, 'v3d.' .. format_name)
+		v3d_wrapper[format_name] = format_copy
+	end
 
 	for _, layout_name in ipairs { 'DEFAULT_LAYOUT', 'UV_LAYOUT', 'DEBUG_CUBE_LAYOUT' } do
 		local s = tostring {}

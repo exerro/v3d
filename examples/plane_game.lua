@@ -176,7 +176,7 @@ local function draw()
 		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, transform)
 	end
 	-- framebuffer:blit_term_subpixel(term)
-	framebuffer:blit_graphics(term)
+	framebuffer:blit_graphics(term, 'colour')
 end
 
 local function update(dt)
