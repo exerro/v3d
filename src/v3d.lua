@@ -49,34 +49,37 @@
 local v3d = {}
 
 --- Create an empty [[@V3DFormat]].
+--- See also: [[@v3d.COLOUR]], [[@v3d.COLOUR_DEPTH_FORMAT]]
 --- @return V3DFormat
 --- @nodiscard
 function v3d.create_format() end
-
---- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
----
---- Note, for using subpixel rendering (you probably are), use
---- `create_framebuffer_subpixel` instead.
---- @param width integer Width of the framebuffer in pixels
---- @param height integer Height of the framebuffer in pixels
---- @param label string | nil Optional label for debugging
---- @return V3DFramebuffer
---- @nodiscard
-function v3d.create_framebuffer(width, height, label) end
-
---- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
---- pixels, suitable for rendering subpixels.
---- @param width integer Width of the framebuffer in full screen pixels
---- @param height integer Height of the framebuffer in full screen pixels
---- @param label string | nil Optional label for debugging
---- @return V3DFramebuffer
---- @nodiscard
-function v3d.create_framebuffer_subpixel(width, height, label) end
 
 --- Create an empty [[@V3DLayout]].
 --- @return V3DLayout
 --- @nodiscard
 function v3d.create_layout() end
+
+--- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
+---
+--- Note, for using subpixel rendering (you probably are), use
+--- `create_framebuffer_subpixel` instead.
+--- @param format V3DFormat Format of the framebuffer, i.e. what data it contains.
+--- @param width integer Width of the framebuffer in pixels
+--- @param height integer Height of the framebuffer in pixels
+--- @param label string | nil Optional label for debugging
+--- @return V3DFramebuffer
+--- @nodiscard
+function v3d.create_framebuffer(format, width, height, label) end
+
+--- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
+--- pixels, suitable for rendering subpixels.
+--- @param format V3DFormat Format of the framebuffer, i.e. what data it contains.
+--- @param width integer Width of the framebuffer in full screen pixels
+--- @param height integer Height of the framebuffer in full screen pixels
+--- @param label string | nil Optional label for debugging
+--- @return V3DFramebuffer
+--- @nodiscard
+function v3d.create_framebuffer_subpixel(format, width, height, label) end
 
 --- Create an empty [[@V3DGeometryBuilder]] with the given layout.
 --- @param layout V3DLayout Initial layout, which can be changed with [[@V3DGeometryBuilder.cast]].
@@ -321,6 +324,9 @@ function V3DLayout:get_attribute(name) end
 
 --- Stores the colour and depth of rendered triangles.
 --- @class V3DFramebuffer
+--- Format of the framebuffer which determines which data the framebuffer
+----stores.
+--- @field format V3DFormat
 --- Width of the framebuffer in pixels. Note, if you're using subpixel
 --- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
 --- width of 102 pixels in its framebuffer.
@@ -329,26 +335,30 @@ function V3DLayout:get_attribute(name) end
 --- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
 --- height of 57 pixels in its framebuffer.
 --- @field height integer
---- Stores the colour value of every pixel that's been drawn.
---- @field colour integer[]
---- Stores `1/Z` for every pixel drawn (when depth storing is enabled)
---- @field depth number[]
+--- @field private attachment_data { [V3DAttachmentName]: unknown[] }
+--- @field private attachment_defaults { [V3DAttachmentName]: unknown }
 local V3DFramebuffer = {}
 
---- Sets every pixel's colour to the provided colour value. If `clear_depth` is
---- not false, this resets the depth values to `0` as well.
---- @param colour integer | nil Defaults to 1 (colours.white)
---- @param clear_depth boolean | nil Whether to clear the depth values. Defaults to `true`.
---- @return nil
-function V3DFramebuffer:clear(colour, clear_depth) end
+--- Get the data for a given attachment
+--- @param attachment V3DAttachmentName
+--- @return unknown[]
+--- @nodiscard
+function V3DFramebuffer:get_buffer(attachment) end
 
---- Sets every pixel's depth to the provided depth value. Note: the value
---- representing "infinite" depth when nothing has been drawn is 0. The value
---- stored in this buffer should be 1/depth, so something 2 units away will have
---- 0.5 in the depth buffer.
---- @param depth_reciprocal number
+--- Sets the data for the entire attachment to a particular value. If `value` is
+--- nil, a default value based on the attachment's type will be used, as
+--- follows:
+--- Type | Default
+--- -|-
+--- `palette-index` | `0`
+--- `exp-palette-index` | `1`
+--- `depth-reciprocal` | `0`
+--- `any-numeric` | `0`
+--- `any` | `false`
+--- @param attachment V3DAttachmentName
+--- @param value any | nil
 --- @return nil
-function V3DFramebuffer:clear_depth(depth_reciprocal) end
+function V3DFramebuffer:clear(attachment, value) end
 
 --- Render the framebuffer to the terminal, drawing a high resolution image
 --- using subpixel conversion.

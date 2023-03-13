@@ -107,79 +107,65 @@ end
 --------------------------------------------------------------------------------
 
 do
-	local fb = v3d.create_framebuffer(5, 3)
+	local fb = v3d.create_framebuffer(v3d.COLOUR_DEPTH_FORMAT, 5, 3)
 
 	assertEquals(5, fb.width)
 	assertEquals(3, fb.height)
-	assertEquals(15, #fb.colour)
-	assertEquals(15, #fb.depth)
+	assertEquals(15, #fb:get_buffer 'colour')
+	assertEquals(15, #fb:get_buffer 'depth')
 
 	for i = 1, 15 do
-		assertEquals(1, fb.colour[i])
-		assertEquals(0, fb.depth[i])
+		assertEquals(1, fb:get_buffer 'colour' [i])
+		assertEquals(0, fb:get_buffer 'depth' [i])
 	end
 
-	fb:clear()
+	fb:clear('colour')
 
 	for i = 1, 15 do
-		assertEquals(1, fb.colour[i])
-		assertEquals(0, fb.depth[i])
+		assertEquals(1, fb:get_buffer 'colour' [i])
+		assertEquals(0, fb:get_buffer 'depth' [i])
 	end
 
-	fb:clear(2)
+	fb:clear('colour', 2)
 
 	for i = 1, 15 do
-		assertEquals(2, fb.colour[i])
-		assertEquals(0, fb.depth[i])
+		assertEquals(2, fb:get_buffer 'colour' [i])
+		assertEquals(0, fb:get_buffer 'depth' [i])
 	end
 
-	fb:clear_depth(0.5)
+	fb:clear('depth', 0.5)
 
 	for i = 1, 15 do
-		assertEquals(2, fb.colour[i])
-		assertEquals(0.5, fb.depth[i])
+		assertEquals(2, fb:get_buffer 'colour' [i])
+		assertEquals(0.5, fb:get_buffer 'depth' [i])
 	end
 
-	fb:clear(4, false)
-
-	for i = 1, 15 do
-		assertEquals(4, fb.colour[i])
-		assertEquals(0.5, fb.depth[i])
-	end
-
-	fb:clear(8, true)
-
-	for i = 1, 15 do
-		assertEquals(8, fb.colour[i])
-		assertEquals(0, fb.depth[i])
-	end
-
-	local fb2 = v3d.create_framebuffer_subpixel(2, 2)
+	local fb2 = v3d.create_framebuffer_subpixel(v3d.COLOUR_FORMAT, 2, 2)
 
 	assertEquals(4, fb2.width)
 	assertEquals(6, fb2.height)
 
 	-- (1, 0) all orange
-	fb2.colour[3] = 2
-	fb2.colour[4] = 2
-	fb2.colour[7] = 2
-	fb2.colour[8] = 2
-	fb2.colour[11] = 2
-	fb2.colour[12] = 2
+	fb2:get_buffer 'colour' [3] = 2
+	fb2:get_buffer 'colour' [4] = 2
+	fb2:get_buffer 'colour' [7] = 2
+	fb2:get_buffer 'colour' [8] = 2
+	fb2:get_buffer 'colour' [11] = 2
+	fb2:get_buffer 'colour' [12] = 2
 	-- (0, 1) mixed two colours
-	fb2.colour[13] = 4
-	fb2.colour[14] = 8
-	fb2.colour[17] = 8
-	fb2.colour[18] = 4
-	fb2.colour[21] = 4
-	fb2.colour[22] = 8
+	fb2:get_buffer 'colour' [13] = 4
+	fb2:get_buffer 'colour' [14] = 8
+	fb2:get_buffer 'colour' [17] = 8
+	fb2:get_buffer 'colour' [18] = 4
+	fb2:get_buffer 'colour' [21] = 4
+	fb2:get_buffer 'colour' [22] = 8
 	-- (1, 1) mixed 3 colours  abcdcc
-	fb2.colour[15] = 16
-	fb2.colour[16] = 32
-	fb2.colour[19] = 64
-	fb2.colour[20] = 128
-	fb2.colour[23] = 128
-	fb2.colour[24] = 128
+	fb2:get_buffer 'colour' [15] = 16
+	fb2:get_buffer 'colour' [16] = 32
+	fb2:get_buffer 'colour' [19] = 64
+	fb2:get_buffer 'colour' [20] = 128
+	fb2:get_buffer 'colour' [23] = 128
+	fb2:get_buffer 'colour' [24] = 128
 
 	local actions = {
 		{ 'setCursorPos', 2, 3 },

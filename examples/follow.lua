@@ -7,8 +7,8 @@ local detector = peripheral.find 'playerDetector'
 local v3d = require '/v3d'
 
 local width, height = term.getSize()
-local screen_framebuffer = v3d.create_framebuffer_subpixel(width, height)
-local framebuffer = v3d.create_framebuffer(math.floor(200 * width / height + 0.5), 200)
+local screen_framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, width, height)
+local framebuffer = v3d.create_framebuffer(v3d.COLOUR_DEPTH_FORMAT, math.floor(200 * width / height + 0.5), 200)
 
 local transform = v3d.translate(0, 0, -2)
 
@@ -128,17 +128,18 @@ parallel.waitForAny(function()
 		local model_transform = view_transform * transform
 		local floor_vm_transform = view_transform * floor_transform
 
-		framebuffer:clear(colours.black)
+		framebuffer:clear('colour', colours.black)
+		framebuffer:clear('depth')
 		transparent_pipeline:render_geometry(cube1, framebuffer, model_transform)
 		effect_pipeline:render_geometry(cube1, framebuffer, model_transform)
 		-- default_pipeline:render_geometry(cube2, framebuffer, model_transform)
 		default_pipeline:render_geometry(floor, framebuffer, floor_vm_transform)
 
 		if not draw_raw then
-			local sf_colour = screen_framebuffer.colour
+			local sf_colour = screen_framebuffer:get_buffer 'colour'
 			local sf_width_1 = screen_framebuffer.width - 1
 			local sf_height_1 = screen_framebuffer.height - 1
-			local f_colour = framebuffer.colour
+			local f_colour = framebuffer:get_buffer 'colour'
 			local f_width = framebuffer.width
 			local f_height = framebuffer.height
 			local f_width_1_2 = (framebuffer.width - 1) / 2

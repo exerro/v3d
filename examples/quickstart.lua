@@ -4,7 +4,7 @@ local v3d = require '/v3d'
 
 -- Create a framebuffer to draw to.
 local width, height = term.getSize()
-local framebuffer = v3d.create_framebuffer_subpixel(width, height, 'Screen buffer')
+local framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, width, height, 'Screen buffer')
 
 local transform = v3d.camera(0, 0, 2)
 
@@ -114,7 +114,8 @@ local last_update_time = os.clock()
 -- Run a loop to repeatedly draw.
 while true do
 	-- Clear the framebuffer to black
-	framebuffer:clear(colours.black)
+	framebuffer:clear('colour', colours.black)
+	framebuffer:clear('depth')
 
 	-- Render the outer cube using the transparent pipeline so it's textured
 	-- using the window image we defined above.

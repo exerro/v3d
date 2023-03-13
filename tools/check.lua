@@ -20,6 +20,7 @@ local function run_handling_terminate(s, ...)
 			print(data)
 			break
 		elseif coroutine.status(co) == 'dead' then
+			error(data)
 			break
 		end
 

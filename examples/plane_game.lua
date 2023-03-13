@@ -31,7 +31,7 @@ term.setGraphicsMode(1)
 -- local screen_width, screen_height = term.getSize()
 local screen_width, screen_height = term.getSize(1)
 -- local framebuffer = v3d.create_framebuffer_subpixel(screen_width, screen_height)
-local framebuffer = v3d.create_framebuffer(screen_width, screen_height)
+local framebuffer = v3d.create_framebuffer(v3d.COLOUR_DEPTH_FORMAT, screen_width, screen_height)
 local transform = v3d.camera()
 local terrain_layout = v3d.create_layout()
 	:add_vertex_attribute('position', 3, true)
@@ -170,7 +170,8 @@ local function draw()
 		end
 	end
 
-	framebuffer:clear(2 ^ 6)
+	framebuffer:clear('colour', 2 ^ 6)
+	framebuffer:clear('depth')
 	for i = 1, #visible_chunks do
 		terrain_pipeline:render_geometry(visible_chunks[i], framebuffer, transform)
 	end

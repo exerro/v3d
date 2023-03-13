@@ -61,7 +61,7 @@ local SETTING_CAMERA_Y_ROTATION = math.pi / 6
 
 --- @param v3d v3d
 try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
-	local fb = v3d.create_framebuffer_subpixel(width, height)
+	local fb = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, width, height)
 	local gb = v3d.create_geometry_builder(v3d.DEFAULT_LAYOUT)
 	local transform = v3d.camera()
 	local pipeline = v3d.create_pipeline {
@@ -113,7 +113,7 @@ try_load_library('V3D', 'v3d', function(v3d, model_data, width, height, flags)
 	local geom = gb:build()
 
 	local function clear_fn()
-		fb:clear(1)
+		fb:clear('colour', 1)
 		-- geom:rotate_z(0.01)
 	end
 

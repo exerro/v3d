@@ -1,7 +1,7 @@
 
 local v3d = require '/v3d'
 
-local fb = v3d.create_framebuffer_subpixel(term.getSize())
+local fb = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, term.getSize())
 local pipeline = v3d.create_pipeline {
 	layout = v3d.UV_LAYOUT,
 	attributes = { 'uv' },
@@ -33,7 +33,8 @@ pcall(function()
 	while true do
 		rotation = rotation + 0.05
 		local transform = v3d.camera(math.sin(rotation) * 3, 0, math.cos(rotation) * 3, rotation)
-		fb:clear(1)
+		fb:clear('colour', 1)
+		fb:clear('depth')
 		pipeline:render_geometry(cube, fb, transform)
 		fb:blit_term_subpixel(term)
 		sleep(0.05)

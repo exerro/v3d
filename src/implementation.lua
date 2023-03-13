@@ -8,6 +8,19 @@ error 'Cannot use v3d source code, must build the library'
 local v3d = {}
 
 
+local function v3d_internal_error(message)
+	local traceback
+	pcall(function()
+		traceback = debug and debug.traceback and debug.traceback()
+	end)
+	error(
+		'V3D INTERNAL ERROR: ' .. tostring(message == nil and '' or message) ..
+		(traceback and '\n' .. traceback or ''),
+		0
+	)
+end
+
+
 --------------------------------------------------------------------------------
 --[ Subpixel lookup tables ]----------------------------------------------------
 --------------------------------------------------------------------------------
@@ -187,23 +200,20 @@ end
 --------------------------------------------------------------------------------
 
 
-local function framebuffer_clear(fb, colour, clear_depth)
-	local fb_colour = fb.colour
-	local fb_depth = fb.depth
-	for i = 1, fb.width * fb.height do
-		fb_colour[i] = colour or 1
-	end
-	if clear_depth ~= false then
-		for i = 1, fb.width * fb.height do
-			fb_depth[i] = 0
-		end
-	end
+local function framebuffer_get_buffer(fb, attachment)
+	return fb.attachment_data[attachment]
 end
 
-local function framebuffer_clear_depth(fb, depth)
-	local fb_depth = fb.depth
+local function framebuffer_clear(fb, attachment, value)
+	local data = fb.attachment_data[attachment]
+
+	if value == nil then
+		local a = fb.format:get_attachment(attachment)
+		value = a.type == 'exp-palette-index' and 1 or 0
+	end
+
 	for i = 1, fb.width * fb.height do
-		fb_depth[i] = depth
+		data[i] = value
 	end
 end
 
@@ -214,7 +224,8 @@ local function framebuffer_blit_term_subpixel(fb, term, dx, dy)
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
 
-	local fb_colour, fb_width = fb.colour, fb.width
+	-- TODO: hardcoded 'colour'
+	local fb_colour, fb_width = fb.attachment_data.colour, fb.width
 
 	local xBlit = 1 + dx
 
@@ -328,8 +339,9 @@ local function framebuffer_blit_term_subpixel_depth(fb, term, dx, dy, update_pal
 
 	-- we're gonna do a hack to swap out the buffers and draw it like normal
 
-	local fb_depth = fb.depth
-	local old_colour = fb.colour
+	-- TODO: hardcoded attachments
+	local fb_depth = fb.attachment_data.depth
+	local old_colour = fb.attachment_data.colour
 	local new_colour = {}
 	local min = fb_depth[1]
 	local max = fb_depth[1]
@@ -353,15 +365,17 @@ local function framebuffer_blit_term_subpixel_depth(fb, term, dx, dy, update_pal
 		new_colour[i] = 2 ^ b
 	end
 
-	fb.colour = new_colour
+	-- TODO: hardcoded attachments
+	fb.attachment_data.colour = new_colour
 	framebuffer_blit_term_subpixel(fb, term, dx, dy)
-	fb.colour = old_colour
+	fb.attachment_data.colour = old_colour
 end
 
 local function framebuffer_blit_graphics(fb, term, dx, dy)
 	local lines = {}
 	local index = 1
-	local fb_colour = fb.colour
+	-- TODO: hardcoded attachments
+	local fb_colour = fb.attachment_data.colour
 	local fb_width = fb.width
 	local string_char = string.char
 	local table_concat = table.concat
@@ -410,8 +424,9 @@ local function framebuffer_blit_graphics_depth(fb, term, dx, dy, update_palette)
 
 	-- we're gonna do a hack to swap out the buffers and draw it like normal
 
-	local fb_depth = fb.depth
-	local old_colour = fb.colour
+	-- TODO: hardcoded attachments
+	local fb_depth = fb.attachment_data.depth
+	local old_colour = fb.attachment_data.colour
 	local new_colour = {}
 	local min = fb_depth[1]
 	local max = fb_depth[1]
@@ -435,33 +450,37 @@ local function framebuffer_blit_graphics_depth(fb, term, dx, dy, update_palette)
 		new_colour[i] = convert_pixel(b)
 	end
 
-	fb.colour = new_colour
+	-- TODO: hardcoded attachments
+	fb.attachment_data.colour = new_colour
 	framebuffer_blit_graphics(fb, term, dx, dy)
-	fb.colour = old_colour
+	fb.attachment_data.colour = old_colour
 end
 
-local function create_framebuffer(width, height)
-	--- @type V3DFramebuffer
+local function create_framebuffer(format, width, height)
 	local fb = {}
 
+	fb.format = format
 	fb.width = width
 	fb.height = height
-	fb.colour = {}
-	fb.depth = {}
+	fb.attachment_data = {}
+	fb.get_buffer = framebuffer_get_buffer
 	fb.clear = framebuffer_clear
-	fb.clear_depth = framebuffer_clear_depth
 	fb.blit_term_subpixel = framebuffer_blit_term_subpixel
 	fb.blit_term_subpixel_depth = framebuffer_blit_term_subpixel_depth
 	fb.blit_graphics = framebuffer_blit_graphics
 	fb.blit_graphics_depth = framebuffer_blit_graphics_depth
 
-	framebuffer_clear(fb)
+	for i = 1, #format.attachments do
+		local attachment = format.attachments[i]
+		fb.attachment_data[attachment.name] = {}
+		framebuffer_clear(fb, attachment.name)
+	end
 
 	return fb
 end
 
-local function create_framebuffer_subpixel(width, height)
-	return create_framebuffer(width * 2, height * 3) -- multiply by subpixel dimensions
+local function create_framebuffer_subpixel(format, width, height)
+	return create_framebuffer(format, width * 2, height * 3) -- multiply by subpixel dimensions
 end
 
 
@@ -950,8 +969,9 @@ return function(_, geometry, fb, transform, model_transform)
 	local math = math
 	local math_ceil = math.ceil
 	local math_floor = math.floor
-	local fb_colour = fb.colour
-	local fb_depth = fb.depth
+	-- TODO: hardcoded attachments
+	local fb_colour = fb.attachment_data.colour
+	local fb_depth = fb.attachment_data.depth
 	local fb_width = fb.width
 	local fb_width_m1 = fb_width - 1
 	local fb_height_m1 = fb.height - 1
@@ -1654,9 +1674,9 @@ do
 	end
 
 	set_library('create_format', create_format)
+	set_library('create_layout', create_layout)
 	set_library('create_framebuffer', create_framebuffer)
 	set_library('create_framebuffer_subpixel', create_framebuffer_subpixel)
-	set_library('create_layout', create_layout)
 	set_library('create_geometry_builder', create_geometry_builder)
 	set_library('create_debug_cube', create_debug_cube)
 	set_library('identity', create_identity_transform)
@@ -1676,7 +1696,7 @@ do
 		:add_attachment('colour', 'exp-palette-index', 1))
 	set_library('COLOUR_DEPTH_FORMAT', v3d.create_format()
 		:add_attachment('colour', 'exp-palette-index', 1)
-		:add_attachment('colour', 'depth-reciprocal', 1))
+		:add_attachment('depth', 'depth-reciprocal', 1))
 	set_library('DEFAULT_LAYOUT', v3d.create_layout()
 		:add_vertex_attribute('position', 3, true)
 		:add_face_attribute('colour', 1))

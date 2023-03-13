@@ -1,7 +1,7 @@
 
 local v3d = require '/v3d'
 
-local framebuffer = v3d.create_framebuffer_subpixel(term.getSize())
+local framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, term.getSize())
 local layout = v3d.create_layout()
     :add_vertex_attribute('position', 3, true)
     :add_vertex_attribute('uv', 2, true)
@@ -34,7 +34,8 @@ while true do
     local c = math.cos(rotation)
     local distance = 2
     local transform = v3d.camera(s * distance, 0, c * distance, rotation)
-    framebuffer:clear(colours.white)
+    framebuffer:clear('colour', colours.white)
+	framebuffer:clear('depth')
     pipeline:render_geometry(cube, framebuffer, transform)
     framebuffer:blit_term_subpixel(term)
     pipeline:set_uniform('t', pipeline:get_uniform 't' + 0.05)

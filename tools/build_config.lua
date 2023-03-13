@@ -94,6 +94,7 @@ do -- fn logging blacklist
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.drop_attribute'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.has_attribute'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DLayout.get_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFramebuffer.get_buffer'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DGeometry.to_builder'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DGeometryBuilder.set_data'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DGeometryBuilder.append_data'] = true
