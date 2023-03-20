@@ -47,7 +47,7 @@ local function parse_class(group)
 		assert(group[4].text == '{')
 		assert(group[5].text == '}')
 	else
-		assert(#group == 0)
+		assert(#group == 0 or group[1].text == 'end')
 	end
 
 	local classname = group.annotations[1].content
@@ -67,7 +67,7 @@ local function parse_class(group)
 		fields = {},
 		operators = {},
 		functions = {},
-		codename = group[2] and group[2].text or classname,
+		codename = group[1] and group[1].text == 'local' and group[2].text or classname,
 	}
 
 	for i = 2, #group.annotations do
@@ -216,7 +216,7 @@ end
 --- @return Type | { codename: string }
 local function parse_alias(group)
 	assert(#group.annotations == 1)
-	assert(#group == 0)
+	assert(#group == 0 or group[1].text == 'end')
 
 	local typename, extends = group.annotations[1].content:match '^([%w_]+)%s+(.+)$'
 	local docstring = group.annotations[1].pretext or MISSING_DOCUMENTATION
@@ -246,6 +246,13 @@ function docparse.parse(source)
 
 	--- @type AnnotatedGroup[]
 	local token_groups = { {} }
+
+	-- remove 'do' tokens (these interfere with the token groups below)
+	for i = #tokens, 1, -1 do
+		if tokens[i].text == 'do' then
+			table.remove(tokens, i)
+		end
+	end
 
 	-- generate token groups from token list
 	for i = 1, #tokens do
@@ -286,6 +293,7 @@ function docparse.parse(source)
 	end
 
 	-- generate types and functions
+	--- @type (Type | { codename: string })[]
 	local types = {}
 	local functions = {}
 	for i = 1, #token_groups do
@@ -303,12 +311,56 @@ function docparse.parse(source)
 		end
 	end
 
-	-- add functions to types
+	-- build a name lookup for types and merge similarly named types (for
+	-- extensions)
 	local type_lookup = {}
 	for i = 1, #types do
-		type_lookup[types[i].codename] = types[i]
-		types[types[i].name] = types[i]
+		local t = types[i]
+		local codename = t.codename
+
+		if types[types[i].name] then
+			local existing_type = types[types[i].name]
+
+			existing_type.extends = existing_type.extends or t.extends
+
+			if existing_type.kind ~= t.kind then
+				error('Mismatched kinds for ' .. t.name .. ': ' .. t.kind .. ', ' .. existing_type.kind)
+			end
+
+			if t.docstring ~= MISSING_DOCUMENTATION then
+				if existing_type.docstring == MISSING_DOCUMENTATION then
+					existing_type.docstring = t.docstring
+				else
+					existing_type.docstring = existing_type.docstring .. '\n' .. t.docstring
+				end
+			end
+
+			for j = 1, #t.fields do
+				table.insert(existing_type.fields, t.fields[j])
+			end
+
+			for j = 1, #t.functions do
+				table.insert(existing_type.functions, t.functions[j])
+			end
+
+			for j = 1, #t.operators do
+				table.insert(existing_type.operators, t.operators[j])
+			end
+
+			t = existing_type
+		else
+			types[types[i].name] = t
+		end
+
+		type_lookup[codename] = t
 	end
+	for i = #types, 1, -1 do
+		if types[types[i].name] ~= types[i] then
+			table.remove(types, i)
+		end
+	end
+
+	-- add functions to types
 	for i = 1, #functions do
 		local type = type_lookup[functions[i].type_codename]
 

@@ -124,19 +124,32 @@ end
 
 do -- produce compiled api_reference.md
 	local function type_to_markdown(s)
-		return (s:gsub('[a-zA-Z][%w_%[%]%.]*', function(ss)
+		return (s:gsub('\'.-\'', function(ss)
+			return '`' .. ss .. '`'
+		end):gsub('%[%]', function(ss)
+			return '`' .. ss .. '`'
+		end):gsub('[a-zA-Z\'][%w_%-]*', function(ss)
+			if ss:sub(1, 1) == '\'' then
+				return ss
+			end
 			if v3d_types[ss] then
 				return '[`' .. ss .. '`](#' .. ss:lower() .. ')'
 			else
-				return '`' .. ss .. '`'
+				return '`' .. ss .. '` '
 			end
 		end))
 	end
 
-	local function docstring_to_markdown(s)
-		return (s:gsub('%[%[@([%w_%.]+)%]%]', function(ss)
+	local function docstring_to_markdown(s, inline)
+		s = s:gsub('%[%[@([%w_%.]+)%]%]', function(ss)
 			return '[`' .. ss .. '`](#' .. ss:gsub('[^%w_]', ''):lower() .. ')'
-		end))
+		end)
+
+		if inline then
+			return (s:gsub('\n\t*%*', '<br>'):gsub('\n\n', '<br><br>'):gsub('\n', ' '))
+		else
+			return s
+		end
 	end
 
 	local OUTPUT_PATH = gen_path .. 'api_reference.md'
@@ -162,17 +175,6 @@ do -- produce compiled api_reference.md
 		h:write '`](#'
 		h:write(class.name:lower())
 		h:write ')\n'
-	
-		for j = 1, #class.fields do
-			h:write '  * [`'
-			h:write(class.name)
-			h:write '.'
-			h:write(class.fields[j].name)
-			h:write('`](#')
-			h:write(class.name:lower())
-			h:write(class.fields[j].name:lower())
-			h:write ')\n'
-		end
 
 		for j = 1, #class.functions do
 			h:write '  * [`'
@@ -196,82 +198,109 @@ do -- produce compiled api_reference.md
 		h:write '`\n\n'
 
 		if class.extends then
-			h:write '## Extends `'
-			h:write(class.extends)
-			h:write '`\n\n'
+			if class.kind == 'alias' then
+				h:write '## Alias of '
+			else
+				h:write '## Extends '
+			end
+			h:write(type_to_markdown(class.extends))
+			h:write '\n\n'
 		end
 
-		h:write(docstring_to_markdown(class.docstring))
+		h:write(docstring_to_markdown(class.docstring, false))
 		h:write '\n\n'
 
-		for j = 1, #class.fields do
-			h:write '### `'
-			h:write(class.name)
-			h:write '.'
-			h:write(class.fields[j].name)
-			h:write '`\n\n'
+		if class.kind ~= 'alias' then
+			h:write '## Fields\n\n'
 
-			h:write '#### (type) '
-			h:write(type_to_markdown(class.fields[j].type))
-			h:write '\n\n'
-
-			if class.fields[j].docstring ~= '' then
-				h:write(docstring_to_markdown(class.fields[j].docstring))
-				h:write '\n\n'
+			if #class.fields > 0 then
+				h:write 'Name | Type | Description\n'
+				h:write '-|-|-\n'
+			else
+				h:write 'This type has no fields.\n'
 			end
+
+			for j = 1, #class.fields do
+				h:write '`'
+				h:write(class.fields[j].name)
+				h:write '` | '
+				h:write((type_to_markdown(class.fields[j].type):gsub('|', '\\|')))
+				h:write ' | '
+				h:write(docstring_to_markdown(class.fields[j].docstring, true))
+				h:write '\n'
+			end
+
+			h:write '\n'
 		end
 
-		for j = 1, #class.functions do
-			local method = class.functions[j]
+		if class.kind ~= 'alias' then
+			h:write '## Functions\n\n'
 
-			h:write '## `'
-			h:write(class.name)
-			h:write(method.is_method and ':' or '.')
-			h:write(method.name)
-			h:write '()`\n\n'
-
-			if method.docstring ~= '' then
-				h:write(docstring_to_markdown(method.docstring))
-				h:write '\n\n'
+			if #class.functions == 0 then
+				h:write 'This type has no functions.\n\n'
 			end
 
-			for k = 1, #method.overloads do
-				local overload = method.overloads[k]
+			for j = 1, #class.functions do
+				local method = class.functions[j]
 
-				h:write '```lua\nfunction '
+				h:write '### `'
 				h:write(class.name)
 				h:write(method.is_method and ':' or '.')
 				h:write(method.name)
-				h:write '('
+				h:write '()`\n\n'
 
-				for l = 1, #overload.parameters do
-					if l ~= 1 then
-						h:write ', '
-					end
-					h:write(overload.parameters[l].name)
-				end
-
-				h:write '): '
-				h:write(overload.returns)
-
-				h:write '\n```\n\n'
-
-				for l = 1, #overload.parameters do
-					h:write '#### (parameter) `'
-					h:write(overload.parameters[l].name)
-					h:write '` :  '
-					h:write(type_to_markdown(overload.parameters[l].type))
+				if method.docstring ~= '' then
+					h:write(docstring_to_markdown(method.docstring, false))
 					h:write '\n\n'
-
-					if overload.parameters[l].docstring ~= '' then
-						h:write(docstring_to_markdown(overload.parameters[l].docstring))
-						h:write '\n\n'
-					end
 				end
 
-				h:write '#### (returns) '
-				h:write(type_to_markdown(overload.returns))
-				h:write '\n\n'
+				for k = 1, #method.overloads do
+					local overload = method.overloads[k]
+
+					h:write '#### Signature\n\n'
+
+					h:write '```lua\nfunction '
+					h:write(class.name)
+					h:write(method.is_method and ':' or '.')
+					h:write(method.name)
+					h:write '('
+
+					for l = 1, #overload.parameters do
+						if l ~= 1 then
+							h:write ', '
+						end
+						h:write(overload.parameters[l].name)
+					end
+
+					h:write '): '
+					h:write(overload.returns)
+
+					h:write '\n```\n\n'
+					h:write '#### Parameters\n\n'
+
+					if #overload.parameters > 0 then
+						h:write 'Name | Type | Description\n'
+						h:write '-|-|-\n'
+					else
+						h:write 'This function has no parameters.\n'
+					end
+
+					for l = 1, #overload.parameters do
+						h:write '`'
+						h:write(overload.parameters[l].name)
+						h:write '` | '
+						h:write((type_to_markdown(overload.parameters[l].type):gsub('|', '\\|')))
+						h:write ' | '
+						h:write(docstring_to_markdown(overload.parameters[l].docstring, true))
+						h:write '\n'
+					end
+
+					h:write '\n'
+
+					h:write '#### Returns '
+					h:write(type_to_markdown(overload.returns))
+					h:write '\n\n'
+				end
 			end
 		end
 	end
