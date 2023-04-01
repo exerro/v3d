@@ -39,6 +39,107 @@ end
 
 
 --------------------------------------------------------------------------------
+--[ String templating functions ]-----------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function _string_quote(s)
+	return '\'' .. (s:gsub('[\\\'\n\t]', { ['\\'] = '\\\\', ['\''] = '\\\'', ['\n'] = '\\n', ['\t'] = '\\t' })) .. '\''
+end
+
+local function _xpcall_handler(...)
+	return debug.traceback(...)
+end
+
+local function v3d_generate_template(template, context)
+	local env = {}
+
+	env._G = env
+	env._VERSION = _VERSION
+	env.assert = assert
+	env.error = error
+	env.getmetatable = getmetatable
+	env.ipairs = ipairs
+	env.load = load
+	env.next = next
+	env.pairs = pairs
+	env.pcall = pcall
+	env.print = print
+	env.rawequal = rawequal
+	env.rawget = rawget
+	env.rawlen = rawlen
+	env.rawset = rawset
+	env.select = select
+	env.setmetatable = setmetatable
+	env.tonumber = tonumber
+	env.tostring = tostring
+	env.type = type
+	env.xpcall = xpcall
+	env.math = math
+	env.string = string
+	env.table = table
+
+	env.quote = _string_quote
+
+	for k, v in pairs(context) do
+		env[k] = v
+	end
+
+	local write_content = {}
+
+	write_content[1] = 'local _text_segments = {}'
+	write_content[2] = 'local _table_insert = table.insert'
+
+	while true do
+		local s, f, indent, text, operator = ('\n' .. template):find('\n([\t ]*)([^\n{]*){([%%=#!])')
+		if s then
+			local close = template:find( (operator == '%' and '%' or '') .. operator .. '}', f)
+			           or error('Missing end to \'{' .. operator .. '\': expected a matching \'' .. operator .. '}\'', 2)
+
+			local pre_text = template:sub(1, s - 1 + #indent + #text)
+			local content = template:sub(f + 1, close - 1):gsub('^%s+', ''):gsub('%s+$', '')
+
+			if #pre_text > 0 then
+				table.insert(write_content, '_table_insert(_text_segments, ' .. _string_quote(pre_text) .. ')')
+			end
+			template = template:sub(close + 2)
+
+			if operator == '=' then
+				table.insert(write_content, '_table_insert(_text_segments, tostring(' .. content .. '))')
+			elseif operator == '%' then
+				table.insert(write_content, content)
+			elseif operator == '!' then
+				local f, err = load('return ' .. content, content, nil, env)
+				if not f then f, err = load(content, content, nil, env) end
+				if not f then error('Invalid {!!} section (syntax): ' .. err .. '\n    ' .. content, 2) end
+				local ok, result = xpcall(f, _xpcall_handler)
+				if not ok then error('Invalid {!!} section (runtime):\n' .. result, 2) end
+				if type(result) ~= 'string' then
+					error('Invalid {!!} section (return): not a string (got ' .. type(result) .. ')\n' .. content, 2)
+				end
+				template = result:gsub('\n', '\n' .. indent) .. template
+			elseif operator == '#' then
+				-- do nothing, it's a comment
+			end
+		else
+			table.insert(write_content, '_table_insert(_text_segments, ' .. _string_quote(template) .. ')')
+			break
+		end
+	end
+
+	table.insert(write_content, 'return table.concat(_text_segments)')
+
+	local code = table.concat(write_content, '\n')
+	local f, err = load(code, 'template string', nil, env)
+	if not f then error('Invalid template builder (syntax): ' .. err, 2) end
+	local ok, result = xpcall(f, _xpcall_handler)
+	if not ok then error('Invalid template builder section (runtime):\n' .. result, 2) end
+
+	return result
+end
+
+
+--------------------------------------------------------------------------------
 --[ Subpixel lookup tables ]----------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -649,13 +750,35 @@ local function transform_transform(transform, data, translate)
 end
 
 local function transform_inverse(transform)
-	local t = create_identity_transform()
+	-- TODO: untested!
+	local tr_xx = transform[1]
+	local tr_xy = transform[2]
+	local tr_xz = transform[3]
+	local tr_yx = transform[5]
+	local tr_yy = transform[6]
+	local tr_yz = transform[7]
+	local tr_zx = transform[9]
+	local tr_zy = transform[10]
+	local tr_zz = transform[11]
 
-	error 'TODO'
+	local inverse_det = 1/(tr_xx*(tr_yy*tr_zz-tr_zy*tr_yz)
+	                      -tr_xy*(tr_yx*tr_zz-tr_yz*tr_zx)
+	                      +tr_xz*(tr_yx*tr_zy-tr_yy*tr_zx))
+	local inverse_xx =  (tr_yy*tr_zz-tr_zy*tr_yz) * inverse_det
+	local inverse_xy = -(tr_xy*tr_zz-tr_xz*tr_zy) * inverse_det
+	local inverse_xz =  (tr_xy*tr_yz-tr_xz*tr_yy) * inverse_det
+	local inverse_yx = -(tr_yx*tr_zz-tr_yz*tr_zx) * inverse_det
+	local inverse_yy =  (tr_xx*tr_zz-tr_xz*tr_zx) * inverse_det
+	local inverse_yz = -(tr_xx*tr_yz-tr_yx*tr_xz) * inverse_det
+	local inverse_zx =  (tr_yx*tr_zy-tr_zx*tr_yy) * inverse_det
+	local inverse_zy = -(tr_xx*tr_zy-tr_zx*tr_xy) * inverse_det
+	local inverse_zz =  (tr_xx*tr_yy-tr_yx*tr_xy) * inverse_det
 
-	-- TODO: populate t[1 .. 12] with correct values
-
-	return t
+	return v3d.translate(-transform[4], -transform[8], -transform[12]):combine {
+		inverse_xx, inverse_xy, inverse_xz, 0,
+		inverse_yx, inverse_yy, inverse_yz, 0,
+		inverse_zx, inverse_zy, inverse_zz, 0,
+	}
 end
 
 local transform_mt = { __mul = transform_combine }
@@ -677,7 +800,7 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 	local _v3d_screen_dx = (_v3d_fb.width - 1) / 2
 	local _v3d_screen_dy = (_v3d_fb.height - 1) / 2
 	local _v3d_screen_sy = -(_v3d_screen_dy - 0.5)
-	local _v3d_screen_sx = v3d_pixel_aspect_ratio() * (_v3d_screen_dy - 0.5)
+	local _v3d_screen_sx = {= opt_pixel_aspect_ratio =} * (_v3d_screen_dy - 0.5)
 
 	v3d_import_uniforms()
 	v3d_assign_layers()
@@ -692,9 +815,26 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 	local _v3d_stat_discarded_faces = 0
 	local _v3d_stat_candidate_fragments = 0
 
-	-- #embed MODEL_TRANSFORM_LOCALISE_EMBED
-	-- #embed MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED
-
+	{% if needs_fragment_world_position then %}
+	local _v3d_model_transform_xx = _v3d_model_transform[ 1]
+	local _v3d_model_transform_xy = _v3d_model_transform[ 2]
+	local _v3d_model_transform_xz = _v3d_model_transform[ 3]
+	local _v3d_model_transform_dx = _v3d_model_transform[ 4]
+	local _v3d_model_transform_yx = _v3d_model_transform[ 5]
+	local _v3d_model_transform_yy = _v3d_model_transform[ 6]
+	local _v3d_model_transform_yz = _v3d_model_transform[ 7]
+	local _v3d_model_transform_dy = _v3d_model_transform[ 8]
+	local _v3d_model_transform_zx = _v3d_model_transform[ 9]
+	local _v3d_model_transform_zy = _v3d_model_transform[10]
+	local _v3d_model_transform_zz = _v3d_model_transform[11]
+	local _v3d_model_transform_dz = _v3d_model_transform[12]
+	{% else %}
+	-- TODO: implement this properly
+	if _v3d_model_transform then
+		_v3d_transform = _v3d_transform:combine(_v3d_model_transform)
+	end
+	{% end %}
+	
 	local _v3d_transform_xx = _v3d_transform[ 1]
 	local _v3d_transform_xy = _v3d_transform[ 2]
 	local _v3d_transform_xz = _v3d_transform[ 3]
@@ -708,6 +848,10 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 	local _v3d_transform_zz = _v3d_transform[11]
 	local _v3d_transform_dz = _v3d_transform[12]
 
+	{% if needs_world_face_normal then %}
+	local _v3d_math_sqrt = math.sqrt
+	{% end %}
+
 	local _v3d_vertex_offset = _v3d_geometry.vertex_offset
 	local _v3d_face_offset = 0
 
@@ -716,35 +860,109 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 		      _v3d_transformed_p1x, _v3d_transformed_p1y, _v3d_transformed_p1z,
 		      _v3d_transformed_p2x, _v3d_transformed_p2y, _v3d_transformed_p2z
 
-		-- #embed TRANSFORMED_WORLD_POINT_HEADER
-		-- #embed WORLD_NORMAL_CALCULATION_HEADER
+		{% if needs_fragment_world_position then %}
+		local _v3d_world_transformed_p0x, _v3d_world_transformed_p0y, _v3d_world_transformed_p0z,
+		      _v3d_world_transformed_p1x, _v3d_world_transformed_p1y, _v3d_world_transformed_p1z,
+		      _v3d_world_transformed_p2x, _v3d_world_transformed_p2y, _v3d_world_transformed_p2z
+		{% end %}
+		{% if needs_world_face_normal then %}
+		local _v3d_face_world_normal0, _v3d_face_world_normal1, _v3d_face_world_normal2
+		{% end %}
 		do
-			local _v3d_p0x=_v3d_geometry[_v3d_vertex_offset + ${P0X_OFFSET}]
-			local _v3d_p0y=_v3d_geometry[_v3d_vertex_offset + ${P0Y_OFFSET}]
-			local _v3d_p0z=_v3d_geometry[_v3d_vertex_offset + ${P0Z_OFFSET}]
-			local _v3d_p1x=_v3d_geometry[_v3d_vertex_offset + ${P1X_OFFSET}]
-			local _v3d_p1y=_v3d_geometry[_v3d_vertex_offset + ${P1Y_OFFSET}]
-			local _v3d_p1z=_v3d_geometry[_v3d_vertex_offset + ${P1Z_OFFSET}]
-			local _v3d_p2x=_v3d_geometry[_v3d_vertex_offset + ${P2X_OFFSET}]
-			local _v3d_p2y=_v3d_geometry[_v3d_vertex_offset + ${P2Y_OFFSET}]
-			local _v3d_p2z=_v3d_geometry[_v3d_vertex_offset + ${P2Z_OFFSET}]
+			{% local position_base_offset = opt_format:get_attribute(opt_position_attribute).offset %}
+			local _v3d_p0x=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + 1 =}]
+			local _v3d_p0y=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + 2 =}]
+			local _v3d_p0z=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + 3 =}]
+			local _v3d_p1x=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride + 1 =}]
+			local _v3d_p1y=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride + 2 =}]
+			local _v3d_p1z=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride + 3 =}]
+			local _v3d_p2x=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride * 2 + 1 =}]
+			local _v3d_p2y=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride * 2 + 2 =}]
+			local _v3d_p2z=_v3d_geometry[_v3d_vertex_offset + {= position_base_offset + opt_format.vertex_stride * 2 + 3 =}]
 
-			-- #embed TRANSFORMED_POINT_CALCULATION
-			-- #embed WORLD_NORMAL_CALCULATION_EMBED
+			{% if needs_fragment_world_position then %}
+			_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
+			_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
+			_v3d_world_transformed_p0z = _v3d_model_transform_zx * _v3d_p0x + _v3d_model_transform_zy * _v3d_p0y + _v3d_model_transform_zz * _v3d_p0z + _v3d_model_transform_dz
+			
+			_v3d_world_transformed_p1x = _v3d_model_transform_xx * _v3d_p1x + _v3d_model_transform_xy * _v3d_p1y + _v3d_model_transform_xz * _v3d_p1z + _v3d_model_transform_dx
+			_v3d_world_transformed_p1y = _v3d_model_transform_yx * _v3d_p1x + _v3d_model_transform_yy * _v3d_p1y + _v3d_model_transform_yz * _v3d_p1z + _v3d_model_transform_dy
+			_v3d_world_transformed_p1z = _v3d_model_transform_zx * _v3d_p1x + _v3d_model_transform_zy * _v3d_p1y + _v3d_model_transform_zz * _v3d_p1z + _v3d_model_transform_dz
+			
+			_v3d_world_transformed_p2x = _v3d_model_transform_xx * _v3d_p2x + _v3d_model_transform_xy * _v3d_p2y + _v3d_model_transform_xz * _v3d_p2z + _v3d_model_transform_dx
+			_v3d_world_transformed_p2y = _v3d_model_transform_yx * _v3d_p2x + _v3d_model_transform_yy * _v3d_p2y + _v3d_model_transform_yz * _v3d_p2z + _v3d_model_transform_dy
+			_v3d_world_transformed_p2z = _v3d_model_transform_zx * _v3d_p2x + _v3d_model_transform_zy * _v3d_p2y + _v3d_model_transform_zz * _v3d_p2z + _v3d_model_transform_dz
+			
+			_v3d_transformed_p0x = _v3d_transform_xx * _v3d_world_transformed_p0x + _v3d_transform_xy * _v3d_world_transformed_p0y + _v3d_transform_xz * _v3d_world_transformed_p0z + _v3d_transform_dx
+			_v3d_transformed_p0y = _v3d_transform_yx * _v3d_world_transformed_p0x + _v3d_transform_yy * _v3d_world_transformed_p0y + _v3d_transform_yz * _v3d_world_transformed_p0z + _v3d_transform_dy
+			_v3d_transformed_p0z = _v3d_transform_zx * _v3d_world_transformed_p0x + _v3d_transform_zy * _v3d_world_transformed_p0y + _v3d_transform_zz * _v3d_world_transformed_p0z + _v3d_transform_dz
+			
+			_v3d_transformed_p1x = _v3d_transform_xx * _v3d_world_transformed_p1x + _v3d_transform_xy * _v3d_world_transformed_p1y + _v3d_transform_xz * _v3d_world_transformed_p1z + _v3d_transform_dx
+			_v3d_transformed_p1y = _v3d_transform_yx * _v3d_world_transformed_p1x + _v3d_transform_yy * _v3d_world_transformed_p1y + _v3d_transform_yz * _v3d_world_transformed_p1z + _v3d_transform_dy
+			_v3d_transformed_p1z = _v3d_transform_zx * _v3d_world_transformed_p1x + _v3d_transform_zy * _v3d_world_transformed_p1y + _v3d_transform_zz * _v3d_world_transformed_p1z + _v3d_transform_dz
+			
+			_v3d_transformed_p2x = _v3d_transform_xx * _v3d_world_transformed_p2x + _v3d_transform_xy * _v3d_world_transformed_p2y + _v3d_transform_xz * _v3d_world_transformed_p2z + _v3d_transform_dx
+			_v3d_transformed_p2y = _v3d_transform_yx * _v3d_world_transformed_p2x + _v3d_transform_yy * _v3d_world_transformed_p2y + _v3d_transform_yz * _v3d_world_transformed_p2z + _v3d_transform_dy
+			_v3d_transformed_p2z = _v3d_transform_zx * _v3d_world_transformed_p2x + _v3d_transform_zy * _v3d_world_transformed_p2y + _v3d_transform_zz * _v3d_world_transformed_p2z + _v3d_transform_dz
+			{% else %}
+			_v3d_transformed_p0x = _v3d_transform_xx * _v3d_p0x + _v3d_transform_xy * _v3d_p0y + _v3d_transform_xz * _v3d_p0z + _v3d_transform_dx
+			_v3d_transformed_p0y = _v3d_transform_yx * _v3d_p0x + _v3d_transform_yy * _v3d_p0y + _v3d_transform_yz * _v3d_p0z + _v3d_transform_dy
+			_v3d_transformed_p0z = _v3d_transform_zx * _v3d_p0x + _v3d_transform_zy * _v3d_p0y + _v3d_transform_zz * _v3d_p0z + _v3d_transform_dz
+
+			_v3d_transformed_p1x = _v3d_transform_xx * _v3d_p1x + _v3d_transform_xy * _v3d_p1y + _v3d_transform_xz * _v3d_p1z + _v3d_transform_dx
+			_v3d_transformed_p1y = _v3d_transform_yx * _v3d_p1x + _v3d_transform_yy * _v3d_p1y + _v3d_transform_yz * _v3d_p1z + _v3d_transform_dy
+			_v3d_transformed_p1z = _v3d_transform_zx * _v3d_p1x + _v3d_transform_zy * _v3d_p1y + _v3d_transform_zz * _v3d_p1z + _v3d_transform_dz
+
+			_v3d_transformed_p2x = _v3d_transform_xx * _v3d_p2x + _v3d_transform_xy * _v3d_p2y + _v3d_transform_xz * _v3d_p2z + _v3d_transform_dx
+			_v3d_transformed_p2y = _v3d_transform_yx * _v3d_p2x + _v3d_transform_yy * _v3d_p2y + _v3d_transform_yz * _v3d_p2z + _v3d_transform_dy
+			_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
+			{% end %}
+			
+			{% if needs_world_face_normal then %}
+			local _v3d_face_normal_d1x = _v3d_world_transformed_p1x - _v3d_world_transformed_p0x
+			local _v3d_face_normal_d1y = _v3d_world_transformed_p1y - _v3d_world_transformed_p0y
+			local _v3d_face_normal_d1z = _v3d_world_transformed_p1z - _v3d_world_transformed_p0z
+			local _v3d_face_normal_d2x = _v3d_world_transformed_p2x - _v3d_world_transformed_p0x
+			local _v3d_face_normal_d2y = _v3d_world_transformed_p2y - _v3d_world_transformed_p0y
+			local _v3d_face_normal_d2z = _v3d_world_transformed_p2z - _v3d_world_transformed_p0z
+			_v3d_face_world_normal0 = _v3d_face_normal_d1y*_v3d_face_normal_d2z - _v3d_face_normal_d1z*_v3d_face_normal_d2y
+			_v3d_face_world_normal1 = _v3d_face_normal_d1z*_v3d_face_normal_d2x - _v3d_face_normal_d1x*_v3d_face_normal_d2z
+			_v3d_face_world_normal2 = _v3d_face_normal_d1x*_v3d_face_normal_d2y - _v3d_face_normal_d1y*_v3d_face_normal_d2x
+			local _v3d_face_normal_divisor = 1 / _v3d_math_sqrt(_v3d_face_world_normal0 * _v3d_face_world_normal0 + _v3d_face_world_normal1 * _v3d_face_world_normal1 + _v3d_face_world_normal2 * _v3d_face_world_normal2)
+			_v3d_face_world_normal0 = _v3d_face_world_normal0 * _v3d_face_normal_divisor
+			_v3d_face_world_normal1 = _v3d_face_world_normal1 * _v3d_face_normal_divisor
+			_v3d_face_world_normal2 = _v3d_face_world_normal2 * _v3d_face_normal_divisor
+			{% end %}
 		end
 
 		-- #embed VERTEX_ATTRIBUTE_ASSIGNMENT
 		-- #embed FACE_ATTRIBUTE_ASSIGNMENT
 
-		local _v3d_cull_face
-
-		-- #embed FACE_CULLING
-
 		-- #increment_statistic candidate_faces
 
+		{% if opt_cull_face then %}
+		local _v3d_cull_face
+
+		do
+			local _v3d_d1x = _v3d_transformed_p1x - _v3d_transformed_p0x
+			local _v3d_d1y = _v3d_transformed_p1y - _v3d_transformed_p0y
+			local _v3d_d1z = _v3d_transformed_p1z - _v3d_transformed_p0z
+			local _v3d_d2x = _v3d_transformed_p2x - _v3d_transformed_p0x
+			local _v3d_d2y = _v3d_transformed_p2y - _v3d_transformed_p0y
+			local _v3d_d2z = _v3d_transformed_p2z - _v3d_transformed_p0z
+			local _v3d_cx = _v3d_d1y*_v3d_d2z - _v3d_d1z*_v3d_d2y
+			local _v3d_cy = _v3d_d1z*_v3d_d2x - _v3d_d1x*_v3d_d2z
+			local _v3d_cz = _v3d_d1x*_v3d_d2y - _v3d_d1y*_v3d_d2x
+			{% local cull_face_comparison_operator = opt_cull_face == v3d.CULL_FRONT_FACE and '<' or '>' %}
+			_v3d_cull_face = _v3d_cx * _v3d_transformed_p0x + _v3d_cy * _v3d_transformed_p0y + _v3d_cz * _v3d_transformed_p0z {= cull_face_comparison_operator =} 0
+		end
+
 		if not _v3d_cull_face then
+		{% end %}
+
 			-- TODO: make this split polygons
-			if _v3d_transformed_p0z <= ${CLIPPING_PLANE} and _v3d_transformed_p1z <= ${CLIPPING_PLANE} and _v3d_transformed_p2z <= ${CLIPPING_PLANE} then
+			{% local clipping_plane = 0.0001 %}
+			if _v3d_transformed_p0z <= {= clipping_plane =} and _v3d_transformed_p1z <= {= clipping_plane =} and _v3d_transformed_p2z <= {= clipping_plane =} then
 				local _v3d_rasterize_p0_w = -1 / _v3d_transformed_p0z
 				local _v3d_rasterize_p0_x = _v3d_screen_dx + _v3d_transformed_p0x * _v3d_rasterize_p0_w * _v3d_screen_sx
 				local _v3d_rasterize_p0_y = _v3d_screen_dy + _v3d_transformed_p0y * _v3d_rasterize_p0_w * _v3d_screen_sy
@@ -756,17 +974,20 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 				local _v3d_rasterize_p2_y = _v3d_screen_dy + _v3d_transformed_p2y * _v3d_rasterize_p2_w * _v3d_screen_sy
 
 				-- #embed TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS
-				-- #embed TRIANGLE_RASTERIZATION
+				{! TRIANGLE_RASTERIZATION_EMBED !}
 				-- #increment_statistic drawn_faces
 			else
 				-- #increment_statistic discarded_faces
 			end
+
+		{% if opt_cull_face then %}
 		else
 			-- #increment_statistic culled_faces
 		end
-
-		_v3d_vertex_offset = _v3d_vertex_offset + ${VERTEX_STRIDE_3}
-		_v3d_face_offset = _v3d_face_offset + ${FACE_STRIDE}
+		{% end %}
+	
+		_v3d_vertex_offset = _v3d_vertex_offset + {= opt_format.vertex_stride * 3 =}
+		_v3d_face_offset = _v3d_face_offset + {= opt_format.face_stride =}
 	end
 
 	v3d_export_uniforms()
@@ -784,131 +1005,6 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 			v3d_store_event_counters()
 		},
 	}
-end
-]]
-
-local COMBINED_MODEL_TRANSFORM_LOCALISE_EMBED = [[
--- TODO: implement this properly
-if _v3d_model_transform then
-	_v3d_transform = _v3d_transform:combine(_v3d_model_transform)
-end
-]]
-
-local SEPARATED_MODEL_TRANSFORM_LOCALISE_EMBED = [[
-local _v3d_model_transform_xx = _v3d_model_transform[ 1]
-local _v3d_model_transform_xy = _v3d_model_transform[ 2]
-local _v3d_model_transform_xz = _v3d_model_transform[ 3]
-local _v3d_model_transform_dx = _v3d_model_transform[ 4]
-local _v3d_model_transform_yx = _v3d_model_transform[ 5]
-local _v3d_model_transform_yy = _v3d_model_transform[ 6]
-local _v3d_model_transform_yz = _v3d_model_transform[ 7]
-local _v3d_model_transform_dy = _v3d_model_transform[ 8]
-local _v3d_model_transform_zx = _v3d_model_transform[ 9]
-local _v3d_model_transform_zy = _v3d_model_transform[10]
-local _v3d_model_transform_zz = _v3d_model_transform[11]
-local _v3d_model_transform_dz = _v3d_model_transform[12]
-]]
-
-local MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED = [[
-local _v3d_inverse_model_transform_det = 1/(_v3d_model_transform_xx*(_v3d_model_transform_yy*_v3d_model_transform_zz-_v3d_model_transform_zy*_v3d_model_transform_yz)
-                                           -_v3d_model_transform_xy*(_v3d_model_transform_yx*_v3d_model_transform_zz-_v3d_model_transform_yz*_v3d_model_transform_zx)
-                                           +_v3d_model_transform_xz*(_v3d_model_transform_yx*_v3d_model_transform_zy-_v3d_model_transform_yy*_v3d_model_transform_zx))
-local _v3d_inverse_model_transform_xx =  (_v3d_model_transform_yy*_v3d_model_transform_zz-_v3d_model_transform_zy*_v3d_model_transform_yz)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_xy = -(_v3d_model_transform_xy*_v3d_model_transform_zz-_v3d_model_transform_xz*_v3d_model_transform_zy)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_xz =  (_v3d_model_transform_xy*_v3d_model_transform_yz-_v3d_model_transform_xz*_v3d_model_transform_yy)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_yx = -(_v3d_model_transform_yx*_v3d_model_transform_zz-_v3d_model_transform_yz*_v3d_model_transform_zx)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_yy =  (_v3d_model_transform_xx*_v3d_model_transform_zz-_v3d_model_transform_xz*_v3d_model_transform_zx)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_yz = -(_v3d_model_transform_xx*_v3d_model_transform_yz-_v3d_model_transform_yx*_v3d_model_transform_xz)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_zx =  (_v3d_model_transform_yx*_v3d_model_transform_zy-_v3d_model_transform_zx*_v3d_model_transform_yy)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_zy = -(_v3d_model_transform_xx*_v3d_model_transform_zy-_v3d_model_transform_zx*_v3d_model_transform_xy)*_v3d_inverse_model_transform_det;
-local _v3d_inverse_model_transform_zz =  (_v3d_model_transform_xx*_v3d_model_transform_yy-_v3d_model_transform_yx*_v3d_model_transform_xy)*_v3d_inverse_model_transform_det;
-local _v3d_math_sqrt = math.sqrt
-]]
-
-local WORLD_NORMAL_CALCULATION_HEADER = [[
-local _v3d_face_world_normal0, _v3d_face_world_normal1, _v3d_face_world_normal2
-]]
-
-local WORLD_NORMAL_CALCULATION_EMBED = [[
-local _v3d_face_normal_d1x = _v3d_world_transformed_p1x - _v3d_world_transformed_p0x
-local _v3d_face_normal_d1y = _v3d_world_transformed_p1y - _v3d_world_transformed_p0y
-local _v3d_face_normal_d1z = _v3d_world_transformed_p1z - _v3d_world_transformed_p0z
-local _v3d_face_normal_d2x = _v3d_world_transformed_p2x - _v3d_world_transformed_p0x
-local _v3d_face_normal_d2y = _v3d_world_transformed_p2y - _v3d_world_transformed_p0y
-local _v3d_face_normal_d2z = _v3d_world_transformed_p2z - _v3d_world_transformed_p0z
--- local _v3d_face_normal_raw_cx = _v3d_face_normal_d1y*_v3d_face_normal_d2z - _v3d_face_normal_d1z*_v3d_face_normal_d2y
--- local _v3d_face_normal_raw_cy = _v3d_face_normal_d1z*_v3d_face_normal_d2x - _v3d_face_normal_d1x*_v3d_face_normal_d2z
--- local _v3d_face_normal_raw_cz = _v3d_face_normal_d1x*_v3d_face_normal_d2y - _v3d_face_normal_d1y*_v3d_face_normal_d2x
-_v3d_face_world_normal0 = _v3d_face_normal_d1y*_v3d_face_normal_d2z - _v3d_face_normal_d1z*_v3d_face_normal_d2y
-_v3d_face_world_normal1 = _v3d_face_normal_d1z*_v3d_face_normal_d2x - _v3d_face_normal_d1x*_v3d_face_normal_d2z
-_v3d_face_world_normal2 = _v3d_face_normal_d1x*_v3d_face_normal_d2y - _v3d_face_normal_d1y*_v3d_face_normal_d2x
--- _v3d_face_world_normal0 = _v3d_inverse_model_transform_xx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_xy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_xz * _v3d_face_normal_raw_cz
--- _v3d_face_world_normal1 = _v3d_inverse_model_transform_yx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_yy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_yz * _v3d_face_normal_raw_cz
--- _v3d_face_world_normal2 = _v3d_inverse_model_transform_zx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_zy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_zz * _v3d_face_normal_raw_cz
-local _v3d_face_normal_divisor = 1 / _v3d_math_sqrt(_v3d_face_world_normal0 * _v3d_face_world_normal0 + _v3d_face_world_normal1 * _v3d_face_world_normal1 + _v3d_face_world_normal2 * _v3d_face_world_normal2)
-_v3d_face_world_normal0 = _v3d_face_world_normal0 * _v3d_face_normal_divisor
-_v3d_face_world_normal1 = _v3d_face_world_normal1 * _v3d_face_normal_divisor
-_v3d_face_world_normal2 = _v3d_face_world_normal2 * _v3d_face_normal_divisor
-]]
-
-local TRANSFORMED_WORLD_POINT_HEADER = [[
-local _v3d_world_transformed_p0x, _v3d_world_transformed_p0y, _v3d_world_transformed_p0z,
-      _v3d_world_transformed_p1x, _v3d_world_transformed_p1y, _v3d_world_transformed_p1z,
-      _v3d_world_transformed_p2x, _v3d_world_transformed_p2y, _v3d_world_transformed_p2z
-]]
-
-local COMBINED_TRANSFORMED_POINT_CALCULATION = [[
-_v3d_transformed_p0x = _v3d_transform_xx * _v3d_p0x + _v3d_transform_xy * _v3d_p0y + _v3d_transform_xz * _v3d_p0z + _v3d_transform_dx
-_v3d_transformed_p0y = _v3d_transform_yx * _v3d_p0x + _v3d_transform_yy * _v3d_p0y + _v3d_transform_yz * _v3d_p0z + _v3d_transform_dy
-_v3d_transformed_p0z = _v3d_transform_zx * _v3d_p0x + _v3d_transform_zy * _v3d_p0y + _v3d_transform_zz * _v3d_p0z + _v3d_transform_dz
-
-_v3d_transformed_p1x = _v3d_transform_xx * _v3d_p1x + _v3d_transform_xy * _v3d_p1y + _v3d_transform_xz * _v3d_p1z + _v3d_transform_dx
-_v3d_transformed_p1y = _v3d_transform_yx * _v3d_p1x + _v3d_transform_yy * _v3d_p1y + _v3d_transform_yz * _v3d_p1z + _v3d_transform_dy
-_v3d_transformed_p1z = _v3d_transform_zx * _v3d_p1x + _v3d_transform_zy * _v3d_p1y + _v3d_transform_zz * _v3d_p1z + _v3d_transform_dz
-
-_v3d_transformed_p2x = _v3d_transform_xx * _v3d_p2x + _v3d_transform_xy * _v3d_p2y + _v3d_transform_xz * _v3d_p2z + _v3d_transform_dx
-_v3d_transformed_p2y = _v3d_transform_yx * _v3d_p2x + _v3d_transform_yy * _v3d_p2y + _v3d_transform_yz * _v3d_p2z + _v3d_transform_dy
-_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
-]]
-
-local SEPARATED_TRANSFORMED_POINT_CALCULATION = [[
-_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
-_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
-_v3d_world_transformed_p0z = _v3d_model_transform_zx * _v3d_p0x + _v3d_model_transform_zy * _v3d_p0y + _v3d_model_transform_zz * _v3d_p0z + _v3d_model_transform_dz
-
-_v3d_world_transformed_p1x = _v3d_model_transform_xx * _v3d_p1x + _v3d_model_transform_xy * _v3d_p1y + _v3d_model_transform_xz * _v3d_p1z + _v3d_model_transform_dx
-_v3d_world_transformed_p1y = _v3d_model_transform_yx * _v3d_p1x + _v3d_model_transform_yy * _v3d_p1y + _v3d_model_transform_yz * _v3d_p1z + _v3d_model_transform_dy
-_v3d_world_transformed_p1z = _v3d_model_transform_zx * _v3d_p1x + _v3d_model_transform_zy * _v3d_p1y + _v3d_model_transform_zz * _v3d_p1z + _v3d_model_transform_dz
-
-_v3d_world_transformed_p2x = _v3d_model_transform_xx * _v3d_p2x + _v3d_model_transform_xy * _v3d_p2y + _v3d_model_transform_xz * _v3d_p2z + _v3d_model_transform_dx
-_v3d_world_transformed_p2y = _v3d_model_transform_yx * _v3d_p2x + _v3d_model_transform_yy * _v3d_p2y + _v3d_model_transform_yz * _v3d_p2z + _v3d_model_transform_dy
-_v3d_world_transformed_p2z = _v3d_model_transform_zx * _v3d_p2x + _v3d_model_transform_zy * _v3d_p2y + _v3d_model_transform_zz * _v3d_p2z + _v3d_model_transform_dz
-
-_v3d_transformed_p0x = _v3d_transform_xx * _v3d_world_transformed_p0x + _v3d_transform_xy * _v3d_world_transformed_p0y + _v3d_transform_xz * _v3d_world_transformed_p0z + _v3d_transform_dx
-_v3d_transformed_p0y = _v3d_transform_yx * _v3d_world_transformed_p0x + _v3d_transform_yy * _v3d_world_transformed_p0y + _v3d_transform_yz * _v3d_world_transformed_p0z + _v3d_transform_dy
-_v3d_transformed_p0z = _v3d_transform_zx * _v3d_world_transformed_p0x + _v3d_transform_zy * _v3d_world_transformed_p0y + _v3d_transform_zz * _v3d_world_transformed_p0z + _v3d_transform_dz
-
-_v3d_transformed_p1x = _v3d_transform_xx * _v3d_world_transformed_p1x + _v3d_transform_xy * _v3d_world_transformed_p1y + _v3d_transform_xz * _v3d_world_transformed_p1z + _v3d_transform_dx
-_v3d_transformed_p1y = _v3d_transform_yx * _v3d_world_transformed_p1x + _v3d_transform_yy * _v3d_world_transformed_p1y + _v3d_transform_yz * _v3d_world_transformed_p1z + _v3d_transform_dy
-_v3d_transformed_p1z = _v3d_transform_zx * _v3d_world_transformed_p1x + _v3d_transform_zy * _v3d_world_transformed_p1y + _v3d_transform_zz * _v3d_world_transformed_p1z + _v3d_transform_dz
-
-_v3d_transformed_p2x = _v3d_transform_xx * _v3d_world_transformed_p2x + _v3d_transform_xy * _v3d_world_transformed_p2y + _v3d_transform_xz * _v3d_world_transformed_p2z + _v3d_transform_dx
-_v3d_transformed_p2y = _v3d_transform_yx * _v3d_world_transformed_p2x + _v3d_transform_yy * _v3d_world_transformed_p2y + _v3d_transform_yz * _v3d_world_transformed_p2z + _v3d_transform_dy
-_v3d_transformed_p2z = _v3d_transform_zx * _v3d_world_transformed_p2x + _v3d_transform_zy * _v3d_world_transformed_p2y + _v3d_transform_zz * _v3d_world_transformed_p2z + _v3d_transform_dz
-]]
-
-local FACE_CULLING_EMBED = [[
-do
-	local _v3d_d1x = _v3d_transformed_p1x - _v3d_transformed_p0x
-	local _v3d_d1y = _v3d_transformed_p1y - _v3d_transformed_p0y
-	local _v3d_d1z = _v3d_transformed_p1z - _v3d_transformed_p0z
-	local _v3d_d2x = _v3d_transformed_p2x - _v3d_transformed_p0x
-	local _v3d_d2y = _v3d_transformed_p2y - _v3d_transformed_p0y
-	local _v3d_d2z = _v3d_transformed_p2z - _v3d_transformed_p0z
-	local _v3d_cx = _v3d_d1y*_v3d_d2z - _v3d_d1z*_v3d_d2y
-	local _v3d_cy = _v3d_d1z*_v3d_d2x - _v3d_d1x*_v3d_d2z
-	local _v3d_cz = _v3d_d1x*_v3d_d2y - _v3d_d1y*_v3d_d2x
-	_v3d_cull_face = _v3d_cx * _v3d_transformed_p0x + _v3d_cy * _v3d_transformed_p0y + _v3d_cz * _v3d_transformed_p0z ${CULL_FACE_COMPARISON_OPERATOR} 0
 end
 ]]
 
@@ -943,7 +1039,7 @@ if _v3d_row_top_min <= _v3d_row_top_max then
 		local _v3d_row_min_index = _v3d_row_top_min * _v3d_fb_width
 		local _v3d_row_max_index = _v3d_row_top_max * _v3d_fb_width
 
-		-- #embed FLAT_TRIANGLE_RASTERIZATION
+		{! FLAT_TRIANGLE_RASTERIZATION_EMBED !}
 	end
 end
 
@@ -956,7 +1052,7 @@ if _v3d_row_bottom_min <= _v3d_row_bottom_max then
 		local _v3d_row_min_index = _v3d_row_bottom_min * _v3d_fb_width
 		local _v3d_row_max_index = _v3d_row_bottom_max * _v3d_fb_width
 
-		-- #embed FLAT_TRIANGLE_RASTERIZATION
+		{! FLAT_TRIANGLE_RASTERIZATION_EMBED !}
 	end
 end
 ]]
@@ -971,12 +1067,30 @@ for _v3d_base_index = _v3d_row_min_index, _v3d_row_max_index, _v3d_fb_width do
 
 	-- #embed ROW_CALCULATIONS
 
-	for ${FRAGMENT_ROW_INDEX_BOUNDS} do
+	{% if #layer_sizes_written ~= 1 then %}
+	for _v3d_x = _v3d_row_min_column, _v3d_row_max_column do
+	{% else %}
+		{%
+		local min_bound = '_v3d_base_index + _v3d_row_min_column'
+		local max_bound = '_v3d_base_index + _v3d_row_max_column'
+	
+		if layer_sizes_written[1] ~= 1 then
+			min_bound = '(' .. min_bound .. ') * ' .. layer_sizes_written[1]
+			max_bound = '(' .. max_bound .. ') * ' .. layer_sizes_written[1]
+		end
+		%}
+	for _v3d_fragment_layer_index{= layer_sizes_written[1] =} = {= min_bound =} + 1, {= max_bound =} + 1, {= layer_sizes_written[1] =} do
+	{% end %}
 		v3d_register_layer_written()
-		-- #embed FRAGMENT_INDEX_CALCULATIONS
+
+		{% if #layer_sizes_written > 1 then %}
+			{% for _, i in ipairs(layer_sizes_written) do %}
+		local _v3d_fragment_layer_index{= i =} = (_v3d_base_index + _v3d_x) * {= i =} + 1
+			{% end %}
+		{% end %}
 		-- #increment_statistic candidate_fragments
 		-- #embed COLUMN_CALCULATE_ATTRIBUTES
-		-- #embed COLUMN_DRAW_PIXEL_ENTRY
+		{! FRAGMENT_SHADER_EMBED !}
 		-- #embed COLUMN_ADVANCE
 	end
 
@@ -1082,17 +1196,6 @@ local function v3d_create_pipeline(options)
 	local pipeline = {}
 	local uniforms = {}
 
-	--- @type V3DPipelineOptions
-	pipeline.options = {
-		layout = opt_layout,
-		format = opt_format,
-		position_attribute = opt_position_attribute,
-		cull_face = opt_cull_face,
-		fragment_shader = opt_fragment_shader,
-		pixel_aspect_ratio = opt_pixel_aspect_ratio,
-		statistics = opt_statistics,
-	}
-
 	-- format incoming shader code to unindent it
 	do
 		opt_fragment_shader = opt_fragment_shader:gsub('%s+$', '')
@@ -1131,13 +1234,24 @@ local function v3d_create_pipeline(options)
 		end
 	end
 
+	--- @type V3DPipelineOptions
+	pipeline.options = {
+		layout = opt_layout,
+		format = opt_format,
+		position_attribute = opt_position_attribute,
+		cull_face = opt_cull_face,
+		fragment_shader = opt_fragment_shader,
+		pixel_aspect_ratio = opt_pixel_aspect_ratio,
+		statistics = opt_statistics,
+	}
+
 	-- names of all layers which are accessed
 	local layers_written = {}
 	-- sizes of all layers which are accessed
-	local layer_sizes_written = {}
+	-- TODOA
 	-- true if v3d_layer_was_written() is ever used
 	local layers_any_written_checked = false
-	-- map of layer names to whether it's checked if written to
+	-- map of layer names to whether anything checks if it's written to
 	local layers_written_checked = {}
 
 	-- names of all uniforms which are accessed
@@ -1161,8 +1275,28 @@ local function v3d_create_pipeline(options)
 	-- whether the pipeline should interpolate world position across fragments
 	local needs_fragment_world_position = false
 
-	-- whether to generate face normals
-	local needs_world_face_normal = false
+	local template_context = {
+		v3d = v3d,
+
+		opt_layout = opt_layout,
+		opt_format = opt_format,
+		opt_position_attribute = opt_position_attribute,
+		opt_cull_face = opt_cull_face,
+		opt_pixel_aspect_ratio = opt_pixel_aspect_ratio,
+		opt_statistics = opt_statistics,
+
+		FLAT_TRIANGLE_RASTERIZATION_EMBED = FLAT_TRIANGLE_RASTERIZATION_EMBED,
+		TRIANGLE_RASTERIZATION_EMBED = TRIANGLE_RASTERIZATION_EMBED,
+		FRAGMENT_SHADER_EMBED = opt_fragment_shader,
+
+		needs_fragment_world_position = needs_fragment_world_position,
+		needs_interpolated_depth = needs_interpolated_depth,
+
+		layer_sizes_written = {},
+
+		-- whether to generate face normals in world-space
+		needs_world_face_normal = false,
+	}
 
 	do -- fragment shader macro rewrite
 		local layer_names_lookup = {}
@@ -1171,6 +1305,7 @@ local function v3d_create_pipeline(options)
 		local uniform_read_names_lookup = {}
 		local uniform_write_names_lookup = {}
 		local event_counter_names_lookup = {}
+		local added_fragment_world_position_attr = false
 		local functions = {}
 
 		local is_discarded_checked = false
@@ -1207,7 +1342,7 @@ local function v3d_create_pipeline(options)
 			end
 
 			if not layer_sizes_lookup[layer.components] then
-				table.insert(layer_sizes_written, layer.components)
+				table.insert(template_context.layer_sizes_written, layer.components)
 				layer_sizes_lookup[layer.components] = true
 			end
 
@@ -1314,8 +1449,8 @@ local function v3d_create_pipeline(options)
 		function functions.v3d_face_world_normal(params, result)
 			local component = params[1] and destring(params[1])
 
-			needs_world_face_normal = true
-			needs_fragment_world_position = true
+			template_context.needs_world_face_normal = true
+			template_context.needs_fragment_world_position = true
 
 			local parts = {}
 
@@ -1348,9 +1483,10 @@ local function v3d_create_pipeline(options)
 		function functions.v3d_fragment_world_position(params, result)
 			local component = params[1] and destring(params[1])
 
-			if not needs_fragment_world_position then
+			if not added_fragment_world_position_attr then
 				table.insert(interpolate_attributes, { name = '_v3d_fragment_world_position', size = 3 })
-				needs_fragment_world_position = true
+				added_fragment_world_position_attr = true
+				template_context.needs_world_face_normal = true
 			end
 
 			local parts = {}
@@ -1385,21 +1521,21 @@ local function v3d_create_pipeline(options)
 		end
 
 		-- replace simple variables
-		opt_fragment_shader = opt_fragment_shader
+		template_context.FRAGMENT_SHADER_EMBED = template_context.FRAGMENT_SHADER_EMBED
 			:gsub('v3d_framebuffer_width%(%s*%)%s*%-%s*1', '_v3d_fb_width_m1')
 			:gsub('v3d_framebuffer_height%(%s*%)%s*%-%s*1', '_v3d_fb_height_m1')
 			:gsub('v3d_framebuffer_width%(%s*%)', '_v3d_fb_width')
 			:gsub('v3d_framebuffer_height%(%s*%)', '_v3d_fb_height')
 
-		opt_fragment_shader = _rewrite_vfsl(opt_fragment_shader, functions)
+		template_context.FRAGMENT_SHADER_EMBED = _rewrite_vfsl(template_context.FRAGMENT_SHADER_EMBED, functions)
 
 		if is_discarded_checked then
-			opt_fragment_shader = 'local _v3d_builtin_fragment_discarded = false\n' .. opt_fragment_shader
+			template_context.FRAGMENT_SHADER_EMBED = 'local _v3d_builtin_fragment_discarded = false\n' .. template_context.FRAGMENT_SHADER_EMBED
 		end
 
 		needs_interpolated_depth = needs_interpolated_depth or #interpolate_attributes > 0
 
-		table.sort(layer_sizes_written)
+		table.sort(template_context.layer_sizes_written)
 	end
 
 	local pipeline_source = RENDER_GEOMETRY_SOURCE
@@ -1412,31 +1548,10 @@ local function v3d_create_pipeline(options)
 		-- TODO
 	end
 
-	local function do_nothing(_, _)
-		-- don't add anything to result
-	end
-
-	local function enable_if(flag, fn)
-		return flag and fn or do_nothing
-	end
+	pipeline_source = v3d_generate_template(pipeline_source, template_context)
 
 	do -- embeds
 		local embeds = {}
-		embeds.MODEL_TRANSFORM_LOCALISE_EMBED = needs_fragment_world_position
-		                                    and SEPARATED_MODEL_TRANSFORM_LOCALISE_EMBED
-		                                     or COMBINED_MODEL_TRANSFORM_LOCALISE_EMBED
-		embeds.TRANSFORMED_WORLD_POINT_HEADER = needs_fragment_world_position
-		                                   and TRANSFORMED_WORLD_POINT_HEADER
-		                                    or ''
-		embeds.TRANSFORMED_POINT_CALCULATION = needs_fragment_world_position
-		                                   and SEPARATED_TRANSFORMED_POINT_CALCULATION
-		                                    or COMBINED_TRANSFORMED_POINT_CALCULATION
-		embeds.MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED = needs_world_face_normal and MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED or ''
-		embeds.WORLD_NORMAL_CALCULATION_HEADER = needs_world_face_normal and WORLD_NORMAL_CALCULATION_HEADER or ''
-		embeds.WORLD_NORMAL_CALCULATION_EMBED = needs_world_face_normal and WORLD_NORMAL_CALCULATION_EMBED or ''
-		embeds.FACE_CULLING = opt_cull_face and FACE_CULLING_EMBED or ''
-		embeds.TRIANGLE_RASTERIZATION = TRIANGLE_RASTERIZATION_EMBED
-		embeds.FLAT_TRIANGLE_RASTERIZATION = FLAT_TRIANGLE_RASTERIZATION_EMBED
 		embeds.VERTEX_ATTRIBUTE_ASSIGNMENT = function()
 			local result = ''
 
@@ -1599,21 +1714,6 @@ local function v3d_create_pipeline(options)
 
 			return result
 		end
-		embeds.FRAGMENT_INDEX_CALCULATIONS = function()
-			if #layer_sizes_written == 1 then
-				return ''
-			end
-
-			local t = {}
-
-			for i = 1, #layer_sizes_written do
-				table.insert(t, 'local _v3d_fragment_layer_index' .. layer_sizes_written[i]
-								.. ' = (_v3d_base_index + _v3d_x) * ' .. layer_sizes_written[i] .. ' + 1')
-			end
-
-			return table.concat(t, '\n')
-		end
-		embeds.COLUMN_DRAW_PIXEL_ENTRY = opt_fragment_shader
 		embeds.COLUMN_ADVANCE = function()
 			local result = ''
 
@@ -1673,53 +1773,12 @@ local function v3d_create_pipeline(options)
 		until count == 0
 	end
 
-	do -- variables
-		local position_base_offset = opt_format:get_attribute(opt_position_attribute).offset
+	local function do_nothing(_, _)
+		-- don't add anything to result
+	end
 
-		local replacements = {
-			['${P0X_OFFSET}'] = position_base_offset + 1,
-			['${P0Y_OFFSET}'] = position_base_offset + 2,
-			['${P0Z_OFFSET}'] = position_base_offset + 3,
-			['${P1X_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 1,
-			['${P1Y_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 2,
-			['${P1Z_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 3,
-			['${P2X_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 1,
-			['${P2Y_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 2,
-			['${P2Z_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 3,
-			['${VERTEX_STRIDE_3}'] = opt_format.vertex_stride * 3,
-			['${FACE_STRIDE}'] = opt_format.face_stride,
-			['${CULL_FACE_COMPARISON_OPERATOR}'] = opt_cull_face == v3d.CULL_FRONT_FACE and '<' or '>',
-			['${CLIPPING_PLANE}'] = '0.0001',
-			['${FRAGMENT_ROW_INDEX_BOUNDS}'] = function()
-				if #layer_sizes_written ~= 1 then
-					return '_v3d_x = _v3d_row_min_column, _v3d_row_max_column'
-				end
-
-				local min_bound = '_v3d_base_index + _v3d_row_min_column'
-				local max_bound = '_v3d_base_index + _v3d_row_max_column'
-
-				if layer_sizes_written[1] ~= 1 then
-					min_bound = '(' .. min_bound .. ') * ' .. layer_sizes_written[1]
-					max_bound = '(' .. max_bound .. ') * ' .. layer_sizes_written[1]
-				end
-
-				if layer_sizes_written[1] == 1 then
-					return '_v3d_fragment_layer_index1 = ' .. min_bound .. ' + 1, ' .. max_bound .. ' + 1'
-				end
-
-				return '_v3d_fragment_layer_index' .. layer_sizes_written[1] .. ' = ' .. min_bound .. ' + 1, ' .. max_bound .. ' + 1, ' .. layer_sizes_written[1]
-			end,
-		}
-
-		pipeline_source = pipeline_source:gsub('%${[%w_]+}', function(name)
-			local replacement = replacements[name]
-
-			if type(replacement) == 'function' then
-				replacement = replacement()
-			end
-
-			return replacement
-		end)
+	local function enable_if(flag, fn)
+		return flag and fn or do_nothing
 	end
 
 	for _, name in ipairs { 'candidate_faces', 'drawn_faces', 'culled_faces', 'clipped_faces', 'discarded_faces', 'candidate_fragments' } do -- statistics
@@ -1729,7 +1788,7 @@ local function v3d_create_pipeline(options)
 	end
 
 	pipeline_source = _rewrite_vfsl(pipeline_source, {
-		v3d_pixel_aspect_ratio = tostring(opt_pixel_aspect_ratio),
+		v3d_pixel_aspect_ratio = '{= opt_pixel_aspect_ratio =}',
 		v3d_transform = '_v3d_transform',
 		v3d_model_transform = '_v3d_model_transform',
 		v3d_import_uniforms = function(_, result)
@@ -1791,7 +1850,7 @@ local function v3d_create_pipeline(options)
 	end
 
 	pipeline.source = pipeline_source
-	pipeline.render_geometry = f(uniforms, opt_fragment_shader)
+	pipeline.render_geometry = f(uniforms)
 
 	pipeline.set_uniform = function(_, name, value)
 		uniforms[name] = value
@@ -2084,6 +2143,7 @@ do
 		c[name] = fn
 	end
 
+	set_library('generate_template', v3d_generate_template)
 	set_library('create_format', create_format)
 	set_library('create_layout', create_layout)
 	set_library('create_framebuffer', create_framebuffer)

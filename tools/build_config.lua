@@ -75,6 +75,7 @@ do -- type checkers
 end
 
 do -- fn logging blacklist
+	build_config.v3dd_fn_logging_blacklist['v3d.generate_template'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_format'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_layout'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_geometry_builder'] = true

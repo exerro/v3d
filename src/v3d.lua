@@ -57,6 +57,83 @@ do
 end
 
 --------------------------------------------------------------------------------
+--[ String templates ]----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+--- Generate a string from a template.
+--- The template string allows you to embed special sections that impact the
+--- result, for example embedding variables or executing code.
+---
+--- There are 3 phases to computing the result: the template text, the
+--- generator, and the result text.
+---
+--- ---
+---
+--- The template text is what you pass in to the function. `{! !}` sections
+--- allow you to modify the template text directly and recursively. The contents
+--- of the section are executed, and the return value of that is used as a
+--- replacement for the section.
+---
+--- For example, with a template string `{! 'hello {% world %}' !}`, after
+--- processing the first section, the template would be `hello {% %}` going
+--- forwards.
+---
+--- Code within `{! !}` sections must be "complete", i.e. a valid Lua block
+--- with an optional `return` placed at the start implicitly.
+---
+--- ---
+---
+--- Templates are ultimately used to build a "generator", which is code that
+--- writes the result text for you. `{% %}` sections allow you to modify the
+--- generator text directly. The contents of the section are appended directly
+--- to the generator (rather than being wrapped in a string) allowing your
+--- templates to execute arbitrary code whilst being evaluated.
+---
+--- For example, with a template string `{% for i = 1, 3 do %}hello{% end %}` we
+--- would see a result of "hellohellohello".
+---
+--- As indicated, code within `{% %}` sections need not be "complete", i.e. Lua
+--- code can be distributed across multiple sections as long as it is valid
+--- once the generator has been assembled.
+---
+--- ---
+---
+--- Additionally, we can write text directly to the result with `{= =}`
+--- sections. The contents of the section are evaluated in the generator and
+--- appended to the result text after being passed to `tostring`.
+---
+--- For example, with a template string `{= my_variable =}` and a context where
+--- `my_variable` was set to the string 'hello', we would see a result of
+--- "hello".
+---
+--- For another example, with a template string
+--- `{= my_variable:gsub('e', 'E') =}` and the same context, we would see a
+--- result of "hEllo".
+---
+--- Code within `{= =}` sections should be a valid Lua expression, for example
+--- a variable name, function call, table access, etc.
+---
+--- ---
+---
+--- Finally, we can include comments in the template with `{# #}` sections.
+--- These are ignored and not included with the output text.
+---
+--- For example, with a template string `hello {# world #}` we would see a
+--- result of "hello ".
+---
+--- ---
+---
+--- Context is a table passed in as the environment to sections. Any values are
+--- permittable in this table, and will be available as global variables within
+--- all code-based sections (not comments, duh).
+--- @param template string String text to generate result text from.
+--- @param context { [string]: any } Variables and functions available in the scope of sections in the template.
+--- @return string
+--- @nodiscard
+function v3d.generate_template(template, context) end
+
+
+--------------------------------------------------------------------------------
 --[ Framebuffers ]--------------------------------------------------------------
 --------------------------------------------------------------------------------
 

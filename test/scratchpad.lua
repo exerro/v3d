@@ -1,4 +1,6 @@
 
+if not shell.execute '/v3d/tools/build' then return end
+
 local t = 0
 
 local fixed_palette_size = 256
@@ -714,8 +716,6 @@ if false then
 	return
 end
 
-shell.run '/v3d/tools/build'
-
 local v3d = require '/v3d'
 
 local layout = v3d.create_layout()
@@ -737,78 +737,50 @@ local pipeline = v3d.create_pipeline {
 	format = v3d.DEBUG_CUBE_FORMAT,
 	position_attribute = 'position',
 	-- cull_face = false,
-	-- fragment_shader = [[
-	-- 	if v3d_compare_depth(v3d_fragment_depth(), v3d_read_layer('depth')) then
-	-- 		-- local r, g, b = v3d_read_attribute_values('position')
-	-- 		-- r = r + 0.5
-	-- 		-- g = g + 0.5
-	-- 		-- b = b + 0.5
-	-- 		-- local rgb_to_idx = v3d_read_uniform('rgb_to_idx')
-	-- 		local r = v3d_read_uniform('red')
-	-- 		local g = v3d_read_uniform('green')
-	-- 		local b = v3d_read_uniform('blue')
-	-- 		local u_lights = v3d_read_uniform('lights')
-
-	-- 		local write_r = r * v3d_read_uniform('ambient')
-	-- 		local write_g = g * v3d_read_uniform('ambient')
-	-- 		local write_b = b * v3d_read_uniform('ambient')
-
-	-- 		local x, y, z = v3d_fragment_world_position()
-	-- 		local normal_r, normal_g, normal_b = v3d_face_world_normal()
-
-	-- 		for i = 1, #u_lights do
-	-- 			local light = u_lights[i]
-	-- 			local dx = light[1] - x
-	-- 			local dy = light[2] - y
-	-- 			local dz = light[3] - z
-	-- 			local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-	-- 			local dot = math.max(0, (normal_r * dx + normal_g * dy + normal_b * dz) / distance)
-	-- 			local k = dot / (1 + distance)
-
-	-- 			write_r = write_r + r * light[4] * k
-	-- 			write_g = write_g + g * light[5] * k
-	-- 			write_b = write_b + b * light[6] * k
-	-- 		end
-
-	-- 		-- local current_r, current_g, current_b, _ = v3d_read_layer_values('albedo')
-
-	-- 		-- local alpha = v3d_read_uniform('alpha')
-	-- 		-- write_r = current_r * (1 - alpha) + write_r * alpha
-	-- 		-- write_g = current_g * (1 - alpha) + write_g * alpha
-	-- 		-- write_b = current_b * (1 - alpha) + write_b * alpha
-
-	-- 		v3d_write_layer_values('albedo', write_r, write_g, write_b)
-	-- 		-- v3d_write_layer_values('albedo', normal_r, normal_g, normal_b)
-	-- 		-- v3d_write_layer_values('albedo', x / -25, y, z / -25)
-	-- 		-- v3d_write_layer('index_colour', rgb_to_idx(write_r, write_g, write_b))
-	-- 		v3d_write_layer('depth', v3d_fragment_depth())
-	-- 		v3d_count_event('fragment_drawn')
-	-- 	end
-	-- ]],
 	fragment_shader = [[
 		if v3d_compare_depth(v3d_fragment_depth(), v3d_read_layer('depth')) then
-			local write_r = v3d_read_uniform('red') * v3d_read_uniform('ambient')
-			local write_g = v3d_read_uniform('green') * v3d_read_uniform('ambient')
-			local write_b = v3d_read_uniform('blue') * v3d_read_uniform('ambient')
-		
+			-- local r, g, b = v3d_read_attribute_values('position')
+			-- r = r + 0.5
+			-- g = g + 0.5
+			-- b = b + 0.5
+			-- local rgb_to_idx = v3d_read_uniform('rgb_to_idx')
+			local r = v3d_read_uniform('red')
+			local g = v3d_read_uniform('green')
+			local b = v3d_read_uniform('blue')
+			local u_lights = v3d_read_uniform('lights')
+
+			local write_r = r * v3d_read_uniform('ambient')
+			local write_g = g * v3d_read_uniform('ambient')
+			local write_b = b * v3d_read_uniform('ambient')
+
 			local x, y, z = v3d_fragment_world_position()
 			local normal_r, normal_g, normal_b = v3d_face_world_normal()
-		
-			for i = 1, #v3d_read_uniform('lights') do
-				local light = v3d_read_uniform('lights')[i]
+
+			for i = 1, #u_lights do
+				local light = u_lights[i]
 				local dx = light[1] - x
 				local dy = light[2] - y
 				local dz = light[3] - z
 				local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
 				local dot = math.max(0, (normal_r * dx + normal_g * dy + normal_b * dz) / distance)
 				local k = dot / (1 + distance)
-		
-				write_r = write_r + v3d_read_uniform('red') * light[4] * k
-				write_g = write_g + v3d_read_uniform('green') * light[5] * k
-				write_b = write_b + v3d_read_uniform('blue') * light[6] * k
+
+				write_r = write_r + r * light[4] * k
+				write_g = write_g + g * light[5] * k
+				write_b = write_b + b * light[6] * k
 			end
-		
+
+			-- local current_r, current_g, current_b, _ = v3d_read_layer_values('albedo')
+
+			-- local alpha = v3d_read_uniform('alpha')
+			-- write_r = current_r * (1 - alpha) + write_r * alpha
+			-- write_g = current_g * (1 - alpha) + write_g * alpha
+			-- write_b = current_b * (1 - alpha) + write_b * alpha
+
 			v3d_write_layer_values('albedo', write_r, write_g, write_b)
+			-- v3d_write_layer_values('albedo', normal_r, normal_g, normal_b)
+			-- v3d_write_layer_values('albedo', x / -25, y, z / -25)
+			-- v3d_write_layer('index_colour', rgb_to_idx(write_r, write_g, write_b))
 			v3d_write_layer('depth', v3d_fragment_depth())
 			v3d_count_event('fragment_drawn')
 		end

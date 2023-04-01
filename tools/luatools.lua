@@ -258,7 +258,13 @@ function luatools.minify(tokens)
 			if opening_brackets[tokens[i].text] then
 				table.insert(brackets, tokens[i].text)
 			elseif closing_brackets[tokens[i].text] then
-				assert(brackets[#brackets] == closing_brackets[tokens[i].text])
+				if brackets[#brackets] ~= closing_brackets[tokens[i].text] then
+					local context = {}
+					for j = math.max(1, i - 10), math.min(#tokens, i + 10) do
+						table.insert(context, (i == j and ' ! ' or ' * ') .. tokens[j].type .. ' \'' .. tokens[j].text .. '\'')
+					end
+					error('Mismatched bracket for token ' .. i .. ': expected close to ' .. tostring(brackets[#brackets]) .. ', got close to ' .. closing_brackets[tokens[i].text] .. '\n' .. table.concat(context, '\n'))
+				end
 				table.remove(brackets, #brackets)
 			end
 			i = i + 1
@@ -321,6 +327,8 @@ function luatools.minify(tokens)
 							scope[tokens[i].text] = varname
 							tokens[i].text = varname
 							scope['$next'] = next_variable_name(varname)
+						elseif tokens[i] and tokens[i].text == '.' and tokens[i + 1] and tokens[i + 1].text == '.' and tokens[i + 2] and tokens[i + 2].text == '.' then
+							i = i + 2
 						end
 						i = i + 1
 					until not tokens[i] or tokens[i].text ~= ','
