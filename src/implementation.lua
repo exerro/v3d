@@ -966,10 +966,10 @@ for _v3d_base_index = _v3d_row_min_index, _v3d_row_max_index, _v3d_fb_width do
 	local _v3d_row_min_column = _v3d_math_ceil(_v3d_tri_left_x)
 	local _v3d_row_max_column = _v3d_math_ceil(_v3d_tri_right_x)
 
-	-- #embed ROW_CALCULATIONS
-
 	if _v3d_row_min_column < 0 then _v3d_row_min_column = 0 end
 	if _v3d_row_max_column > _v3d_fb_width_m1 then _v3d_row_max_column = _v3d_fb_width_m1 end
+
+	-- #embed ROW_CALCULATIONS
 
 	for ${FRAGMENT_ROW_INDEX_BOUNDS} do
 		v3d_register_layer_written()
@@ -1253,7 +1253,7 @@ local function v3d_create_pipeline(options)
 			local name, layer = register_layer(destring(params[1]))
 
 			for i = 1, layer.components do
-				table.insert(result, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. '] = ' .. params[i + 1])
+				table.insert(result, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. '] = ' .. tostring(params[i + 1]))
 			end
 
 			table.insert(result, 'v3d_notify_any_layer_written()')
@@ -1706,6 +1706,8 @@ local function v3d_create_pipeline(options)
 				if layer_sizes_written[1] == 1 then
 					return '_v3d_fragment_layer_index1 = ' .. min_bound .. ' + 1, ' .. max_bound .. ' + 1'
 				end
+
+				return '_v3d_fragment_layer_index' .. layer_sizes_written[1] .. ' = ' .. min_bound .. ' + 1, ' .. max_bound .. ' + 1, ' .. layer_sizes_written[1]
 			end,
 		}
 
