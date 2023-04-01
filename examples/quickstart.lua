@@ -4,12 +4,12 @@ local v3d = require '/v3d'
 
 -- Create a framebuffer to draw to.
 local width, height = term.getSize()
-local framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, width, height, 'Screen buffer')
+local framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_LAYOUT, width, height, 'Screen buffer')
 
 local transform = v3d.camera(0, 0, 2)
 
--- Create a layout with position, UVs, and colour.
-local layout = v3d.create_layout()
+-- Create a format with position, UVs, and colour.
+local format = v3d.create_format()
 	:add_vertex_attribute('position', 3, true)
 	:add_vertex_attribute('uv', 2, true)
 	:add_face_attribute('colour', 1)
@@ -17,25 +17,29 @@ local layout = v3d.create_layout()
 -- Create a large cube at the origin.
 local cube1 = v3d.create_debug_cube(0, 0, 0, 1)
 	:transform('position', v3d.translate(1, 0, 0))
-	:cast(layout)
+	:cast(format)
 	:build('Large cube')
 
 -- Create a small cube at the origin.
-local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5):cast(layout):build('Small cube')
+local cube2 = v3d.create_debug_cube(0, 0, 0, 0.5):cast(format):build('Small cube')
 
 -- Rotate the small cube pi radians.
 -- cube2:rotate_y(math.pi)
 
 -- Create a default pipeline to draw the inner cube without using any shaders.
 local default_pipeline = v3d.create_pipeline {
-	layout = layout,
+	layout = v3d.COLOUR_DEPTH_LAYOUT,
+	layers = { 'colour', 'depth' },
+	format = format,
 	colour_attribute = 'colour',
 }
 
 -- Create a second pipeline to draw the outer cube using a texture sampler
 -- shader.
 local transparent_pipeline = v3d.create_pipeline {
-	layout = layout,
+	layout = v3d.COLOUR_DEPTH_LAYOUT,
+	layers = { 'colour', 'depth' },
+	format = format,
 	-- Disable face culling so we can see the rear faces as well as the front
 	-- ones.
 	cull_face = false,
@@ -51,7 +55,9 @@ local transparent_pipeline = v3d.create_pipeline {
 -- Create a third pipeline to render an effect over the outer cube using a
 -- fragment shader.
 local effect_pipeline = v3d.create_pipeline {
-	layout = layout,
+	layout = v3d.COLOUR_DEPTH_LAYOUT,
+	layers = { 'colour', 'depth' },
+	format = format,
 	-- Disable face culling for the same reason as above.
 	cull_face = false,
 	-- We need UVs to compute the effect.

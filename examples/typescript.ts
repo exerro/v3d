@@ -1,10 +1,10 @@
 
 import * as v3d from '../gen/v3d';
 
-const framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_FORMAT, 51, 19)
+const framebuffer = v3d.create_framebuffer_subpixel(v3d.COLOUR_DEPTH_LAYOUT, 51, 19)
 var transform = v3d.camera(0, 0, 2)
 const pipeline = v3d.create_pipeline({
-	layout: v3d.DEBUG_CUBE_LAYOUT,
+	format: v3d.DEBUG_CUBE_FORMAT,
 	colour_attribute: 'colour',
 })
 

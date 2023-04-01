@@ -59,7 +59,7 @@ do -- meta aliases
 end
 
 do -- type checkers
-	build_config.v3dd_type_checkers['V3DAttachmentName'] = 'type(%s) == \'string\''
+	build_config.v3dd_type_checkers['V3DLayerName'] = 'type(%s) == \'string\''
 	build_config.v3dd_type_checkers['V3DAttributeName'] = 'type(%s) == \'string\''
 	build_config.v3dd_type_checkers['CCTermAPI'] = 'type(%s) == \'table\''
 	build_config.v3dd_type_checkers['V3DFragmentShader'] = 'type(%s) == \'function\''
@@ -85,15 +85,15 @@ do -- fn logging blacklist
 	build_config.v3dd_fn_logging_blacklist['v3d.rotate'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.camera'] = true
 	build_config.v3dd_fn_logging_blacklist['v3d.create_texture_sampler'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DFormat.add_attachment'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DFormat.drop_attachment'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DFormat.has_attachment'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DFormat.get_attachment'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DLayout.add_vertex_attribute'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DLayout.add_face_attribute'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DLayout.drop_attribute'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DLayout.has_attribute'] = true
-	build_config.v3dd_fn_logging_blacklist['V3DLayout.get_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DLayout.add_layer'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DLayout.drop_layer'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DLayout.has_layer'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DLayout.get_layer'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.add_vertex_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.add_face_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.drop_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.has_attribute'] = true
+	build_config.v3dd_fn_logging_blacklist['V3DFormat.get_attribute'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DFramebuffer.get_buffer'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DGeometry.to_builder'] = true
 	build_config.v3dd_fn_logging_blacklist['V3DGeometryBuilder.set_data'] = true
@@ -176,33 +176,34 @@ end
 end
 
 do -- field blacklist
-	build_config.v3dd_field_detail_blacklist['V3DFormat.attachments'] = true
-	build_config.v3dd_field_detail_blacklist['V3DLayout.attributes'] = true
+	build_config.v3dd_field_detail_blacklist['V3DLayout.layers'] = true
+	build_config.v3dd_field_detail_blacklist['V3DFormat.attributes'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.colour'] = true
 	build_config.v3dd_field_detail_blacklist['V3DFramebuffer.depth'] = true
 	build_config.v3dd_field_detail_blacklist['V3DPipeline.source'] = true
 end
 
 do -- extra field details
-	-- show attachment lists for V3DFormat
-	build_config.v3dd_extra_field_details.V3DFormat = [[
-local attachment_tree = {
-	content = 'Attachments',
+	-- show layer lists for V3DLayout
+	build_config.v3dd_extra_field_details.V3DLayout = [[
+local layer_tree = {
+	content = 'Layers',
 	children = {},
 }
-table.insert(trees, attachment_tree)
-for i = 1, #instance.attachments do
-	local attachment = instance.attachments[i]
-	table.insert(attachment_tree.children, {
-		content = attachment.name .. ' &lightGrey;(' .. fmtobject(attachment.type) .. '&lightGrey;)',
-		content_right = '&lightGrey;' .. attachment.components .. ' components',
+table.insert(trees, layer_tree)
+for i = 1, #instance.layers do
+	local layer = instance.layers[i]
+	table.insert(layer_tree.children, {
+		content = layer.name .. ' &lightGrey;(' .. fmtobject(layer.type) .. '&lightGrey;)',
+		content_right = '&lightGrey;' .. layer.components .. ' components',
 		children = {},
 	})
 end
 
-attachment_tree.content_right = '&lightGrey;' .. #instance.attachments .. ' attachments']]
+layer_tree.content_right = '&lightGrey;' .. #instance.layers .. ' layers']]
 
-	build_config.v3dd_extra_field_details.V3DLayout = [[
+	-- show attribute lists for V3DLayout
+	build_config.v3dd_extra_field_details.V3DFormat = [[
 local attr_trees = {}
 local attribute_count = { vertex = 0, face = 0 }
 attr_trees.vertex = {
@@ -273,7 +274,7 @@ table.insert(trees, face_data)
 table.insert(trees, vertex_data)
 
 for i = 1, instance.vertex_offset do
-	local face_n = math.floor((i - 1) / instance.layout.face_stride) + 1
+	local face_n = math.floor((i - 1) / instance.format.face_stride) + 1
 	face_data.children[i] = {
 		content = face_fmt:format(i, fmtobject(instance[i])),
 		content_right = '&lightGrey;face ' .. face_n,
@@ -281,7 +282,7 @@ for i = 1, instance.vertex_offset do
 end
 
 for i = instance.vertex_offset + 1, #instance do
-	local vertex_n = math.floor((i - instance.vertex_offset - 1) / instance.layout.vertex_stride) + 1
+	local vertex_n = math.floor((i - instance.vertex_offset - 1) / instance.format.vertex_stride) + 1
 	table.insert(vertex_data.children, {
 		content = vertex_fmt:format(i, fmtobject(instance[i])),
 		content_right = '&lightGrey;vertex ' .. vertex_n,
@@ -308,15 +309,15 @@ local attributes = {}
 local cull_face_s = fmtobject(instance.cull_face)
 
 if instance.attributes then
-for i = 1, #instance.attributes do
-	attributes[i] = fmtobject(instance.attributes[i])
-end
+	for i = 1, #instance.attributes do
+		attributes[i] = fmtobject(instance.attributes[i])
+	end
 end
 
 if instance.cull_face == v3d_wrapper.CULL_FRONT_FACE then
-cull_face_s = '&cyan;v3d.CULL_FRONT_FACE&reset;'
+	cull_face_s = '&cyan;v3d.CULL_FRONT_FACE&reset;'
 elseif instance.cull_face == v3d_wrapper.CULL_BACK_FACE then
-cull_face_s = '&cyan;v3d.CULL_BACK_FACE&reset;'
+	cull_face_s = '&cyan;v3d.CULL_BACK_FACE&reset;'
 end
 
 trees.attributes.content = '&lightBlue;attributes&reset; = [' .. table.concat(attributes, ',') .. ']'

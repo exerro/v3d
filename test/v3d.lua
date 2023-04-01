@@ -8,91 +8,91 @@ local function assertEquals(expected, actual)
 end
 
 --------------------------------------------------------------------------------
---[[ Formats ]]-----------------------------------------------------------------
---------------------------------------------------------------------------------
-
-do
-	local format = v3d.create_format()
-
-	format = format:add_attachment('a', 'palette-index', 2)
-	assertEquals(true, format:has_attachment 'a')
-	assertEquals('a', format:get_attachment 'a' .name)
-	assertEquals('palette-index', format:get_attachment 'a' .type)
-	assertEquals(2, format:get_attachment 'a' .components)
-	assertEquals(format:get_attachment 'a', format.attachments[1])
-
-	format = format:add_attachment('b', 'exp-palette-index', 1)
-	assertEquals(true, format:has_attachment 'b')
-	assertEquals('b', format:get_attachment 'b' .name)
-	assertEquals('exp-palette-index', format:get_attachment 'b' .type)
-	assertEquals(1, format:get_attachment 'b' .components)
-	assertEquals(format:get_attachment 'b', format.attachments[2])
-	assertEquals(true, format:has_attachment 'a')
-	assertEquals('a', format:get_attachment 'a' .name)
-	assertEquals('palette-index', format:get_attachment 'a' .type)
-	assertEquals(2, format:get_attachment 'a' .components)
-	assertEquals(format:get_attachment 'a', format.attachments[1])
-
-	local drop_layout = format:drop_attachment 'a'
-	assertEquals(false, drop_layout == format)
-	assertEquals(false, drop_layout:has_attachment 'a')
-	assertEquals(true, drop_layout:has_attachment 'b')
-	assertEquals('b', format:get_attachment 'b' .name)
-	assertEquals('exp-palette-index', format:get_attachment 'b' .type)
-	assertEquals(1, format:get_attachment 'b' .components)
-	assertEquals(format:get_attachment 'b', format.attachments[2])
-	assertEquals(drop_layout:get_attachment 'b', drop_layout.attachments[1])
-end
-
---------------------------------------------------------------------------------
 --[[ Layouts ]]-----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
 do
 	local layout = v3d.create_layout()
 
-	layout = layout:add_face_attribute('a', 2)
-	assertEquals(true, layout:has_attribute 'a')
-	assertEquals('a', layout:get_attribute 'a' .name)
-	assertEquals(2, layout:get_attribute 'a' .size)
-	assertEquals('face', layout:get_attribute 'a' .type)
-	assertEquals(false, layout:get_attribute 'a' .is_numeric)
-	assertEquals(0, layout:get_attribute 'a' .offset)
-	assertEquals(0, layout.vertex_stride)
-	assertEquals(2, layout.face_stride)
-	assertEquals(layout:get_attribute 'a', layout.attributes[1])
+	layout = layout:add_layer('a', 'palette-index', 2)
+	assertEquals(true, layout:has_layer 'a')
+	assertEquals('a', layout:get_layer 'a' .name)
+	assertEquals('palette-index', layout:get_layer 'a' .type)
+	assertEquals(2, layout:get_layer 'a' .components)
+	assertEquals(layout:get_layer 'a', layout.layers[1])
 
-	layout = layout:add_face_attribute('b', 3)
-	assertEquals(true, layout:has_attribute 'b')
-	assertEquals('b', layout:get_attribute 'b' .name)
-	assertEquals(3, layout:get_attribute 'b' .size)
-	assertEquals('face', layout:get_attribute 'b' .type)
-	assertEquals(false, layout:get_attribute 'b' .is_numeric)
-	assertEquals(2, layout:get_attribute 'b' .offset)
-	assertEquals(0, layout.vertex_stride)
-	assertEquals(5, layout.face_stride)
-	assertEquals(layout:get_attribute 'b', layout.attributes[2])
-	assertEquals(true, layout:has_attribute 'a')
-	assertEquals('a', layout:get_attribute 'a' .name)
-	assertEquals(2, layout:get_attribute 'a' .size)
-	assertEquals('face', layout:get_attribute 'a' .type)
-	assertEquals(false, layout:get_attribute 'a' .is_numeric)
-	assertEquals(0, layout:get_attribute 'a' .offset)
-	assertEquals(layout:get_attribute 'a', layout.attributes[1])
+	layout = layout:add_layer('b', 'exp-palette-index', 1)
+	assertEquals(true, layout:has_layer 'b')
+	assertEquals('b', layout:get_layer 'b' .name)
+	assertEquals('exp-palette-index', layout:get_layer 'b' .type)
+	assertEquals(1, layout:get_layer 'b' .components)
+	assertEquals(layout:get_layer 'b', layout.layers[2])
+	assertEquals(true, layout:has_layer 'a')
+	assertEquals('a', layout:get_layer 'a' .name)
+	assertEquals('palette-index', layout:get_layer 'a' .type)
+	assertEquals(2, layout:get_layer 'a' .components)
+	assertEquals(layout:get_layer 'a', layout.layers[1])
 
-	layout = layout:add_vertex_attribute('c', 4, true)
-	assertEquals(true, layout:has_attribute 'c')
-	assertEquals('c', layout:get_attribute 'c' .name)
-	assertEquals(4, layout:get_attribute 'c' .size)
-	assertEquals('vertex', layout:get_attribute 'c' .type)
-	assertEquals(true, layout:get_attribute 'c' .is_numeric)
-	assertEquals(0, layout:get_attribute 'c' .offset)
-	assertEquals(4, layout.vertex_stride)
-	assertEquals(5, layout.face_stride)
-	assertEquals(layout:get_attribute 'c', layout.attributes[3])
-
-	local drop_layout = layout:drop_attribute 'a'
+	local drop_layout = layout:drop_layer 'a'
 	assertEquals(false, drop_layout == layout)
+	assertEquals(false, drop_layout:has_layer 'a')
+	assertEquals(true, drop_layout:has_layer 'b')
+	assertEquals('b', layout:get_layer 'b' .name)
+	assertEquals('exp-palette-index', layout:get_layer 'b' .type)
+	assertEquals(1, layout:get_layer 'b' .components)
+	assertEquals(layout:get_layer 'b', layout.layers[2])
+	assertEquals(drop_layout:get_layer 'b', drop_layout.layers[1])
+end
+
+--------------------------------------------------------------------------------
+--[[ Formats ]]-----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	local format = v3d.create_format()
+
+	format = format:add_face_attribute('a', 2)
+	assertEquals(true, format:has_attribute 'a')
+	assertEquals('a', format:get_attribute 'a' .name)
+	assertEquals(2, format:get_attribute 'a' .size)
+	assertEquals('face', format:get_attribute 'a' .type)
+	assertEquals(false, format:get_attribute 'a' .is_numeric)
+	assertEquals(0, format:get_attribute 'a' .offset)
+	assertEquals(0, format.vertex_stride)
+	assertEquals(2, format.face_stride)
+	assertEquals(format:get_attribute 'a', format.attributes[1])
+
+	format = format:add_face_attribute('b', 3)
+	assertEquals(true, format:has_attribute 'b')
+	assertEquals('b', format:get_attribute 'b' .name)
+	assertEquals(3, format:get_attribute 'b' .size)
+	assertEquals('face', format:get_attribute 'b' .type)
+	assertEquals(false, format:get_attribute 'b' .is_numeric)
+	assertEquals(2, format:get_attribute 'b' .offset)
+	assertEquals(0, format.vertex_stride)
+	assertEquals(5, format.face_stride)
+	assertEquals(format:get_attribute 'b', format.attributes[2])
+	assertEquals(true, format:has_attribute 'a')
+	assertEquals('a', format:get_attribute 'a' .name)
+	assertEquals(2, format:get_attribute 'a' .size)
+	assertEquals('face', format:get_attribute 'a' .type)
+	assertEquals(false, format:get_attribute 'a' .is_numeric)
+	assertEquals(0, format:get_attribute 'a' .offset)
+	assertEquals(format:get_attribute 'a', format.attributes[1])
+
+	format = format:add_vertex_attribute('c', 4, true)
+	assertEquals(true, format:has_attribute 'c')
+	assertEquals('c', format:get_attribute 'c' .name)
+	assertEquals(4, format:get_attribute 'c' .size)
+	assertEquals('vertex', format:get_attribute 'c' .type)
+	assertEquals(true, format:get_attribute 'c' .is_numeric)
+	assertEquals(0, format:get_attribute 'c' .offset)
+	assertEquals(4, format.vertex_stride)
+	assertEquals(5, format.face_stride)
+	assertEquals(format:get_attribute 'c', format.attributes[3])
+
+	local drop_layout = format:drop_attribute 'a'
+	assertEquals(false, drop_layout == format)
 	assertEquals(false, drop_layout:has_attribute 'a')
 	assertEquals(true, drop_layout:has_attribute 'b')
 	assertEquals(0, drop_layout:get_attribute 'b' .offset)
@@ -107,7 +107,7 @@ end
 --------------------------------------------------------------------------------
 
 do
-	local fb = v3d.create_framebuffer(v3d.COLOUR_DEPTH_FORMAT, 5, 3)
+	local fb = v3d.create_framebuffer(v3d.COLOUR_DEPTH_LAYOUT, 5, 3)
 
 	assertEquals(5, fb.width)
 	assertEquals(3, fb.height)
@@ -140,7 +140,7 @@ do
 		assertEquals(0.5, fb:get_buffer 'depth' [i])
 	end
 
-	local fb2 = v3d.create_framebuffer_subpixel(v3d.COLOUR_FORMAT, 2, 2)
+	local fb2 = v3d.create_framebuffer_subpixel(v3d.COLOUR_LAYOUT, 2, 2)
 
 	assertEquals(4, fb2.width)
 	assertEquals(6, fb2.height)
@@ -189,7 +189,7 @@ do
 		end
 	})
 
-	fb2:blit_term_subpixel(fake_term, 1, 2)
+	fb2:blit_term_subpixel(fake_term, 'colour', 1, 2)
 end
 
 --------------------------------------------------------------------------------
@@ -197,13 +197,13 @@ end
 --------------------------------------------------------------------------------
 
 do
-	local layout = v3d.create_layout()
+	local format = v3d.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_vertex_attribute('uv', 2, true)
 		:add_face_attribute('colour', 1)
 		:add_face_attribute('object_name', 1)
 
-	local gb = v3d.create_geometry_builder(layout)
+	local gb = v3d.create_geometry_builder(format)
 
 	gb:set_data('position', { 1, 2, 3, 4, 5, 6, 7, 8, 9 })
 	gb:set_data('uv', { 11, 12, 14, 15, 17, 18 })
@@ -217,7 +217,7 @@ do
 		assertEquals(expected_data[i], geometry[i])
 	end
 
-	assertEquals(layout, geometry.layout)
+	assertEquals(format, geometry.format)
 	assertEquals(3, geometry.vertices)
 	assertEquals(2, geometry.faces)
 	assertEquals(4, geometry.vertex_offset)

@@ -1,4 +1,14 @@
 
+-- TODO
+-- hello future Ben
+-- here's what's gonna happen:
+-- fuck passing functions in as shaders
+-- everything's gonna be a string
+-- it can autogenerate the string if not provided
+-- you also need to handle depth buffer separately
+-- and s/_v3d_va_attributes/attributes/
+-- basically just finish off the pipeline generation stuff
+
 -- #remove
 -- note: this code will be stripped out during the build process, thus removing
 --       the error
@@ -8,16 +18,23 @@ error 'Cannot use v3d source code, must build the library'
 local v3d = {}
 
 
-local function v3d_internal_error(message)
+--- @return any
+local function v3d_internal_error(message, context)
 	local traceback
 	pcall(function()
 		traceback = debug and debug.traceback and debug.traceback()
 	end)
-	error(
-		'V3D INTERNAL ERROR: ' .. tostring(message == nil and '' or message) ..
-		(traceback and '\n' .. traceback or ''),
-		0
-	)
+	local error_message = 'V3D INTERNAL ERROR: '
+	                   .. tostring(message == nil and '' or message)
+	                   .. (traceback and '\n' .. traceback or '')
+	pcall(function()
+		local h = io.open('.v3d_crash_dump.txt', 'w')
+		if h then
+			h:write(context and context .. '\n' .. error_message or error_message)
+			h:close()
+		end
+	end)
+	error(error_message, 0)
 end
 
 
@@ -123,75 +140,61 @@ end
 
 
 --------------------------------------------------------------------------------
---[ Format functions ]----------------------------------------------------------
+--[ Layout functions ]----------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
-local function format_add_attachment(format, name, type, components)
-	local new_attachment = {}
+local function layout_add_layer(layout, name, type, components)
+	local new_layer = {}
 
-	new_attachment.name = name
-	new_attachment.type = type
-	new_attachment.components = components
+	new_layer.name = name
+	new_layer.type = type
+	new_layer.components = components
 
 	--- @type table
-	local new_format = v3d.create_format()
+	local new_layout = v3d.create_layout()
 
-	for i = 1, #format.attachments do
-		new_format.attachments[i] = format.attachments[i]
-		new_format.attachment_lookup[format.attachments[i].name] = i
+	for i = 1, #layout.layers do
+		new_layout.layers[i] = layout.layers[i]
+		new_layout.layer_lookup[layout.layers[i].name] = i
 	end
 
-	table.insert(new_format.attachments, new_attachment)
-	new_format.attachment_lookup[name] = #new_format.attachments
+	table.insert(new_layout.layers, new_layer)
+	new_layout.layer_lookup[name] = #new_layout.layers
 
-	return new_format
+	return new_layout
 end
 
-local function format_drop_attachment(format, attachment)
-	if not format:has_attachment(attachment) then return format end
-	local attachment_name = attachment.name or attachment
+local function layout_drop_layer(layout, layer)
+	if not layout:has_layer(layer) then return layout end
+	local layer_name = layer.name or layer
 
-	local new_format = v3d.create_format()
+	local new_layout = v3d.create_layout()
 
-	for i = 1, #format.attachments do
-		local attachment = format.attachments[i]
-		if attachment.name ~= attachment_name then
-			new_format = format_add_attachment(new_format, attachment.name, attachment.type, attachment.components)
+	for i = 1, #layout.layers do
+		local layer = layout.layers[i]
+		if layer.name ~= layer_name then
+			new_layout = layout_add_layer(new_layout, layer.name, layer.type, layer.components)
 		end
 	end
 
-	return new_format
+	return new_layout
 end
 
-local function format_has_attachment(format, attachment)
-	if type(attachment) == 'table' then
-		local index = format.attachment_lookup[attachment.name]
+local function layout_has_layer(layout, layer)
+	if type(layer) == 'table' then
+		local index = layout.layer_lookup[layer.name]
 		if not index then return false end
-		return format.attachments[index].type == attachment.type
-		   and format.attachments[index].components == attachment.components
+		return layout.layers[index].type == layer.type
+		   and layout.layers[index].components == layer.components
 	end
 
-	return format.attachment_lookup[attachment] ~= nil
+	return layout.layer_lookup[layer] ~= nil
 end
 
-local function format_get_attachment(format, name)
-	local index = format.attachment_lookup[name]
-	return index and format.attachments[index]
-end
-
-local function create_format()
-	local format = {}
-
-	format.attachments = {}
-	format.attachment_lookup = {}
-
-	format.add_attachment = format_add_attachment
-	format.drop_attachment = format_drop_attachment
-	format.has_attachment = format_has_attachment
-	format.get_attachment = format_get_attachment
-
-	return format
+local function layout_get_layer(layout, name)
+	local index = layout.layer_lookup[name]
+	return index and layout.layers[index]
 end
 
 
@@ -200,7 +203,7 @@ end
 --------------------------------------------------------------------------------
 
 
-local attachment_defaults = {
+local layer_defaults = {
 	['palette-index'] = 0,
 	['exp-palette-index'] = 1,
 	['depth-reciprocal'] = 0,
@@ -208,31 +211,31 @@ local attachment_defaults = {
 	['any'] = 0,
 }
 
-local function framebuffer_get_buffer(fb, attachment)
-	return fb.attachment_data[attachment]
+local function framebuffer_get_buffer(fb, layer)
+	return fb.layer_data[layer]
 end
 
-local function framebuffer_clear(fb, attachment, value)
-	local data = fb.attachment_data[attachment]
+local function framebuffer_clear(fb, layer, value)
+	local data = fb.layer_data[layer]
+	local l = fb.layout:get_layer(layer)
 
 	if value == nil then
-		local a = fb.format:get_attachment(attachment)
-		value = attachment_defaults[a.type] or v3d_internal_error('no default for attachment type ' .. a.type)
+		value = layer_defaults[l.type] or v3d_internal_error('no default for layer type ' .. l.type)
 	end
 
-	for i = 1, fb.width * fb.height do
+	for i = 1, fb.width * fb.height * l.components do
 		data[i] = value
 	end
 end
 
-local function framebuffer_blit_term_subpixel(fb, term, attachment, dx, dy)
+local function framebuffer_blit_term_subpixel(fb, term, layer, dx, dy)
 	dx = dx or 0
 	dy = dy or 0
 
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
 
-	local fb_colour, fb_width = fb.attachment_data[attachment], fb.width
+	local fb_colour, fb_width = fb.layer_data[layer], fb.width
 
 	local xBlit = 1 + dx
 
@@ -336,54 +339,10 @@ local function framebuffer_blit_term_subpixel(fb, term, attachment, dx, dy)
 	end
 end
 
-local function framebuffer_blit_term_subpixel_depth(fb, term, dx, dy, update_palette)
-	local math_floor = math.floor
-
-	if update_palette ~= false then
-		for i = 0, 15 do
-			term.setPaletteColour(2 ^ i, i / 15, i / 15, i / 15)
-		end
-	end
-
-	-- we're gonna do a hack to swap out the buffers and draw it like normal
-
-	-- TODO: hardcoded attachments
-	local fb_depth = fb.attachment_data.depth
-	local old_colour = fb.attachment_data.colour
-	local new_colour = {}
-	local min = fb_depth[1]
-	local max = fb_depth[1]
-
-	for i = 2, #fb_depth do
-		local a = fb_depth[i]
-		if a < min then min = a end
-		if a > max then max = a end
-	end
-
-	local delta = max - min
-
-	if min == max then
-		delta = 1
-	end
-
-	for i = 1, #fb_depth do
-		local a = (fb_depth[i] - min) / delta
-		local b = math_floor(a * 16)
-		if b == 16 then b = 15 end
-		new_colour[i] = 2 ^ b
-	end
-
-	-- TODO: hardcoded attachments
-	fb.attachment_data.colour = new_colour
-	framebuffer_blit_term_subpixel(fb, term, dx, dy)
-	fb.attachment_data.colour = old_colour
-end
-
-local function framebuffer_blit_graphics(fb, term, dx, dy)
+local function framebuffer_blit_graphics(fb, term, layer, dx, dy)
 	local lines = {}
 	local index = 1
-	-- TODO: hardcoded attachments
-	local fb_colour = fb.attachment_data.colour
+	local fb_colour = fb.layer_data[layer]
 	local fb_width = fb.width
 	local string_char = string.char
 	local table_concat = table.concat
@@ -413,177 +372,82 @@ local function framebuffer_blit_graphics(fb, term, dx, dy)
 	term.drawPixels(dx, dy, lines)
 end
 
--- TODO: find and remove replication with framebuffer_blit_term_subpixel_depth
-local function framebuffer_blit_graphics_depth(fb, term, dx, dy, update_palette)
-	local math_floor = math.floor
-	local palette_size = 16
-	local function convert_pixel(n) return 2 ^ n end
-
-	if term.getGraphicsMode() == 2 then
-		palette_size = 256
-		convert_pixel = function(n) return n end
-	end
-
-	if update_palette ~= false then
-		for i = 0, palette_size - 1 do
-			term.setPaletteColour(convert_pixel(i), i / (palette_size - 1), i / (palette_size - 1), i / (palette_size - 1))
-		end
-	end
-
-	-- we're gonna do a hack to swap out the buffers and draw it like normal
-
-	-- TODO: hardcoded attachments
-	local fb_depth = fb.attachment_data.depth
-	local old_colour = fb.attachment_data.colour
-	local new_colour = {}
-	local min = fb_depth[1]
-	local max = fb_depth[1]
-
-	for i = 2, #fb_depth do
-		local a = fb_depth[i]
-		if a < min then min = a end
-		if a > max then max = a end
-	end
-
-	local delta = max - min
-
-	if min == max then
-		delta = 1
-	end
-
-	for i = 1, #fb_depth do
-		local a = (fb_depth[i] - min) / delta
-		local b = math_floor(a * palette_size)
-		if b == palette_size then b = palette_size - 1 end
-		new_colour[i] = convert_pixel(b)
-	end
-
-	-- TODO: hardcoded attachments
-	fb.attachment_data.colour = new_colour
-	framebuffer_blit_graphics(fb, term, dx, dy)
-	fb.attachment_data.colour = old_colour
-end
-
-local function create_framebuffer(format, width, height)
-	local fb = {}
-
-	fb.format = format
-	fb.width = width
-	fb.height = height
-	fb.attachment_data = {}
-	fb.get_buffer = framebuffer_get_buffer
-	fb.clear = framebuffer_clear
-	fb.blit_term_subpixel = framebuffer_blit_term_subpixel
-	fb.blit_term_subpixel_depth = framebuffer_blit_term_subpixel_depth
-	fb.blit_graphics = framebuffer_blit_graphics
-	fb.blit_graphics_depth = framebuffer_blit_graphics_depth
-
-	for i = 1, #format.attachments do
-		local attachment = format.attachments[i]
-		fb.attachment_data[attachment.name] = {}
-		framebuffer_clear(fb, attachment.name)
-	end
-
-	return fb
-end
-
-local function create_framebuffer_subpixel(format, width, height)
-	return create_framebuffer(format, width * 2, height * 3) -- multiply by subpixel dimensions
-end
-
 
 --------------------------------------------------------------------------------
---[ Layout functions ]----------------------------------------------------------
+--[ Format functions ]----------------------------------------------------------
 --------------------------------------------------------------------------------
 
 
-local function layout_add_attribute(layout, name, size, type, is_numeric)
+local function format_add_attribute(format, name, size, type, is_numeric)
 	local attr = {}
 
 	attr.name = name
 	attr.size = size
 	attr.type = type
 	attr.is_numeric = is_numeric
-	attr.offset = type == 'vertex' and layout.vertex_stride or layout.face_stride
+	attr.offset = type == 'vertex' and format.vertex_stride or format.face_stride
 
 	--- @type table
-	local new_layout = v3d.create_layout()
+	local new_format = v3d.create_format()
 
-	for i = 1, #layout.attributes do
-		new_layout.attributes[i] = layout.attributes[i]
-		new_layout.attribute_lookup[layout.attributes[i].name] = i
+	for i = 1, #format.attributes do
+		new_format.attributes[i] = format.attributes[i]
+		new_format.attribute_lookup[format.attributes[i].name] = i
 	end
 
-	table.insert(new_layout.attributes, attr)
-	new_layout.attribute_lookup[name] = #new_layout.attributes
+	table.insert(new_format.attributes, attr)
+	new_format.attribute_lookup[name] = #new_format.attributes
 
 	if type == 'vertex' then
-		new_layout.vertex_stride = layout.vertex_stride + size
-		new_layout.face_stride = layout.face_stride
+		new_format.vertex_stride = format.vertex_stride + size
+		new_format.face_stride = format.face_stride
 	else
-		new_layout.vertex_stride = layout.vertex_stride
-		new_layout.face_stride = layout.face_stride + size
+		new_format.vertex_stride = format.vertex_stride
+		new_format.face_stride = format.face_stride + size
 	end
 
-	return new_layout
+	return new_format
 end
 
-local function layout_add_vertex_attribute(layout, name, size, is_numeric)
-	return layout_add_attribute(layout, name, size, 'vertex', is_numeric)
+local function format_add_vertex_attribute(format, name, size, is_numeric)
+	return format_add_attribute(format, name, size, 'vertex', is_numeric)
 end
 
-local function layout_add_face_attribute(layout, name, size)
-	return layout_add_attribute(layout, name, size, 'face', false)
+local function format_add_face_attribute(format, name, size)
+	return format_add_attribute(format, name, size, 'face', false)
 end
 
-local function layout_drop_attribute(layout, attribute)
-	if not layout:has_attribute(attribute) then return layout end
+local function format_drop_attribute(format, attribute)
+	if not format:has_attribute(attribute) then return format end
 	local attribute_name = attribute.name or attribute
 
-	local new_layout = v3d.create_layout()
+	local new_format = v3d.create_format()
 
-	for i = 1, #layout.attributes do
-		local attr = layout.attributes[i]
+	for i = 1, #format.attributes do
+		local attr = format.attributes[i]
 		if attr.name ~= attribute_name then
-			new_layout = layout_add_attribute(new_layout, attr.name, attr.size, attr.type, attr.is_numeric)
+			new_format = format_add_attribute(new_format, attr.name, attr.size, attr.type, attr.is_numeric)
 		end
 	end
 
-	return new_layout
+	return new_format
 end
 
-local function layout_has_attribute(layout, attribute)
+local function format_has_attribute(format, attribute)
 	if type(attribute) == 'table' then
-		local index = layout.attribute_lookup[attribute.name]
+		local index = format.attribute_lookup[attribute.name]
 		if not index then return false end
-		return layout.attributes[index].size == attribute.size
-		   and layout.attributes[index].type == attribute.type
-		   and layout.attributes[index].is_numeric == attribute.is_numeric
+		return format.attributes[index].size == attribute.size
+		   and format.attributes[index].type == attribute.type
+		   and format.attributes[index].is_numeric == attribute.is_numeric
 	end
 
-	return layout.attribute_lookup[attribute] ~= nil
+	return format.attribute_lookup[attribute] ~= nil
 end
 
-local function layout_get_attribute(layout, name)
-	local index = layout.attribute_lookup[name]
-	return index and layout.attributes[index]
-end
-
-local function create_layout()
-	local layout = {}
-
-	layout.attributes = {}
-	layout.attribute_lookup = {}
-	layout.vertex_stride = 0
-	layout.face_stride = 0
-
-	layout.add_vertex_attribute = layout_add_vertex_attribute
-	layout.add_face_attribute = layout_add_face_attribute
-	layout.drop_attribute = layout_drop_attribute
-	layout.has_attribute = layout_has_attribute
-	layout.get_attribute = layout_get_attribute
-
-	return layout
+local function format_get_attribute(format, name)
+	local index = format.attribute_lookup[name]
+	return index and format.attributes[index]
 end
 
 
@@ -593,7 +457,7 @@ end
 
 
 local function geometry_to_builder(geometry)
-	local gb = v3d.create_geometry_builder(geometry.layout)
+	local gb = v3d.create_geometry_builder(geometry.format)
 
 	-- TODO
 	error 'NYI'
@@ -620,7 +484,7 @@ local function geometry_builder_append_data(gb, attribute_name, data)
 end
 
 local function geometry_builder_map(gb, attribute_name, fn)
-	local size = gb.layout:get_attribute(attribute_name).size
+	local size = gb.format:get_attribute(attribute_name).size
 	local data = gb.attribute_data[attribute_name]
 
 	for i = 0, #data - 1, size do
@@ -638,7 +502,7 @@ local function geometry_builder_map(gb, attribute_name, fn)
 end
 
 local function geometry_builder_transform(gb, attribute_name, transform, translate)
-	local attr_size = gb.layout:get_attribute(attribute_name).size
+	local attr_size = gb.format:get_attribute(attribute_name).size
 	local tr_fn = transform.transform
 
 	if translate == nil and attr_size ~= 4 then
@@ -663,8 +527,8 @@ local function geometry_builder_transform(gb, attribute_name, transform, transla
 end
 
 local function geometry_builder_insert(gb, other)
-	for i = 1, #gb.layout.attributes do
-		local attr = gb.layout.attributes[i]
+	for i = 1, #gb.format.attributes do
+		local attr = gb.format.attributes[i]
 		local self_data = gb.attributes_data[attr.name]
 		local other_data = other.attributes_data[attr.name]
 		local offset = #self_data
@@ -680,24 +544,23 @@ local function geometry_builder_insert(gb, other)
 	return gb
 end
 
-local function geometry_builder_cast(gb, layout)
-	gb.layout = layout
+local function geometry_builder_cast(gb, format)
+	gb.format = format
 	return gb
 end
 
 local function geometry_builder_build(gb, label)
 	local geometry = {}
-	--- @type V3DLayout
-	local layout = gb.layout
+	local format = gb.format
 
-	geometry.layout = layout
+	geometry.format = format
 	geometry.vertices = 0
 	geometry.faces = 0
 
 	geometry.to_builder = geometry_to_builder
 
-	for i = 1, #layout.attributes do
-		local attr = layout.attributes[i]
+	for i = 1, #format.attributes do
+		local attr = format.attributes[i]
 		local data = gb.attribute_data[attr.name]
 
 		if attr.type == 'vertex' then
@@ -707,10 +570,10 @@ local function geometry_builder_build(gb, label)
 		end
 	end
 
-	geometry.vertex_offset = layout.face_stride * geometry.faces
+	geometry.vertex_offset = format.face_stride * geometry.faces
 
-	for i = 1, #layout.attributes do
-		local attr = layout.attributes[i]
+	for i = 1, #format.attributes do
+		local attr = format.attributes[i]
 		local data = gb.attribute_data[attr.name]
 		local base_offset = attr.offset
 		local stride = 0
@@ -718,10 +581,10 @@ local function geometry_builder_build(gb, label)
 
 		if attr.type == 'vertex' then
 			base_offset = base_offset + geometry.vertex_offset
-			stride = layout.vertex_stride
+			stride = format.vertex_stride
 			count = geometry.vertices
 		else
-			stride = layout.face_stride
+			stride = format.face_stride
 			count = geometry.faces
 		end
 
@@ -736,90 +599,6 @@ local function geometry_builder_build(gb, label)
 	end
 
 	return geometry
-end
-
-local function create_geometry_builder(layout)
-	local gb = {}
-
-	gb.layout = layout
-	gb.attribute_data = {}
-
-	gb.set_data = geometry_builder_set_data
-	gb.append_data = geometry_builder_append_data
-	gb.map = geometry_builder_map
-	gb.transform = geometry_builder_transform
-	gb.insert = geometry_builder_insert
-	gb.cast = geometry_builder_cast
-	gb.build = geometry_builder_build
-
-	return gb
-end
-
-local function create_debug_cube(cx, cy, cz, size)
-	local s2 = (size or 1) / 2
-
-	cx = cx or 0
-	cy = cy or 0
-	cz = cz or 0
-
-	return create_geometry_builder(v3d.DEBUG_CUBE_LAYOUT)
-		:set_data('position', {
-			-s2,  s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -- front 1
-			-s2, -s2,  s2,  s2, -s2,  s2,  s2,  s2,  s2, -- front 2
-			 s2,  s2, -s2,  s2, -s2, -s2, -s2,  s2, -s2, -- back 1
-			 s2, -s2, -s2, -s2, -s2, -s2, -s2,  s2, -s2, -- back 2
-			-s2,  s2, -s2, -s2, -s2, -s2, -s2,  s2,  s2, -- left 1
-			-s2, -s2, -s2, -s2, -s2,  s2, -s2,  s2,  s2, -- left 2
-			 s2,  s2,  s2,  s2, -s2,  s2,  s2,  s2, -s2, -- right 1
-			 s2, -s2,  s2,  s2, -s2, -s2,  s2,  s2, -s2, -- right 2
-			-s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -s2, -- top 1
-			-s2,  s2,  s2,  s2,  s2,  s2,  s2,  s2, -s2, -- top 2
-			 s2, -s2, -s2,  s2, -s2,  s2, -s2, -s2, -s2, -- bottom 1
-			 s2, -s2,  s2, -s2, -s2,  s2, -s2, -s2, -s2, -- bottom 2
-		})
-		:set_data('uv', {
-			0, 0, 0, 1, 1, 0, -- front 1
-			0, 1, 1, 1, 1, 0, -- front 2
-			0, 0, 0, 1, 1, 0, -- back 1
-			0, 1, 1, 1, 1, 0, -- back 2
-			0, 0, 0, 1, 1, 0, -- left 1
-			0, 1, 1, 1, 1, 0, -- left 2
-			0, 0, 0, 1, 1, 0, -- right 1
-			0, 1, 1, 1, 1, 0, -- right 2
-			0, 0, 0, 1, 1, 0, -- top 1
-			0, 1, 1, 1, 1, 0, -- top 2
-			0, 0, 0, 1, 1, 0, -- bottom 1
-			0, 1, 1, 1, 1, 0, -- bottom 2
-		})
-		:set_data('colour', {
-			colours.blue, colours.cyan, -- front,
-			colours.brown, colours.yellow, -- back
-			colours.lightBlue, colours.pink, -- left
-			colours.red, colours.orange, -- right
-			colours.green, colours.lime, -- top
-			colours.purple, colours.magenta, -- bottom
-		})
-		:set_data('face_normal', {
-			 0,  0,  1,  0,  0,  1, -- front
-			 0,  0,  1,  0,  0, -1, -- back
-			-1,  0,  0, -1,  0,  0, -- left
-			 1,  0,  0,  1,  0,  0, -- right
-			 0,  1,  0,  0,  1,  0, -- top
-			 0, -1,  0,  0, -1,  0, -- bottom
-		})
-		:set_data('face_index', { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 })
-		:set_data('side_index', { 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 })
-		:set_data('side_name', {
-			'front', 'front',
-			'back', 'back',
-			'left', 'left',
-			'right', 'right',
-			'top', 'top',
-			'bottom', 'bottom',
-		})
-		:map('position', function(d)
-			return { d[1] + cx, d[2] + cy, d[3] + cz }
-		end)
 end
 
 
@@ -880,6 +659,1264 @@ local function transform_inverse(transform)
 end
 
 local transform_mt = { __mul = transform_combine }
+
+
+--------------------------------------------------------------------------------
+--[ Rasterization functions ]---------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local RENDER_GEOMETRY_SOURCE = [[
+local _v3d_upvalue_uniforms = ...
+return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
+	local _v3d_math_ceil = math.ceil
+	local _v3d_math_floor = math.floor
+	local _v3d_fb_width = _v3d_fb.width
+	local _v3d_fb_width_m1 = _v3d_fb_width - 1
+	local _v3d_fb_height_m1 = _v3d_fb.height - 1
+	local _v3d_screen_dx = (_v3d_fb.width - 1) / 2
+	local _v3d_screen_dy = (_v3d_fb.height - 1) / 2
+	local _v3d_screen_sy = -(_v3d_screen_dy - 0.5)
+	local _v3d_screen_sx = v3d_pixel_aspect_ratio() * (_v3d_screen_dy - 0.5)
+
+	v3d_import_uniforms()
+	v3d_assign_layers()
+	v3d_init_event_counters()
+
+	local _v3d_stat_total_time = 0
+	local _v3d_stat_rasterize_time = 0
+	local _v3d_stat_candidate_faces = 0
+	local _v3d_stat_drawn_faces = 0
+	local _v3d_stat_culled_faces = 0
+	local _v3d_stat_clipped_faces = 0
+	local _v3d_stat_discarded_faces = 0
+	local _v3d_stat_candidate_fragments = 0
+
+	-- #embed MODEL_TRANSFORM_LOCALISE_EMBED
+	-- #embed MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED
+
+	local _v3d_transform_xx = _v3d_transform[ 1]
+	local _v3d_transform_xy = _v3d_transform[ 2]
+	local _v3d_transform_xz = _v3d_transform[ 3]
+	local _v3d_transform_dx = _v3d_transform[ 4]
+	local _v3d_transform_yx = _v3d_transform[ 5]
+	local _v3d_transform_yy = _v3d_transform[ 6]
+	local _v3d_transform_yz = _v3d_transform[ 7]
+	local _v3d_transform_dy = _v3d_transform[ 8]
+	local _v3d_transform_zx = _v3d_transform[ 9]
+	local _v3d_transform_zy = _v3d_transform[10]
+	local _v3d_transform_zz = _v3d_transform[11]
+	local _v3d_transform_dz = _v3d_transform[12]
+
+	local _v3d_vertex_offset = _v3d_geometry.vertex_offset
+	local _v3d_face_offset = 0
+
+	for _ = 1, _v3d_geometry.vertices, 3 do
+		local _v3d_transformed_p0x, _v3d_transformed_p0y, _v3d_transformed_p0z,
+		      _v3d_transformed_p1x, _v3d_transformed_p1y, _v3d_transformed_p1z,
+		      _v3d_transformed_p2x, _v3d_transformed_p2y, _v3d_transformed_p2z
+
+		-- #embed TRANSFORMED_WORLD_POINT_HEADER
+		-- #embed WORLD_NORMAL_CALCULATION_HEADER
+		do
+			local _v3d_p0x=_v3d_geometry[_v3d_vertex_offset + ${P0X_OFFSET}]
+			local _v3d_p0y=_v3d_geometry[_v3d_vertex_offset + ${P0Y_OFFSET}]
+			local _v3d_p0z=_v3d_geometry[_v3d_vertex_offset + ${P0Z_OFFSET}]
+			local _v3d_p1x=_v3d_geometry[_v3d_vertex_offset + ${P1X_OFFSET}]
+			local _v3d_p1y=_v3d_geometry[_v3d_vertex_offset + ${P1Y_OFFSET}]
+			local _v3d_p1z=_v3d_geometry[_v3d_vertex_offset + ${P1Z_OFFSET}]
+			local _v3d_p2x=_v3d_geometry[_v3d_vertex_offset + ${P2X_OFFSET}]
+			local _v3d_p2y=_v3d_geometry[_v3d_vertex_offset + ${P2Y_OFFSET}]
+			local _v3d_p2z=_v3d_geometry[_v3d_vertex_offset + ${P2Z_OFFSET}]
+
+			-- #embed TRANSFORMED_POINT_CALCULATION
+			-- #embed WORLD_NORMAL_CALCULATION_EMBED
+		end
+
+		-- #embed VERTEX_ATTRIBUTE_ASSIGNMENT
+		-- #embed FACE_ATTRIBUTE_ASSIGNMENT
+
+		local _v3d_cull_face
+
+		-- #embed FACE_CULLING
+
+		-- #increment_statistic candidate_faces
+
+		if not _v3d_cull_face then
+			-- TODO: make this split polygons
+			if _v3d_transformed_p0z <= ${CLIPPING_PLANE} and _v3d_transformed_p1z <= ${CLIPPING_PLANE} and _v3d_transformed_p2z <= ${CLIPPING_PLANE} then
+				local _v3d_rasterize_p0_w = -1 / _v3d_transformed_p0z
+				local _v3d_rasterize_p0_x = _v3d_screen_dx + _v3d_transformed_p0x * _v3d_rasterize_p0_w * _v3d_screen_sx
+				local _v3d_rasterize_p0_y = _v3d_screen_dy + _v3d_transformed_p0y * _v3d_rasterize_p0_w * _v3d_screen_sy
+				local _v3d_rasterize_p1_w = -1 / _v3d_transformed_p1z
+				local _v3d_rasterize_p1_x = _v3d_screen_dx + _v3d_transformed_p1x * _v3d_rasterize_p1_w * _v3d_screen_sx
+				local _v3d_rasterize_p1_y = _v3d_screen_dy + _v3d_transformed_p1y * _v3d_rasterize_p1_w * _v3d_screen_sy
+				local _v3d_rasterize_p2_w = -1 / _v3d_transformed_p2z
+				local _v3d_rasterize_p2_x = _v3d_screen_dx + _v3d_transformed_p2x * _v3d_rasterize_p2_w * _v3d_screen_sx
+				local _v3d_rasterize_p2_y = _v3d_screen_dy + _v3d_transformed_p2y * _v3d_rasterize_p2_w * _v3d_screen_sy
+
+				-- #embed TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS
+				-- #embed TRIANGLE_RASTERIZATION
+				-- #increment_statistic drawn_faces
+			else
+				-- #increment_statistic discarded_faces
+			end
+		else
+			-- #increment_statistic culled_faces
+		end
+
+		_v3d_vertex_offset = _v3d_vertex_offset + ${VERTEX_STRIDE_3}
+		_v3d_face_offset = _v3d_face_offset + ${FACE_STRIDE}
+	end
+
+	v3d_export_uniforms()
+
+	return {
+		total_time = _v3d_stat_total_time,
+		rasterize_time = _v3d_stat_rasterize_time,
+		candidate_faces = _v3d_stat_candidate_faces,
+		drawn_faces = _v3d_stat_drawn_faces,
+		culled_faces = _v3d_stat_culled_faces,
+		clipped_faces = _v3d_stat_clipped_faces,
+		discarded_faces = _v3d_stat_discarded_faces,
+		candidate_fragments = _v3d_stat_candidate_fragments,
+		events = {
+			v3d_store_event_counters()
+		},
+	}
+end
+]]
+
+local COMBINED_MODEL_TRANSFORM_LOCALISE_EMBED = [[
+-- TODO: implement this properly
+if _v3d_model_transform then
+	_v3d_transform = _v3d_transform:combine(_v3d_model_transform)
+end
+]]
+
+local SEPARATED_MODEL_TRANSFORM_LOCALISE_EMBED = [[
+local _v3d_model_transform_xx = _v3d_model_transform[ 1]
+local _v3d_model_transform_xy = _v3d_model_transform[ 2]
+local _v3d_model_transform_xz = _v3d_model_transform[ 3]
+local _v3d_model_transform_dx = _v3d_model_transform[ 4]
+local _v3d_model_transform_yx = _v3d_model_transform[ 5]
+local _v3d_model_transform_yy = _v3d_model_transform[ 6]
+local _v3d_model_transform_yz = _v3d_model_transform[ 7]
+local _v3d_model_transform_dy = _v3d_model_transform[ 8]
+local _v3d_model_transform_zx = _v3d_model_transform[ 9]
+local _v3d_model_transform_zy = _v3d_model_transform[10]
+local _v3d_model_transform_zz = _v3d_model_transform[11]
+local _v3d_model_transform_dz = _v3d_model_transform[12]
+]]
+
+local MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED = [[
+local _v3d_inverse_model_transform_det = 1/(_v3d_model_transform_xx*(_v3d_model_transform_yy*_v3d_model_transform_zz-_v3d_model_transform_zy*_v3d_model_transform_yz)
+                                           -_v3d_model_transform_xy*(_v3d_model_transform_yx*_v3d_model_transform_zz-_v3d_model_transform_yz*_v3d_model_transform_zx)
+                                           +_v3d_model_transform_xz*(_v3d_model_transform_yx*_v3d_model_transform_zy-_v3d_model_transform_yy*_v3d_model_transform_zx))
+local _v3d_inverse_model_transform_xx =  (_v3d_model_transform_yy*_v3d_model_transform_zz-_v3d_model_transform_zy*_v3d_model_transform_yz)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_xy = -(_v3d_model_transform_xy*_v3d_model_transform_zz-_v3d_model_transform_xz*_v3d_model_transform_zy)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_xz =  (_v3d_model_transform_xy*_v3d_model_transform_yz-_v3d_model_transform_xz*_v3d_model_transform_yy)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_yx = -(_v3d_model_transform_yx*_v3d_model_transform_zz-_v3d_model_transform_yz*_v3d_model_transform_zx)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_yy =  (_v3d_model_transform_xx*_v3d_model_transform_zz-_v3d_model_transform_xz*_v3d_model_transform_zx)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_yz = -(_v3d_model_transform_xx*_v3d_model_transform_yz-_v3d_model_transform_yx*_v3d_model_transform_xz)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_zx =  (_v3d_model_transform_yx*_v3d_model_transform_zy-_v3d_model_transform_zx*_v3d_model_transform_yy)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_zy = -(_v3d_model_transform_xx*_v3d_model_transform_zy-_v3d_model_transform_zx*_v3d_model_transform_xy)*_v3d_inverse_model_transform_det;
+local _v3d_inverse_model_transform_zz =  (_v3d_model_transform_xx*_v3d_model_transform_yy-_v3d_model_transform_yx*_v3d_model_transform_xy)*_v3d_inverse_model_transform_det;
+local _v3d_math_sqrt = math.sqrt
+]]
+
+local WORLD_NORMAL_CALCULATION_HEADER = [[
+local _v3d_face_world_normal0, _v3d_face_world_normal1, _v3d_face_world_normal2
+]]
+
+local WORLD_NORMAL_CALCULATION_EMBED = [[
+local _v3d_face_normal_d1x = _v3d_world_transformed_p1x - _v3d_world_transformed_p0x
+local _v3d_face_normal_d1y = _v3d_world_transformed_p1y - _v3d_world_transformed_p0y
+local _v3d_face_normal_d1z = _v3d_world_transformed_p1z - _v3d_world_transformed_p0z
+local _v3d_face_normal_d2x = _v3d_world_transformed_p2x - _v3d_world_transformed_p0x
+local _v3d_face_normal_d2y = _v3d_world_transformed_p2y - _v3d_world_transformed_p0y
+local _v3d_face_normal_d2z = _v3d_world_transformed_p2z - _v3d_world_transformed_p0z
+-- local _v3d_face_normal_raw_cx = _v3d_face_normal_d1y*_v3d_face_normal_d2z - _v3d_face_normal_d1z*_v3d_face_normal_d2y
+-- local _v3d_face_normal_raw_cy = _v3d_face_normal_d1z*_v3d_face_normal_d2x - _v3d_face_normal_d1x*_v3d_face_normal_d2z
+-- local _v3d_face_normal_raw_cz = _v3d_face_normal_d1x*_v3d_face_normal_d2y - _v3d_face_normal_d1y*_v3d_face_normal_d2x
+_v3d_face_world_normal0 = _v3d_face_normal_d1y*_v3d_face_normal_d2z - _v3d_face_normal_d1z*_v3d_face_normal_d2y
+_v3d_face_world_normal1 = _v3d_face_normal_d1z*_v3d_face_normal_d2x - _v3d_face_normal_d1x*_v3d_face_normal_d2z
+_v3d_face_world_normal2 = _v3d_face_normal_d1x*_v3d_face_normal_d2y - _v3d_face_normal_d1y*_v3d_face_normal_d2x
+-- _v3d_face_world_normal0 = _v3d_inverse_model_transform_xx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_xy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_xz * _v3d_face_normal_raw_cz
+-- _v3d_face_world_normal1 = _v3d_inverse_model_transform_yx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_yy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_yz * _v3d_face_normal_raw_cz
+-- _v3d_face_world_normal2 = _v3d_inverse_model_transform_zx * _v3d_face_normal_raw_cx + _v3d_inverse_model_transform_zy * _v3d_face_normal_raw_cy + _v3d_inverse_model_transform_zz * _v3d_face_normal_raw_cz
+local _v3d_face_normal_divisor = 1 / _v3d_math_sqrt(_v3d_face_world_normal0 * _v3d_face_world_normal0 + _v3d_face_world_normal1 * _v3d_face_world_normal1 + _v3d_face_world_normal2 * _v3d_face_world_normal2)
+_v3d_face_world_normal0 = _v3d_face_world_normal0 * _v3d_face_normal_divisor
+_v3d_face_world_normal1 = _v3d_face_world_normal1 * _v3d_face_normal_divisor
+_v3d_face_world_normal2 = _v3d_face_world_normal2 * _v3d_face_normal_divisor
+]]
+
+local TRANSFORMED_WORLD_POINT_HEADER = [[
+local _v3d_world_transformed_p0x, _v3d_world_transformed_p0y, _v3d_world_transformed_p0z,
+      _v3d_world_transformed_p1x, _v3d_world_transformed_p1y, _v3d_world_transformed_p1z,
+      _v3d_world_transformed_p2x, _v3d_world_transformed_p2y, _v3d_world_transformed_p2z
+]]
+
+local COMBINED_TRANSFORMED_POINT_CALCULATION = [[
+_v3d_transformed_p0x = _v3d_transform_xx * _v3d_p0x + _v3d_transform_xy * _v3d_p0y + _v3d_transform_xz * _v3d_p0z + _v3d_transform_dx
+_v3d_transformed_p0y = _v3d_transform_yx * _v3d_p0x + _v3d_transform_yy * _v3d_p0y + _v3d_transform_yz * _v3d_p0z + _v3d_transform_dy
+_v3d_transformed_p0z = _v3d_transform_zx * _v3d_p0x + _v3d_transform_zy * _v3d_p0y + _v3d_transform_zz * _v3d_p0z + _v3d_transform_dz
+
+_v3d_transformed_p1x = _v3d_transform_xx * _v3d_p1x + _v3d_transform_xy * _v3d_p1y + _v3d_transform_xz * _v3d_p1z + _v3d_transform_dx
+_v3d_transformed_p1y = _v3d_transform_yx * _v3d_p1x + _v3d_transform_yy * _v3d_p1y + _v3d_transform_yz * _v3d_p1z + _v3d_transform_dy
+_v3d_transformed_p1z = _v3d_transform_zx * _v3d_p1x + _v3d_transform_zy * _v3d_p1y + _v3d_transform_zz * _v3d_p1z + _v3d_transform_dz
+
+_v3d_transformed_p2x = _v3d_transform_xx * _v3d_p2x + _v3d_transform_xy * _v3d_p2y + _v3d_transform_xz * _v3d_p2z + _v3d_transform_dx
+_v3d_transformed_p2y = _v3d_transform_yx * _v3d_p2x + _v3d_transform_yy * _v3d_p2y + _v3d_transform_yz * _v3d_p2z + _v3d_transform_dy
+_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
+]]
+
+local SEPARATED_TRANSFORMED_POINT_CALCULATION = [[
+_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
+_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
+_v3d_world_transformed_p0z = _v3d_model_transform_zx * _v3d_p0x + _v3d_model_transform_zy * _v3d_p0y + _v3d_model_transform_zz * _v3d_p0z + _v3d_model_transform_dz
+
+_v3d_world_transformed_p1x = _v3d_model_transform_xx * _v3d_p1x + _v3d_model_transform_xy * _v3d_p1y + _v3d_model_transform_xz * _v3d_p1z + _v3d_model_transform_dx
+_v3d_world_transformed_p1y = _v3d_model_transform_yx * _v3d_p1x + _v3d_model_transform_yy * _v3d_p1y + _v3d_model_transform_yz * _v3d_p1z + _v3d_model_transform_dy
+_v3d_world_transformed_p1z = _v3d_model_transform_zx * _v3d_p1x + _v3d_model_transform_zy * _v3d_p1y + _v3d_model_transform_zz * _v3d_p1z + _v3d_model_transform_dz
+
+_v3d_world_transformed_p2x = _v3d_model_transform_xx * _v3d_p2x + _v3d_model_transform_xy * _v3d_p2y + _v3d_model_transform_xz * _v3d_p2z + _v3d_model_transform_dx
+_v3d_world_transformed_p2y = _v3d_model_transform_yx * _v3d_p2x + _v3d_model_transform_yy * _v3d_p2y + _v3d_model_transform_yz * _v3d_p2z + _v3d_model_transform_dy
+_v3d_world_transformed_p2z = _v3d_model_transform_zx * _v3d_p2x + _v3d_model_transform_zy * _v3d_p2y + _v3d_model_transform_zz * _v3d_p2z + _v3d_model_transform_dz
+
+_v3d_transformed_p0x = _v3d_transform_xx * _v3d_world_transformed_p0x + _v3d_transform_xy * _v3d_world_transformed_p0y + _v3d_transform_xz * _v3d_world_transformed_p0z + _v3d_transform_dx
+_v3d_transformed_p0y = _v3d_transform_yx * _v3d_world_transformed_p0x + _v3d_transform_yy * _v3d_world_transformed_p0y + _v3d_transform_yz * _v3d_world_transformed_p0z + _v3d_transform_dy
+_v3d_transformed_p0z = _v3d_transform_zx * _v3d_world_transformed_p0x + _v3d_transform_zy * _v3d_world_transformed_p0y + _v3d_transform_zz * _v3d_world_transformed_p0z + _v3d_transform_dz
+
+_v3d_transformed_p1x = _v3d_transform_xx * _v3d_world_transformed_p1x + _v3d_transform_xy * _v3d_world_transformed_p1y + _v3d_transform_xz * _v3d_world_transformed_p1z + _v3d_transform_dx
+_v3d_transformed_p1y = _v3d_transform_yx * _v3d_world_transformed_p1x + _v3d_transform_yy * _v3d_world_transformed_p1y + _v3d_transform_yz * _v3d_world_transformed_p1z + _v3d_transform_dy
+_v3d_transformed_p1z = _v3d_transform_zx * _v3d_world_transformed_p1x + _v3d_transform_zy * _v3d_world_transformed_p1y + _v3d_transform_zz * _v3d_world_transformed_p1z + _v3d_transform_dz
+
+_v3d_transformed_p2x = _v3d_transform_xx * _v3d_world_transformed_p2x + _v3d_transform_xy * _v3d_world_transformed_p2y + _v3d_transform_xz * _v3d_world_transformed_p2z + _v3d_transform_dx
+_v3d_transformed_p2y = _v3d_transform_yx * _v3d_world_transformed_p2x + _v3d_transform_yy * _v3d_world_transformed_p2y + _v3d_transform_yz * _v3d_world_transformed_p2z + _v3d_transform_dy
+_v3d_transformed_p2z = _v3d_transform_zx * _v3d_world_transformed_p2x + _v3d_transform_zy * _v3d_world_transformed_p2y + _v3d_transform_zz * _v3d_world_transformed_p2z + _v3d_transform_dz
+]]
+
+local FACE_CULLING_EMBED = [[
+do
+	local _v3d_d1x = _v3d_transformed_p1x - _v3d_transformed_p0x
+	local _v3d_d1y = _v3d_transformed_p1y - _v3d_transformed_p0y
+	local _v3d_d1z = _v3d_transformed_p1z - _v3d_transformed_p0z
+	local _v3d_d2x = _v3d_transformed_p2x - _v3d_transformed_p0x
+	local _v3d_d2y = _v3d_transformed_p2y - _v3d_transformed_p0y
+	local _v3d_d2z = _v3d_transformed_p2z - _v3d_transformed_p0z
+	local _v3d_cx = _v3d_d1y*_v3d_d2z - _v3d_d1z*_v3d_d2y
+	local _v3d_cy = _v3d_d1z*_v3d_d2x - _v3d_d1x*_v3d_d2z
+	local _v3d_cz = _v3d_d1x*_v3d_d2y - _v3d_d1y*_v3d_d2x
+	_v3d_cull_face = _v3d_cx * _v3d_transformed_p0x + _v3d_cy * _v3d_transformed_p0y + _v3d_cz * _v3d_transformed_p0z ${CULL_FACE_COMPARISON_OPERATOR} 0
+end
+]]
+
+local TRIANGLE_RASTERIZATION_EMBED = [[
+-- #embed VERTEX_ORDERING
+
+local _v3d_midpoint_scalar = (_v3d_rasterize_p1_y - _v3d_rasterize_p0_y) / (_v3d_rasterize_p2_y - _v3d_rasterize_p0_y)
+local _v3d_rasterize_pM_x = _v3d_rasterize_p0_x * (1 - _v3d_midpoint_scalar) + _v3d_rasterize_p2_x * _v3d_midpoint_scalar
+
+-- #embed MIDPOINT_CALCULATION
+
+if _v3d_rasterize_pM_x > _v3d_rasterize_p1_x then
+	_v3d_rasterize_pM_x, _v3d_rasterize_p1_x = _v3d_rasterize_p1_x, _v3d_rasterize_pM_x
+	-- #embed MIDPOINT_SWAP
+end
+
+local _v3d_row_top_min = _v3d_math_floor(_v3d_rasterize_p0_y + 0.5)
+local _v3d_row_top_max = _v3d_math_floor(_v3d_rasterize_p1_y - 0.5)
+local _v3d_row_bottom_min = _v3d_row_top_max + 1
+local _v3d_row_bottom_max = _v3d_math_ceil(_v3d_rasterize_p2_y - 0.5)
+
+if _v3d_row_top_min < 0 then _v3d_row_top_min = 0 end
+if _v3d_row_bottom_min < 0 then _v3d_row_bottom_min = 0 end
+if _v3d_row_top_max > _v3d_fb_height_m1 then _v3d_row_top_max = _v3d_fb_height_m1 end
+if _v3d_row_bottom_max > _v3d_fb_height_m1 then _v3d_row_bottom_max = _v3d_fb_height_m1 end
+
+if _v3d_row_top_min <= _v3d_row_top_max then
+	local _v3d_tri_dy = _v3d_rasterize_p1_y - _v3d_rasterize_p0_y
+	if _v3d_tri_dy > 0 then
+		-- #embed FLAT_TRIANGLE_CALCULATIONS(top, p0, p0, pM, p1)
+
+		local _v3d_row_min_index = _v3d_row_top_min * _v3d_fb_width
+		local _v3d_row_max_index = _v3d_row_top_max * _v3d_fb_width
+
+		-- #embed FLAT_TRIANGLE_RASTERIZATION
+	end
+end
+
+if _v3d_row_bottom_min <= _v3d_row_bottom_max then
+	local _v3d_tri_dy = _v3d_rasterize_p2_y - _v3d_rasterize_p1_y
+
+	if _v3d_tri_dy > 0 then
+		-- #embed FLAT_TRIANGLE_CALCULATIONS(bottom, pM, p1, p2, p2)
+
+		local _v3d_row_min_index = _v3d_row_bottom_min * _v3d_fb_width
+		local _v3d_row_max_index = _v3d_row_bottom_max * _v3d_fb_width
+
+		-- #embed FLAT_TRIANGLE_RASTERIZATION
+	end
+end
+]]
+
+local FLAT_TRIANGLE_RASTERIZATION_EMBED = [[
+for _v3d_base_index = _v3d_row_min_index, _v3d_row_max_index, _v3d_fb_width do
+	local _v3d_row_min_column = _v3d_math_ceil(_v3d_tri_left_x)
+	local _v3d_row_max_column = _v3d_math_ceil(_v3d_tri_right_x)
+
+	-- #embed ROW_CALCULATIONS
+
+	if _v3d_row_min_column < 0 then _v3d_row_min_column = 0 end
+	if _v3d_row_max_column > _v3d_fb_width_m1 then _v3d_row_max_column = _v3d_fb_width_m1 end
+
+	for ${FRAGMENT_ROW_INDEX_BOUNDS} do
+		v3d_register_layer_written()
+		-- #embed FRAGMENT_INDEX_CALCULATIONS
+		-- #increment_statistic candidate_fragments
+		-- #embed COLUMN_CALCULATE_ATTRIBUTES
+		-- #embed COLUMN_DRAW_PIXEL_ENTRY
+		-- #embed COLUMN_ADVANCE
+	end
+
+	_v3d_tri_left_x = _v3d_tri_left_x + _v3d_tri_left_dx_dy
+	_v3d_tri_right_x = _v3d_tri_right_x + _v3d_tri_right_dx_dy
+	-- #embed ROW_ADVANCE
+end
+]]
+
+local function _parse_parameters(s)
+	local params = {}
+	local i = 1
+	local start = 1
+	local in_string = nil
+
+	while i <= #s do
+		local char = s:sub(i, i)
+
+		if (char == '\'' or char == '"') and not in_string then
+			in_string = char
+			i = i + 1
+		elseif char == in_string then
+			in_string = nil
+			i = i + 1
+		elseif char == '\\' then
+			i = i + (in_string and 2 or 1)
+		elseif in_string then
+			i = select(2, assert(s:find('[^\\\'"]+', i))) + 1
+		elseif char == '(' or char == '{' or char == '[' then
+			local close = char == '(' and ')' or char == '{' and '}' or ']'
+			i = select(2, assert(s:find('%b' .. char .. close, i))) + 1
+		elseif char == ',' then
+			table.insert(params, s:sub(start, i - 1))
+			start = i + 1
+			i = i + 1
+		else
+			i = select(2, assert(s:find('[^\\\'"(){}%[%],]+', i))) + 1
+		end
+	end
+
+	if i > start then
+		table.insert(params, s:sub(start))
+	end
+
+	for i = 1, #params do
+		params[i] = params[i]:gsub('^%s+', '', 1):gsub('%s+$', '', 1)
+	end
+
+	return params
+end
+
+local function _rewrite_vfsl(s, replacements)
+	local changed
+	repeat
+		changed = false
+		s = ('\n' .. s):gsub('(\n[ \t]*)([^\n]-[^_])(v3d_[%w_]+)(%b())', function(w, c, f, p)
+			local params = _parse_parameters(p:sub(2, -2))
+			local result = {}
+
+			if c:find '%-%-' then
+				return w .. c .. f .. p
+			end
+
+			local replace = replacements[f]
+
+			if not replace then
+				return w .. c .. f .. p
+			end
+
+			if not c:find "[^ \t]" then
+				w = w .. c
+				c = ''
+			end
+
+			if type(replace) == 'function' then
+				replace(params, result)
+			elseif #params == 0 then
+				result[1] = replace
+			else
+				v3d_internal_error('Tried to pass parameters to a string replacement')
+			end
+
+			changed = true
+
+			return w .. c .. table.concat(result, w)
+		end):sub(2)
+	until not changed
+
+	return s
+end
+
+local function v3d_create_pipeline(options)
+	--- @type V3DLayout
+	local opt_layout = options.layout
+	--- @type V3DFormat
+	local opt_format = options.format
+	local opt_position_attribute = options.position_attribute
+	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
+	local opt_fragment_shader = options.fragment_shader
+	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
+	local opt_statistics = options.statistics or false
+
+	local pipeline = {}
+	local uniforms = {}
+
+	--- @type V3DPipelineOptions
+	pipeline.options = {
+		layout = opt_layout,
+		format = opt_format,
+		position_attribute = opt_position_attribute,
+		cull_face = opt_cull_face,
+		fragment_shader = opt_fragment_shader,
+		pixel_aspect_ratio = opt_pixel_aspect_ratio,
+		statistics = opt_statistics,
+	}
+
+	-- format incoming shader code to unindent it
+	do
+		opt_fragment_shader = opt_fragment_shader:gsub('%s+$', '')
+
+		local lines = {}
+		local min_line_length = math.huge
+		local matching_indentation_length = 0
+
+		for line in opt_fragment_shader:gmatch '[^\n]+' do
+			if line:find '%S' then
+				line = line:match '^%s*'
+				table.insert(lines, line)
+				min_line_length = math.min(min_line_length, #line)
+			end
+		end
+
+		if lines[1] then
+			for i = 1, min_line_length do
+				local c = lines[1]:sub(i, i)
+				local ok = true
+				for j = 2, #lines do
+					if lines[j]:sub(i, i) ~= c then
+						ok = false
+						break
+					end
+				end
+				if not ok then
+					break
+				end
+				matching_indentation_length = i
+			end
+
+			opt_fragment_shader = opt_fragment_shader
+				:gsub('^' .. lines[1]:sub(1, matching_indentation_length), '')
+				:gsub('\n' .. lines[1]:sub(1, matching_indentation_length), '\n')
+		end
+	end
+
+	-- names of all layers which are accessed
+	local layers_written = {}
+	-- sizes of all layers which are accessed
+	local layer_sizes_written = {}
+	-- true if v3d_layer_was_written() is ever used
+	local layers_any_written_checked = false
+	-- map of layer names to whether it's checked if written to
+	local layers_written_checked = {}
+
+	-- names of all uniforms which are accessed
+	local uniforms_accessed = {}
+	-- names of all uniforms which are written
+	local uniforms_written = {}
+
+	-- list of face attributes which should be initialised
+	local geometry_read_face_attributes = {}
+	-- list of vertex attributes which should be initialised
+	local geometry_read_vertex_attributes = {}
+	-- list of attributes (name + size) which should be interpolated over fragments
+	local interpolate_attributes = {}
+
+	-- names of events that are counted
+	local event_counters = {}
+
+	-- whether the pipeline should interpolate depth across fragments
+	local needs_interpolated_depth = false
+
+	-- whether the pipeline should interpolate world position across fragments
+	local needs_fragment_world_position = false
+
+	-- whether to generate face normals
+	local needs_world_face_normal = false
+
+	do -- fragment shader macro rewrite
+		local layer_names_lookup = {}
+		local layer_sizes_lookup = {}
+		local attribute_names_lookup = {}
+		local uniform_read_names_lookup = {}
+		local uniform_write_names_lookup = {}
+		local event_counter_names_lookup = {}
+		local functions = {}
+
+		local is_discarded_checked = false
+
+		local function destring(s)
+			return s:gsub('^[\'"]', '', 1):gsub('[\'"]$', '', 1)
+		end
+
+		local function register_attribute(name)
+			local attr = opt_format:get_attribute(name) or error('Unknown attribute \'' .. name .. '\'')
+
+			if attribute_names_lookup[name] then
+				return attr
+			end
+
+			attribute_names_lookup[name] = true
+
+			if attr.type == 'vertex' then
+				table.insert(geometry_read_vertex_attributes, attr)
+				table.insert(interpolate_attributes, { name = attr.name, size = attr.size })
+			else
+				table.insert(geometry_read_face_attributes, attr)
+			end
+
+			return attr
+		end
+
+		local function register_layer(name)
+			local layer = opt_layout:get_layer(name) or error('Unknown layer \'' .. name .. '\'')
+
+			if not layer_names_lookup[name] then
+				table.insert(layers_written, layer)
+				layer_names_lookup[name] = true
+			end
+
+			if not layer_sizes_lookup[layer.components] then
+				table.insert(layer_sizes_written, layer.components)
+				layer_sizes_lookup[layer.components] = true
+			end
+
+			return name, layer
+		end
+
+		local function register_generic(list, lookup, name)
+			if not lookup[name] then
+				table.insert(list, name)
+				lookup[name] = true
+			end
+		end
+
+		local function layer_index(layer, i)
+			if i == 1 then
+				return '_v3d_fragment_layer_index' .. layer.components
+			else
+				return '_v3d_fragment_layer_index' .. layer.components .. ' + ' .. i - 1
+			end
+		end
+
+		function functions.v3d_read_attribute_values(params, result)
+			local attr = register_attribute(destring(params[1]))
+			local parts = {}
+
+			for i = 1, attr.size do
+				table.insert(parts, '_v3d_attr_' .. attr.name .. i)
+			end
+
+			table.insert(result, table.concat(parts, ', '))
+		end
+		function functions.v3d_read_attribute(params, result)
+			local i = tonumber(params[2] or '1')
+			local attr = register_attribute(destring(params[1]))
+
+			table.insert(result, '_v3d_attr_' .. attr.name .. i)
+		end
+
+		--- v3d_read_attribute_gradient(string-literal)
+		--- v3d_read_attribute_gradient(string-literal, integer-literal)
+
+		function functions.v3d_write_layer_values(params, result)
+			local name, layer = register_layer(destring(params[1]))
+
+			for i = 1, layer.components do
+				table.insert(result, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. '] = ' .. params[i + 1])
+			end
+
+			table.insert(result, 'v3d_notify_any_layer_written()')
+			table.insert(result, 'v3d_notify_specific_layer_written(' .. name .. ')')
+		end
+		function functions.v3d_write_layer(params, result)
+			local i = tonumber(params[3] and params[2] or '1')
+			local name, layer = register_layer(destring(params[1]))
+
+			table.insert(result, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. '] = ' .. params[i + 1])
+			table.insert(result, 'v3d_notify_any_layer_written()')
+			table.insert(result, 'v3d_notify_specific_layer_written(' .. name .. ')')
+		end
+		function functions.v3d_read_layer_values(params, result)
+			local name, layer = register_layer(destring(params[1]))
+			local parts = {}
+
+			for i = 1, layer.components do
+				table.insert(parts, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. ']')
+			end
+
+			table.insert(result, table.concat(parts, ', '))
+		end
+		function functions.v3d_read_layer(params, result)
+			local i = tonumber(params[2] or '1')
+			local name, layer = register_layer(destring(params[1]))
+
+			table.insert(result, '_v3d_layer_' .. name .. '[' .. layer_index(layer, i) .. ']')
+		end
+		function functions.v3d_was_layer_written(params, result)
+			if params[1] then
+				local name = destring(params[1])
+				layers_written_checked[name] = true
+				table.insert(result, '_v3d_specific_layer_written_' .. name)
+			else
+				layers_any_written_checked = true
+				table.insert(result, '_v3d_any_layer_written')
+			end
+		end
+
+		function functions.v3d_read_uniform(params, result)
+			local name = destring(params[1])
+			register_generic(uniforms_accessed, uniform_read_names_lookup, name)
+			table.insert(result, '_v3d_uniform_' .. name)
+		end
+		function functions.v3d_write_uniform(params, result)
+			local name = destring(params[1])
+			register_generic(uniforms_accessed, uniform_read_names_lookup, name)
+			register_generic(uniforms_written, uniform_write_names_lookup, name)
+			table.insert(result, '_v3d_uniform_' .. name .. ' = ' .. params[2])
+		end
+
+		--- v3d_face_row_bounds()
+		--- v3d_face_row_bounds('min' | 'max')
+		--- v3d_row_column_bounds()
+		--- v3d_row_column_bounds('min' | 'max')
+
+		function functions.v3d_face_world_normal(params, result)
+			local component = params[1] and destring(params[1])
+
+			needs_world_face_normal = true
+			needs_fragment_world_position = true
+
+			local parts = {}
+
+			for i = 1, 3 do
+				if not component or (i == 1 and component == 'x' or i == 2 and component == 'y' or i == 3 and component == 'z') then
+					table.insert(parts, '_v3d_face_world_normal' .. i - 1)
+				end
+			end
+
+			table.insert(result, table.concat(parts, ', '))
+		end
+
+		--- v3d_face_was_clipped()
+
+		--- v3d_fragment_polygon_section()
+
+		--- v3d_fragment_is_face_front_facing()
+
+		function functions.v3d_fragment_depth(_, result)
+			needs_interpolated_depth = true
+			table.insert(result, '_v3d_row_w')
+		end
+
+		--- v3d_fragment_screen_position()
+		--- v3d_fragment_screen_position('x' | 'y')
+
+		--- v3d_fragment_view_position()
+		--- v3d_fragment_view_position('x' | 'y' | 'z')
+
+		function functions.v3d_fragment_world_position(params, result)
+			local component = params[1] and destring(params[1])
+
+			if not needs_fragment_world_position then
+				table.insert(interpolate_attributes, { name = '_v3d_fragment_world_position', size = 3 })
+				needs_fragment_world_position = true
+			end
+
+			local parts = {}
+
+			for i = 1, 3 do
+				if not component or (i == 1 and component == 'x' or i == 2 and component == 'y' or i == 3 and component == 'z') then
+					table.insert(parts, '_v3d_attr__v3d_fragment_world_position' .. i)
+				end
+			end
+
+			table.insert(result, table.concat(parts, ', '))
+		end
+
+		function functions.v3d_discard_fragment(_, result)
+			table.insert(result, '_v3d_builtin_fragment_discarded = true') -- TODO!
+		end
+		function functions.v3d_was_fragment_discarded(_, result)
+			is_discarded_checked = true
+			table.insert(result, '_v3d_builtin_fragment_discarded')
+		end
+
+		function functions.v3d_compare_depth(params, result)
+			table.insert(result, params[1] .. ' > ' .. params[2])
+		end
+
+		function functions.v3d_count_event(params, result)
+			local name = destring(params[1])
+			register_generic(event_counters, event_counter_names_lookup, name)
+			if opt_statistics then
+				table.insert(result, '_v3d_event_counter_' .. name .. ' = _v3d_event_counter_' .. name .. ' + ' .. (params[2] or '1'))
+			end
+		end
+
+		-- replace simple variables
+		opt_fragment_shader = opt_fragment_shader
+			:gsub('v3d_framebuffer_width%(%s*%)%s*%-%s*1', '_v3d_fb_width_m1')
+			:gsub('v3d_framebuffer_height%(%s*%)%s*%-%s*1', '_v3d_fb_height_m1')
+			:gsub('v3d_framebuffer_width%(%s*%)', '_v3d_fb_width')
+			:gsub('v3d_framebuffer_height%(%s*%)', '_v3d_fb_height')
+
+		opt_fragment_shader = _rewrite_vfsl(opt_fragment_shader, functions)
+
+		if is_discarded_checked then
+			opt_fragment_shader = 'local _v3d_builtin_fragment_discarded = false\n' .. opt_fragment_shader
+		end
+
+		needs_interpolated_depth = needs_interpolated_depth or #interpolate_attributes > 0
+
+		table.sort(layer_sizes_written)
+	end
+
+	local pipeline_source = RENDER_GEOMETRY_SOURCE
+
+	do -- STAT_TOTAL_TIME
+		-- TODO
+	end
+
+	do -- STAT_RASTERIZE_TIME
+		-- TODO
+	end
+
+	local function do_nothing(_, _)
+		-- don't add anything to result
+	end
+
+	local function enable_if(flag, fn)
+		return flag and fn or do_nothing
+	end
+
+	do -- embeds
+		local embeds = {}
+		embeds.MODEL_TRANSFORM_LOCALISE_EMBED = needs_fragment_world_position
+		                                    and SEPARATED_MODEL_TRANSFORM_LOCALISE_EMBED
+		                                     or COMBINED_MODEL_TRANSFORM_LOCALISE_EMBED
+		embeds.TRANSFORMED_WORLD_POINT_HEADER = needs_fragment_world_position
+		                                   and TRANSFORMED_WORLD_POINT_HEADER
+		                                    or ''
+		embeds.TRANSFORMED_POINT_CALCULATION = needs_fragment_world_position
+		                                   and SEPARATED_TRANSFORMED_POINT_CALCULATION
+		                                    or COMBINED_TRANSFORMED_POINT_CALCULATION
+		embeds.MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED = needs_world_face_normal and MODEL_TRANSFORM_LOCALISE_INVERSE_EMBED or ''
+		embeds.WORLD_NORMAL_CALCULATION_HEADER = needs_world_face_normal and WORLD_NORMAL_CALCULATION_HEADER or ''
+		embeds.WORLD_NORMAL_CALCULATION_EMBED = needs_world_face_normal and WORLD_NORMAL_CALCULATION_EMBED or ''
+		embeds.FACE_CULLING = opt_cull_face and FACE_CULLING_EMBED or ''
+		embeds.TRIANGLE_RASTERIZATION = TRIANGLE_RASTERIZATION_EMBED
+		embeds.FLAT_TRIANGLE_RASTERIZATION = FLAT_TRIANGLE_RASTERIZATION_EMBED
+		embeds.VERTEX_ATTRIBUTE_ASSIGNMENT = function()
+			local result = ''
+
+			for _, attr in ipairs(geometry_read_vertex_attributes) do
+				for i = 1, attr.size do
+					result = result .. 'local _v3d_p0_va_' .. attr.name .. i .. ' = _v3d_geometry[_v3d_vertex_offset + ' .. (attr.offset + i) .. ']\n'
+									.. 'local _v3d_p1_va_' .. attr.name .. i .. ' = _v3d_geometry[_v3d_vertex_offset + ' .. (attr.offset + opt_format.vertex_stride + i) .. ']\n'
+									.. 'local _v3d_p2_va_' .. attr.name .. i .. ' = _v3d_geometry[_v3d_vertex_offset + ' .. (attr.offset + opt_format.vertex_stride * 2 + i) .. ']\n'
+				end
+			end
+
+			return result
+		end
+		embeds.FACE_ATTRIBUTE_ASSIGNMENT = function()
+			local result = ''
+
+			for _, attr in ipairs(geometry_read_face_attributes) do
+				for i = 1, attr.size do
+					result = result .. 'local _v3d_attr_' .. attr.name .. i
+							.. ' = _v3d_geometry[_v3d_face_offset+' .. (attr.offset + i) .. ']\n'
+				end
+			end
+
+			return result
+		end
+		embeds.TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS = function()
+			local result = ''
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					if attr.name == '_v3d_fragment_world_position' then
+						local name = i == 1 and 'x' or i == 2 and 'y' or 'z'
+						result = result .. 'local _v3d_rasterize_p0_va_' .. attr.name .. i .. ' = _v3d_world_transformed_p0' .. name .. '\n'
+						                .. 'local _v3d_rasterize_p1_va_' .. attr.name .. i .. ' = _v3d_world_transformed_p1' .. name .. '\n'
+						                .. 'local _v3d_rasterize_p2_va_' .. attr.name .. i .. ' = _v3d_world_transformed_p2' .. name .. '\n'
+					else
+						result = result .. 'local _v3d_rasterize_p0_va_' .. attr.name .. i .. ' = _v3d_p0_va_' .. attr.name .. i .. '\n'
+						                .. 'local _v3d_rasterize_p1_va_' .. attr.name .. i .. ' = _v3d_p1_va_' .. attr.name .. i .. '\n'
+						                .. 'local _v3d_rasterize_p2_va_' .. attr.name .. i .. ' = _v3d_p2_va_' .. attr.name .. i .. '\n'
+					end
+				end
+			end
+
+			return result
+		end
+		embeds.VERTEX_ORDERING = function()
+			local to_swap = { '_v3d_rasterize_pN_x', '_v3d_rasterize_pN_y' }
+
+			if needs_interpolated_depth then
+				table.insert(to_swap, '_v3d_rasterize_pN_w')
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					table.insert(to_swap, '_v3d_rasterize_pN_va_' .. attr.name .. i)
+				end
+			end
+
+			local function swap_test(a, b)
+				local result = 'if _v3d_rasterize_pA_y > _v3d_rasterize_pB_y then\n'
+
+				for i = 1, #to_swap do
+					local sA = to_swap[i]:gsub('N', 'A')
+					local sB = to_swap[i]:gsub('N', 'B')
+					result = result .. '\t' .. sA .. ', ' .. sB .. ' = ' .. sB .. ', ' .. sA .. '\n'
+				end
+
+				return (result .. 'end'):gsub('A', a):gsub('B', b)
+			end
+
+			return swap_test(0, 1) .. '\n' .. swap_test(1, 2) .. '\n' .. swap_test(0, 1)
+		end
+		embeds.MIDPOINT_CALCULATION = function()
+			local calculation = ''
+
+			if needs_interpolated_depth then
+				calculation = calculation .. 'local _v3d_rasterize_pM_w = _v3d_rasterize_p0_w * (1 - _v3d_midpoint_scalar) + _v3d_rasterize_p2_w * _v3d_midpoint_scalar\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					calculation = calculation .. 'local _v3d_rasterize_pM_va_' .. s .. ' = (_v3d_rasterize_p0_va_' ..s .. ' * _v3d_rasterize_p0_w * (1 - _v3d_midpoint_scalar) + _v3d_rasterize_p2_va_' .. s .. ' * _v3d_rasterize_p2_w * _v3d_midpoint_scalar) / _v3d_rasterize_pM_w\n'
+				end
+			end
+
+			return calculation
+		end
+		embeds.MIDPOINT_SWAP = function()
+			local swap = ''
+
+			if needs_interpolated_depth then
+				swap = swap .. '_v3d_rasterize_pM_w, _v3d_rasterize_p1_w = _v3d_rasterize_p1_w, _v3d_rasterize_pM_w\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					swap = swap .. '_v3d_rasterize_pM_va_' .. s .. ', _v3d_rasterize_p1_va_' .. s .. ' = _v3d_rasterize_p1_va_' .. s .. ', _v3d_rasterize_pM_va_' .. s .. '\n'
+				end
+			end
+
+			return swap
+		end
+		embeds.FLAT_TRIANGLE_CALCULATIONS = function(name, top_left, top_right, bottom_left, bottom_right)
+			local result = 'local _v3d_tri_y_correction = _v3d_row_' .. name .. '_min + 0.5 - _v3d_rasterize_' .. top_right .. '_y\n'
+						.. 'local _v3d_tri_left_dx_dy = (_v3d_rasterize_' .. bottom_left .. '_x - _v3d_rasterize_' .. top_left .. '_x) / _v3d_tri_dy\n'
+						.. 'local _v3d_tri_right_dx_dy = (_v3d_rasterize_' .. bottom_right .. '_x - _v3d_rasterize_' .. top_right .. '_x) / _v3d_tri_dy\n'
+						.. 'local _v3d_tri_left_x = _v3d_rasterize_' .. top_left .. '_x + _v3d_tri_left_dx_dy * _v3d_tri_y_correction - 0.5\n'
+						.. 'local _v3d_tri_right_x = _v3d_rasterize_' .. top_right .. '_x + _v3d_tri_right_dx_dy * _v3d_tri_y_correction - 1.5\n'
+
+			if needs_interpolated_depth then
+				result = result .. 'local _v3d_tri_left_dw_dy = (_v3d_rasterize_' .. bottom_left .. '_w - _v3d_rasterize_' .. top_left .. '_w) / _v3d_tri_dy\n'
+								.. 'local _v3d_tri_right_dw_dy = (_v3d_rasterize_' .. bottom_right .. '_w - _v3d_rasterize_' .. top_right .. '_w) / _v3d_tri_dy\n'
+								.. 'local _v3d_tri_left_w = _v3d_rasterize_' .. top_left .. '_w + _v3d_tri_left_dw_dy * _v3d_tri_y_correction\n'
+								.. 'local _v3d_tri_right_w = _v3d_rasterize_' .. top_right .. '_w + _v3d_tri_right_dw_dy * _v3d_tri_y_correction\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					result = result .. 'local _v3d_tri_left_va_d' .. s .. 'w_dy = (_v3d_rasterize_' .. bottom_left .. '_va_' .. s .. ' * _v3d_rasterize_' .. bottom_left .. '_w - _v3d_rasterize_' .. top_left .. '_va_' .. s .. ' * _v3d_rasterize_' .. top_left .. '_w) / _v3d_tri_dy\n'
+									.. 'local _v3d_tri_right_va_d' .. s .. 'w_dy = (_v3d_rasterize_' .. bottom_right .. '_va_' .. s .. ' * _v3d_rasterize_' .. bottom_right .. '_w - _v3d_rasterize_' .. top_right .. '_va_' .. s .. ' * _v3d_rasterize_' .. top_right .. '_w) / _v3d_tri_dy\n'
+									.. 'local _v3d_tri_left_va_' .. s .. '_w = _v3d_rasterize_' .. top_left .. '_va_' .. s .. ' * _v3d_rasterize_' .. top_left .. '_w + _v3d_tri_left_va_d' .. s .. 'w_dy * _v3d_tri_y_correction\n'
+									.. 'local _v3d_tri_right_va_' .. s .. '_w = _v3d_rasterize_' .. top_right .. '_va_' .. s .. ' * _v3d_rasterize_' .. top_right .. '_w + _v3d_tri_right_va_d' .. s .. 'w_dy * _v3d_tri_y_correction\n'
+				end
+			end
+
+			return result
+		end
+		embeds.ROW_CALCULATIONS = function()
+			local result = ''
+
+			if needs_interpolated_depth then
+				result = result .. 'local _v3d_row_x_correction = _v3d_row_min_column - _v3d_tri_left_x\n'
+								.. 'local _v3d_row_dx = _v3d_tri_right_x - _v3d_tri_left_x + 1\n' -- TODO: + 1 ???
+								.. 'local _v3d_row_dw_dx = (_v3d_tri_right_w - _v3d_tri_left_w) / _v3d_row_dx\n'
+								.. 'local _v3d_row_w = _v3d_tri_left_w + _v3d_row_dw_dx * _v3d_row_x_correction\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					result = result .. 'local _v3d_row_va_d' .. s .. 'w_dx = (_v3d_tri_right_va_' .. s .. '_w - _v3d_tri_left_va_' .. s .. '_w) / _v3d_row_dx\n'
+									.. 'local _v3d_row_va_' .. s .. '_w = _v3d_tri_left_va_' .. s .. '_w + _v3d_row_va_d' .. s .. 'w_dx * _v3d_row_x_correction\n'
+				end
+			end
+
+			return result
+		end
+		embeds.COLUMN_CALCULATE_ATTRIBUTES = function()
+			local result = ''
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					result = result .. 'local _v3d_attr_' .. s .. ' = _v3d_row_va_' .. s .. '_w / _v3d_row_w\n'
+				end
+			end
+
+			return result
+		end
+		embeds.FRAGMENT_INDEX_CALCULATIONS = function()
+			if #layer_sizes_written == 1 then
+				return ''
+			end
+
+			local t = {}
+
+			for i = 1, #layer_sizes_written do
+				table.insert(t, 'local _v3d_fragment_layer_index' .. layer_sizes_written[i]
+								.. ' = (_v3d_base_index + _v3d_x) * ' .. layer_sizes_written[i] .. ' + 1')
+			end
+
+			return table.concat(t, '\n')
+		end
+		embeds.COLUMN_DRAW_PIXEL_ENTRY = opt_fragment_shader
+		embeds.COLUMN_ADVANCE = function()
+			local result = ''
+
+			if needs_interpolated_depth then
+				result = result .. '_v3d_row_w = _v3d_row_w + _v3d_row_dw_dx\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					result = result .. '_v3d_row_va_' .. s .. '_w = _v3d_row_va_' .. s .. '_w + _v3d_row_va_d' .. s .. 'w_dx\n'
+				end
+			end
+
+			return result
+		end
+		embeds.ROW_ADVANCE = function()
+			local result = ''
+
+			if needs_interpolated_depth then
+				result = result .. '_v3d_tri_left_w = _v3d_tri_left_w + _v3d_tri_left_dw_dy\n'
+								.. '_v3d_tri_right_w = _v3d_tri_right_w + _v3d_tri_right_dw_dy\n'
+			end
+
+			for _, attr in ipairs(interpolate_attributes) do
+				for i = 1, attr.size do
+					local s = attr.name .. i
+					result = result .. '_v3d_tri_left_va_' .. s .. '_w = _v3d_tri_left_va_' .. s .. '_w + _v3d_tri_left_va_d' .. s .. 'w_dy\n'
+									.. '_v3d_tri_right_va_' .. s .. '_w = _v3d_tri_right_va_' .. s .. '_w + _v3d_tri_right_va_d' .. s .. 'w_dy\n'
+				end
+			end
+
+			return result
+		end
+		local count
+
+		repeat
+			pipeline_source, count = pipeline_source:gsub('(\t+)%-%-%s*#embed%s+([%w_]+)([^\n]*)\n', function(indent, name, params)
+				local embed = embeds[name]
+
+				if not embed then
+					v3d_internal_error('Missing embed ' .. name)
+				end
+
+				if type(embed) == 'function' then
+					local ps = {}
+					for p in params:sub(2, -2):gmatch '[^,]+' do
+						table.insert(ps, (p:gsub('^%s+', '', 1):gsub('%s+$', '', 1)))
+					end
+					embed = embed(table.unpack(ps))
+				end
+
+				--- @cast embed string
+
+				return indent .. embed:gsub('\n', '\n' .. indent) .. '\n'
+			end)
+		until count == 0
+	end
+
+	do -- variables
+		local position_base_offset = opt_format:get_attribute(opt_position_attribute).offset
+
+		local replacements = {
+			['${P0X_OFFSET}'] = position_base_offset + 1,
+			['${P0Y_OFFSET}'] = position_base_offset + 2,
+			['${P0Z_OFFSET}'] = position_base_offset + 3,
+			['${P1X_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 1,
+			['${P1Y_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 2,
+			['${P1Z_OFFSET}'] = position_base_offset + opt_format.vertex_stride + 3,
+			['${P2X_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 1,
+			['${P2Y_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 2,
+			['${P2Z_OFFSET}'] = position_base_offset + opt_format.vertex_stride * 2 + 3,
+			['${VERTEX_STRIDE_3}'] = opt_format.vertex_stride * 3,
+			['${FACE_STRIDE}'] = opt_format.face_stride,
+			['${CULL_FACE_COMPARISON_OPERATOR}'] = opt_cull_face == v3d.CULL_FRONT_FACE and '<' or '>',
+			['${CLIPPING_PLANE}'] = '0.0001',
+			['${FRAGMENT_ROW_INDEX_BOUNDS}'] = function()
+				if #layer_sizes_written ~= 1 then
+					return '_v3d_x = _v3d_row_min_column, _v3d_row_max_column'
+				end
+
+				local min_bound = '_v3d_base_index + _v3d_row_min_column'
+				local max_bound = '_v3d_base_index + _v3d_row_max_column'
+
+				if layer_sizes_written[1] ~= 1 then
+					min_bound = '(' .. min_bound .. ') * ' .. layer_sizes_written[1]
+					max_bound = '(' .. max_bound .. ') * ' .. layer_sizes_written[1]
+				end
+
+				if layer_sizes_written[1] == 1 then
+					return '_v3d_fragment_layer_index1 = ' .. min_bound .. ' + 1, ' .. max_bound .. ' + 1'
+				end
+			end,
+		}
+
+		pipeline_source = pipeline_source:gsub('%${[%w_]+}', function(name)
+			local replacement = replacements[name]
+
+			if type(replacement) == 'function' then
+				replacement = replacement()
+			end
+
+			return replacement
+		end)
+	end
+
+	for _, name in ipairs { 'candidate_faces', 'drawn_faces', 'culled_faces', 'clipped_faces', 'discarded_faces', 'candidate_fragments' } do -- statistics
+		local replace = '--%s*#increment_statistic%s+' .. name
+		local replace_with = opt_statistics and '_v3d_stat_' .. name .. ' = _v3d_stat_' .. name .. ' + 1' or ''
+		pipeline_source = pipeline_source:gsub(replace, replace_with)
+	end
+
+	pipeline_source = _rewrite_vfsl(pipeline_source, {
+		v3d_pixel_aspect_ratio = tostring(opt_pixel_aspect_ratio),
+		v3d_transform = '_v3d_transform',
+		v3d_model_transform = '_v3d_model_transform',
+		v3d_import_uniforms = function(_, result)
+			if #uniforms_accessed > 0 then
+				table.insert(result, 'local _v3d_uniforms = _v3d_upvalue_uniforms')
+			end
+			for _, uniform_name in ipairs(uniforms_accessed) do
+				table.insert(result, 'local _v3d_uniform_' .. uniform_name .. ' = _v3d_uniforms["' .. uniform_name .. '"]')
+			end
+		end,
+		v3d_export_uniforms = function(_, result)
+			for _, uniform_name in ipairs(uniforms_accessed) do
+				table.insert(result, '_v3d_uniforms["' .. uniform_name .. '"] =  _v3d_uniform_' .. uniform_name)
+			end
+		end,
+		v3d_assign_layers = function(_, result)
+			for _, layer in ipairs(layers_written) do
+				table.insert(result, 'local _v3d_layer_' .. layer.name .. ' = _v3d_fb.layer_data["' .. layer.name .. '"]')
+			end
+		end,
+		v3d_init_event_counters = enable_if(opt_statistics, function(_, result)
+			for _, counter_name in ipairs(event_counters) do
+				table.insert(result, 'local _v3d_event_counter_' .. counter_name .. ' = 0')
+			end
+		end),
+		v3d_store_event_counters = function(_, result)
+			for _, counter_name in ipairs(event_counters) do
+				if opt_statistics then
+					table.insert(result, counter_name .. ' = _v3d_event_counter_' .. counter_name .. ',')
+				else
+					table.insert(result, counter_name .. ' = 0,')
+				end
+			end
+		end,
+		v3d_register_layer_written = enable_if(layers_any_written_checked, function(_, result)
+			if layers_any_written_checked then
+				table.insert(result, 'local _v3d_any_layer_written = false')
+			end
+			for layer in pairs(layers_written_checked) do
+				table.insert(result, 'local _v3d_specific_layer_written_' .. layer .. ' = false')
+			end
+		end),
+		v3d_notify_any_layer_written = enable_if(layers_any_written_checked, function(_, result)
+			table.insert(result, '_v3d_any_layer_written = true')
+		end),
+		v3d_notify_specific_layer_written = function(params, result)
+			return layers_written_checked[params[1]] and '_v3d_specific_layer_written_' .. params[1] .. ' = true' or ''
+		end,
+	})
+
+	_rewrite_vfsl(pipeline_source, setmetatable({}, { __index = function(_, fn)
+		error('Unexpanded macro \'' .. fn .. '\'')
+	end }))
+
+	local f, err = load(pipeline_source, 'pipeline source')
+
+	if not f then
+		f = v3d_internal_error('Failed to compile pipeline render_geometry function: ' .. err, pipeline_source)
+	end
+
+	pipeline.source = pipeline_source
+	pipeline.render_geometry = f(uniforms, opt_fragment_shader)
+
+	pipeline.set_uniform = function(_, name, value)
+		uniforms[name] = value
+	end
+
+	pipeline.get_uniform = function(_, name)
+		return uniforms[name]
+	end
+
+	pipeline.list_uniforms = function(_)
+		local t = {}
+		for k in pairs(uniforms) do
+			t[#t + 1] = k
+		end
+		return t
+	end
+
+	return pipeline
+end
+
+local function create_texture_sampler(texture_uniform, width_uniform, height_uniform)
+	local math_floor = math.floor
+
+	texture_uniform = texture_uniform or 'u_texture'
+	width_uniform = width_uniform or 'u_texture_width'
+	height_uniform = height_uniform or 'u_texture_height'
+
+	return function(uniforms, u, v)
+		local image = uniforms[texture_uniform]
+		local image_width = uniforms[width_uniform]
+		local image_height = uniforms[height_uniform]
+
+		local x = math_floor(u * image_width)
+		if x < 0 then x = 0 end
+		if x >= image_width then x = image_width - 1 end
+		local y = math_floor(v * image_height)
+		if y < 0 then y = 0 end
+		if y >= image_height then y = image_height - 1 end
+
+		local colour = image[y + 1][x + 1]
+
+		if colour == 0 then
+			return nil
+		end
+
+		return colour
+	end
+end
+
+
+--------------------------------------------------------------------------------
+--[ Constructors ]--------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+local function create_layout()
+	local layout = {}
+
+	layout.layers = {}
+	layout.layer_lookup = {}
+
+	layout.add_layer = layout_add_layer
+	layout.drop_layer = layout_drop_layer
+	layout.has_layer = layout_has_layer
+	layout.get_layer = layout_get_layer
+
+	return layout
+end
+
+local function create_framebuffer(layout, width, height)
+	local fb = {}
+
+	fb.layout = layout
+	fb.width = width
+	fb.height = height
+	fb.layer_data = {}
+	fb.get_buffer = framebuffer_get_buffer
+	fb.clear = framebuffer_clear
+	fb.blit_term_subpixel = framebuffer_blit_term_subpixel
+	fb.blit_graphics = framebuffer_blit_graphics
+
+	for i = 1, #layout.layers do
+		local layer = layout.layers[i]
+		fb.layer_data[layer.name] = {}
+		framebuffer_clear(fb, layer.name)
+	end
+
+	return fb
+end
+
+local function create_framebuffer_subpixel(layout, width, height)
+	return create_framebuffer(layout, width * 2, height * 3) -- multiply by subpixel dimensions
+end
+
+local function create_format()
+	local format = {}
+
+	format.attributes = {}
+	format.attribute_lookup = {}
+	format.vertex_stride = 0
+	format.face_stride = 0
+
+	format.add_vertex_attribute = format_add_vertex_attribute
+	format.add_face_attribute = format_add_face_attribute
+	format.drop_attribute = format_drop_attribute
+	format.has_attribute = format_has_attribute
+	format.get_attribute = format_get_attribute
+
+	return format
+end
+
+local function create_geometry_builder(format)
+	local gb = {}
+
+	gb.format = format
+	gb.attribute_data = {}
+
+	gb.set_data = geometry_builder_set_data
+	gb.append_data = geometry_builder_append_data
+	gb.map = geometry_builder_map
+	gb.transform = geometry_builder_transform
+	gb.insert = geometry_builder_insert
+	gb.cast = geometry_builder_cast
+	gb.build = geometry_builder_build
+
+	return gb
+end
 
 function create_identity_transform()
 	local t = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0 }
@@ -963,707 +2000,71 @@ local function create_camera_transform(x, y, z, rx, ry, rz, fov)
 		{ 1, 0, 0, -x, 0, 1, 0, -y, 0, 0, 1, -z })
 end
 
-
---------------------------------------------------------------------------------
---[ Rasterization functions ]---------------------------------------------------
---------------------------------------------------------------------------------
-
-
-local RENDER_GEOMETRY_SOURCE = [[
-local upvalue_uniforms, upvalue_opt_fragment_shader = ...
-return function(_, geometry, fb, transform, model_transform)
-	local uniforms = upvalue_uniforms
-	local opt_fragment_shader = upvalue_opt_fragment_shader
-	local math = math
-	local math_ceil = math.ceil
-	local math_floor = math.floor
-	-- TODO: hardcoded attachments
-	local fb_colour = fb.attachment_data.colour
-	local fb_depth = fb.attachment_data.depth
-	local fb_width = fb.width
-	local fb_width_m1 = fb_width - 1
-	local fb_height_m1 = fb.height - 1
-	local screen_dx = (fb.width - 1) / 2
-	local screen_dy = (fb.height - 1) / 2
-	local screen_sy = -(screen_dy - 0.5)
-	local screen_sx = ${PIXEL_ASPECT_RATIO} * (screen_dy - 0.5)
-
-	local stat_total_time = 0
-	local stat_rasterize_time = 0
-	local stat_candidate_faces = 0
-	local stat_drawn_faces = 0
-	local stat_culled_faces = 0
-	local stat_clipped_faces = 0
-	local stat_discarded_faces = 0
-	local stat_candidate_fragments = 0
-	local stat_fragments_occluded = 0
-	local stat_fragments_shaded = 0
-	local stat_fragments_discarded = 0
-	local stat_fragments_drawn = 0
-
-	-- TODO: implement this properly
-	if model_transform then
-		transform = transform:combine(model_transform)
-	end
-
-	local transform_xx = transform[ 1]
-	local transform_xy = transform[ 2]
-	local transform_xz = transform[ 3]
-	local transform_dx = transform[ 4]
-	local transform_yx = transform[ 5]
-	local transform_yy = transform[ 6]
-	local transform_yz = transform[ 7]
-	local transform_dy = transform[ 8]
-	local transform_zx = transform[ 9]
-	local transform_zy = transform[10]
-	local transform_zz = transform[11]
-	local transform_dz = transform[12]
-
-	local vertex_offset = geometry.vertex_offset
-	local face_offset = 0
-
-	-- #embed FRAGMENT_PACKED_PARAMS
-
-	for _ = 1, geometry.vertices, 3 do
-		local p0x=geometry[vertex_offset + ${P0X_OFFSET}]
-		local p0y=geometry[vertex_offset + ${P0Y_OFFSET}]
-		local p0z=geometry[vertex_offset + ${P0Z_OFFSET}]
-		local p1x=geometry[vertex_offset + ${P1X_OFFSET}]
-		local p1y=geometry[vertex_offset + ${P1Y_OFFSET}]
-		local p1z=geometry[vertex_offset + ${P1Z_OFFSET}]
-		local p2x=geometry[vertex_offset + ${P2X_OFFSET}]
-		local p2y=geometry[vertex_offset + ${P2Y_OFFSET}]
-		local p2z=geometry[vertex_offset + ${P2Z_OFFSET}]
-
-		-- #embed VERTEX_ATTRIBUTE_ASSIGNMENT
-		-- #embed FACE_ATTRIBUTE_ASSIGNMENT
-
-		local colour = ${FACE_COLOUR_SNIPPET}
-
-		local transformed_p0x = transform_xx * p0x + transform_xy * p0y + transform_xz * p0z + transform_dx
-		local transformed_p0y = transform_yx * p0x + transform_yy * p0y + transform_yz * p0z + transform_dy
-		local transformed_p0z = transform_zx * p0x + transform_zy * p0y + transform_zz * p0z + transform_dz
-
-		local transformed_p1x = transform_xx * p1x + transform_xy * p1y + transform_xz * p1z + transform_dx
-		local transformed_p1y = transform_yx * p1x + transform_yy * p1y + transform_yz * p1z + transform_dy
-		local transformed_p1z = transform_zx * p1x + transform_zy * p1y + transform_zz * p1z + transform_dz
-
-		local transformed_p2x = transform_xx * p2x + transform_xy * p2y + transform_xz * p2z + transform_dx
-		local transformed_p2y = transform_yx * p2x + transform_yy * p2y + transform_yz * p2z + transform_dy
-		local transformed_p2z = transform_zx * p2x + transform_zy * p2y + transform_zz * p2z + transform_dz
-
-		local cull_face
-
-		-- #embed FACE_CULLING
-
-		-- #increment_statistic candidate_faces
-
-		if not cull_face then
-			-- TODO: make this split polygons
-			if transformed_p0z <= ${CLIPPING_PLANE} and transformed_p1z <= ${CLIPPING_PLANE} and transformed_p2z <= ${CLIPPING_PLANE} then
-				local rasterize_p0_w = -1 / transformed_p0z
-				local rasterize_p0_x = screen_dx + transformed_p0x * rasterize_p0_w * screen_sx
-				local rasterize_p0_y = screen_dy + transformed_p0y * rasterize_p0_w * screen_sy
-				local rasterize_p1_w = -1 / transformed_p1z
-				local rasterize_p1_x = screen_dx + transformed_p1x * rasterize_p1_w * screen_sx
-				local rasterize_p1_y = screen_dy + transformed_p1y * rasterize_p1_w * screen_sy
-				local rasterize_p2_w = -1 / transformed_p2z
-				local rasterize_p2_x = screen_dx + transformed_p2x * rasterize_p2_w * screen_sx
-				local rasterize_p2_y = screen_dy + transformed_p2y * rasterize_p2_w * screen_sy
-
-				-- #embed TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS
-				-- #embed TRIANGLE_RASTERIZATION
-				-- #increment_statistic drawn_faces
-			else
-				-- #increment_statistic discarded_faces
-			end
-		else
-			-- #increment_statistic culled_faces
-		end
-
-		vertex_offset = vertex_offset + ${VERTEX_STRIDE_3}
-		face_offset = face_offset + ${FACE_STRIDE}
-	end
-
-	return {
-		total_time = stat_total_time,
-		rasterize_time = stat_rasterize_time,
-		candidate_faces = stat_candidate_faces,
-		drawn_faces = stat_drawn_faces,
-		culled_faces = stat_culled_faces,
-		clipped_faces = stat_clipped_faces,
-		discarded_faces = stat_discarded_faces,
-		candidate_fragments = stat_candidate_fragments,
-		fragments_occluded = stat_fragments_occluded,
-		fragments_shaded = stat_fragments_shaded,
-		fragments_discarded = stat_fragments_discarded,
-		fragments_drawn = stat_fragments_drawn,
-	}
-end
-]]
-
-local FACE_CULLING_EMBED = [[
-local d1x = transformed_p1x - transformed_p0x
-local d1y = transformed_p1y - transformed_p0y
-local d1z = transformed_p1z - transformed_p0z
-local d2x = transformed_p2x - transformed_p0x
-local d2y = transformed_p2y - transformed_p0y
-local d2z = transformed_p2z - transformed_p0z
-local cx = d1y*d2z - d1z*d2y
-local cy = d1z*d2x - d1x*d2z
-local cz = d1x*d2y - d1y*d2x
-cull_face = cx * transformed_p0x + cy * transformed_p0y + cz * transformed_p0z ${CULL_FACE_COMPARISON_OPERATOR} 0
-]]
-
-local TRIANGLE_RASTERIZATION_EMBED = [[
--- #embed VERTEX_ORDERING
-
-local midpoint_scalar = (rasterize_p1_y - rasterize_p0_y) / (rasterize_p2_y - rasterize_p0_y)
-local rasterize_pM_x = rasterize_p0_x * (1 - midpoint_scalar) + rasterize_p2_x * midpoint_scalar
-
--- #embed MIDPOINT_CALCULATION
-
-if rasterize_pM_x > rasterize_p1_x then
-	rasterize_pM_x, rasterize_p1_x = rasterize_p1_x, rasterize_pM_x
-	-- #embed MIDPOINT_SWAP
-end
-
-local row_top_min = math_floor(rasterize_p0_y + 0.5)
-local row_bottom_min = math_floor(rasterize_p1_y + 0.5)
-local row_top_max = row_bottom_min - 1
-local row_bottom_max = math_ceil(rasterize_p2_y - 0.5)
-
-if row_top_min < 0 then row_top_min = 0 end
-if row_bottom_min < 0 then row_bottom_min = 0 end
-if row_top_max > fb_height_m1 then row_top_max = fb_height_m1 end
-if row_bottom_max > fb_height_m1 then row_bottom_max = fb_height_m1 end
-
-if row_top_min <= row_top_max then
-	local tri_dy = rasterize_p1_y - rasterize_p0_y
-	if tri_dy > 0 then
-		-- #embed FLAT_TRIANGLE_CALCULATIONS(top, p0, p0, pM, p1)
-
-		local row_min_index = row_top_min * fb_width + 1
-		local row_max_index = row_top_max * fb_width + 1
-
-		-- #embed FLAT_TRIANGLE_RASTERIZATION
-	end
-end
-
-if row_bottom_min <= row_bottom_max then
-	local tri_dy = rasterize_p2_y - rasterize_p1_y
-
-	if tri_dy > 0 then
-		-- #embed FLAT_TRIANGLE_CALCULATIONS(bottom, pM, p1, p2, p2)
-
-		local row_min_index = row_bottom_min * fb_width + 1
-		local row_max_index = row_bottom_max * fb_width + 1
-
-		-- #embed FLAT_TRIANGLE_RASTERIZATION
-	end
-end
-]]
-
-local FLAT_TRIANGLE_RASTERIZATION_EMBED = [[
-for base_index = row_min_index, row_max_index, fb_width do
-	local row_min_column = math_ceil(tri_left_x)
-	local row_max_column = math_ceil(tri_right_x)
-
-	-- #embed ROW_CALCULATIONS
-
-	if row_min_column < 0 then row_min_column = 0 end
-	if row_max_column > fb_width_m1 then row_max_column = fb_width_m1 end
-
-	for x = row_min_column, row_max_column do
-		local index = base_index + x
-		-- #increment_statistic candidate_fragments
-		-- #embed COLUMN_DRAW_PIXEL_ENTRY
-		-- #embed COLUMN_ADVANCE
-	end
-
-	tri_left_x = tri_left_x + tri_left_dx_dy
-	tri_right_x = tri_right_x + tri_right_dx_dy
-	-- #embed ROW_ADVANCE
-end
-]]
-
-local COLUMN_DRAW_PIXEL_DEPTH_TESTED_EMBED = [[
-if row_w > fb_depth[index] then
-	-- #embed COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED
-else
-	-- #increment_statistic fragments_occluded
-end]]
-
-local COLUMN_DRAW_PIXEL_FRAGMENT_SHADER_EMBED = [[
--- #embed FRAGMENT_SHADER_CALCULATE_ATTRIBUTES
-
-local fs_colour = opt_fragment_shader(uniforms${FRAGMENT_SHADER_PARAMETERS})
--- #increment_statistic fragments_shaded
-if fs_colour ~= nil then
-	fb_colour[index] = fs_colour
-	-- #embed COLUMN_DRAW_PIXEL_DEPTH_STORE
-	-- #increment_statistic fragments_drawn
-else
-	-- #increment_statistic fragments_discarded
-end]]
-
-local COLUMN_DRAW_PIXEL_FIXED_COLOUR_EMBED = [[
-fb_colour[index] = colour
--- #embed COLUMN_DRAW_PIXEL_DEPTH_STORE
--- #increment_statistic fragments_drawn]]
-
-local function create_pipeline(options)
-	local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
-	local opt_layout = options.layout
-	local opt_position_attribute = options.position_attribute or 'position'
-	local opt_attributes = options.attributes or {}
-	local opt_pack_attributes = options.pack_attributes ~= false
-	local opt_colour_attribute = options.colour_attribute
-	local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
-	local opt_depth_store = options.depth_store ~= false
-	local opt_depth_test = options.depth_test ~= false
-	local opt_fragment_shader = options.fragment_shader or nil
-	local opt_statistics = options.statistics or {}
-	local stat_measure_total_time = opt_statistics.measure_total_time or false
-	local stat_measure_rasterize_time = opt_statistics.measure_rasterize_time or false
-	local stat_count_candidate_faces = opt_statistics.count_candidate_faces or false
-	local stat_count_drawn_faces = opt_statistics.count_culled_faces or false
-	local stat_count_culled_faces = opt_statistics.count_culled_faces or false
-	local stat_count_clipped_faces = opt_statistics.count_clipped_faces or false
-	local stat_count_discarded_faces = opt_statistics.count_discarded_faces or false
-	local stat_count_candidate_fragments = opt_statistics.count_candidate_fragments or false
-	local stat_count_fragments_occluded = opt_statistics.count_fragments_occluded or false
-	local stat_count_fragments_shaded = opt_statistics.count_fragments_shaded or false
-	local stat_count_fragments_discarded = opt_statistics.count_fragments_discarded or false
-	local stat_count_fragments_drawn = opt_statistics.count_fragments_drawn or false
-
-	local pipeline = {}
-	local uniforms = {}
-
-	--- @type V3DPipelineOptions
-	pipeline.options = {
-		attributes = opt_attributes,
-		colour_attribute = not opt_fragment_shader and opt_colour_attribute or nil,
-		cull_face = opt_cull_face,
-		depth_store = opt_depth_store,
-		depth_test = opt_depth_test,
-		fragment_shader = opt_fragment_shader,
-		layout = opt_layout,
-		pack_attributes = opt_pack_attributes,
-		pixel_aspect_ratio = opt_pixel_aspect_ratio,
-		position_attribute = opt_position_attribute,
-		statistics = {
-			measure_total_time = stat_measure_total_time,
-			measure_rasterize_time = stat_measure_rasterize_time,
-			count_candidate_faces = stat_count_candidate_faces,
-			count_drawn_faces = stat_count_drawn_faces,
-			count_culled_faces = stat_count_culled_faces,
-			count_clipped_faces = stat_count_clipped_faces,
-			count_discarded_faces = stat_count_discarded_faces,
-			count_candidate_fragments = stat_count_candidate_fragments,
-			count_fragments_occluded = stat_count_fragments_occluded,
-			count_fragments_shaded = stat_count_fragments_shaded,
-			count_fragments_discarded = stat_count_fragments_discarded,
-			count_fragments_drawn = stat_count_fragments_drawn,
-		}
-	}
-
-	local geometry_face_attributes = {}
-	local geometry_vertex_attributes = {}
-	local interpolate_attributes = {}
-	local attributes = {}
-
-	for _, attribute_name in ipairs(opt_attributes) do
-		local attribute = opt_layout:get_attribute(attribute_name)
-		local attr = {}
-		attr.name = attribute.name
-		attr.size = attribute.size
-		attr.type = attribute.type
-
-		if attribute.type == 'vertex' then
-			table.insert(geometry_vertex_attributes, attribute)
-			table.insert(interpolate_attributes, attr)
-		else
-			table.insert(geometry_face_attributes, attribute)
-		end
-		table.insert(attributes, attr)
-	end
-
-	local pipeline_source = RENDER_GEOMETRY_SOURCE
-
-	do -- STAT_TOTAL_TIME
-		-- TODO
-	end
-
-	do -- STAT_RASTERIZE_TIME
-		-- TODO
-	end
-
-	do -- embeds
-		local embeds = {
-			FRAGMENT_PACKED_PARAMS = function()
-				if not opt_pack_attributes then
-					return ''
-				end
-
-				local result = ''
-				for _, attr in ipairs(attributes) do
-					result = result .. 'local fs_params_' .. attr.name .. '={}\n'
-				end
-				result = result .. 'local fs_params = {'
-				for _, attr in ipairs(attributes) do
-					result = result .. attr.name .. '=' .. 'fs_params_' .. attr.name .. ','
-				end
-				result = result .. '}\n'
-				return result
-			end,
-			FACE_CULLING = opt_cull_face and FACE_CULLING_EMBED or '',
-			TRIANGLE_RASTERIZATION = TRIANGLE_RASTERIZATION_EMBED,
-			FLAT_TRIANGLE_RASTERIZATION = FLAT_TRIANGLE_RASTERIZATION_EMBED,
-			VERTEX_ATTRIBUTE_ASSIGNMENT = function()
-				local result = ''
-
-				for _, attr in ipairs(geometry_vertex_attributes) do
-					for i = 1, attr.size do
-						result = result .. 'local p0_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + i) .. ']\n'
-						                .. 'local p1_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + opt_layout.vertex_stride + i) .. ']\n'
-						                .. 'local p2_va_' .. attr.name .. (i - 1) .. ' = geometry[vertex_offset + ' .. (attr.offset + opt_layout.vertex_stride * 2 + i) .. ']\n'
-					end
-				end
-
-				return result
-			end,
-			FACE_ATTRIBUTE_ASSIGNMENT = function()
-				local result = ''
-
-				for _, attr in ipairs(geometry_face_attributes) do
-					for i = 1, attr.size do
-						if opt_pack_attributes then
-							result = result .. 'fs_params_' .. attr.name .. '[' .. i .. ']'
-						else
-							result = result .. 'local fa_' .. attr.name .. (i - 1)
-						end
-						result = result .. ' = geometry[face_offset+' .. (attr.offset + i) .. ']\n'
-					end
-				end
-
-				return result
-			end,
-			TRIANGLE_RASTERIZATION_NOCLIP_VERTEX_ATTRIBUTE_PARAMETERS = function()
-				local result = ''
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						result = result .. 'local rasterize_p0_va_' .. attr.name .. (i - 1) .. '=p0_va_' .. attr.name .. (i - 1) .. '\n'
-						                .. 'local rasterize_p1_va_' .. attr.name .. (i - 1) .. '=p1_va_' .. attr.name .. (i - 1) .. '\n'
-						                .. 'local rasterize_p2_va_' .. attr.name .. (i - 1) .. '=p2_va_' .. attr.name .. (i - 1) .. '\n'
-					end
-				end
-
-				return result
-			end,
-			VERTEX_ORDERING = function()
-				local to_swap = { 'rasterize_pN_x', 'rasterize_pN_y' }
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					table.insert(to_swap, 'rasterize_pN_w')
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						table.insert(to_swap, 'rasterize_pN_va_' .. attr.name .. (i - 1))
-					end
-				end
-
-				local function swap_test(a, b)
-					local result = 'if rasterize_pA_y > rasterize_pB_y then\n'
-
-					for i = 1, #to_swap do
-						local sA = to_swap[i]:gsub('N', 'A')
-						local sB = to_swap[i]:gsub('N', 'B')
-						result = result .. '\t' .. sA .. ', ' .. sB .. ' = ' .. sB .. ', ' .. sA .. '\n'
-					end
-
-					return (result .. 'end'):gsub('A', a):gsub('B', b)
-				end
-
-				return swap_test(0, 1) .. '\n' .. swap_test(1, 2) .. '\n' .. swap_test(0, 1)
-			end,
-			MIDPOINT_CALCULATION = function()
-				local calculation = ''
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					calculation = calculation .. 'local rasterize_pM_w = rasterize_p0_w * (1 - midpoint_scalar) + rasterize_p2_w * midpoint_scalar\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						calculation = calculation .. 'local rasterize_pM_va_' .. s .. ' = (rasterize_p0_va_' ..s .. ' * rasterize_p0_w * (1 - midpoint_scalar) + rasterize_p2_va_' .. s .. ' * rasterize_p2_w * midpoint_scalar) / rasterize_pM_w\n'
-					end
-				end
-
-				return calculation
-			end,
-			MIDPOINT_SWAP = function()
-				local swap = ''
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					swap = swap .. 'rasterize_pM_w, rasterize_p1_w = rasterize_p1_w, rasterize_pM_w\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						swap = swap .. 'rasterize_pM_va_' .. s .. ', rasterize_p1_va_' .. s .. ' = rasterize_p1_va_' .. s .. ', rasterize_pM_va_' .. s .. '\n'
-					end
-				end
-
-				return swap
-			end,
-			FLAT_TRIANGLE_CALCULATIONS = function(name, top_left, top_right, bottom_left, bottom_right)
-				local result = 'local tri_y_correction = row_' .. name .. '_min + 0.5 - rasterize_' .. top_right .. '_y\n'
-				            .. 'local tri_left_dx_dy = (rasterize_' .. bottom_left .. '_x - rasterize_' .. top_left .. '_x) / tri_dy\n'
-				            .. 'local tri_right_dx_dy = (rasterize_' .. bottom_right .. '_x - rasterize_' .. top_right .. '_x) / tri_dy\n'
-				            .. 'local tri_left_x = rasterize_' .. top_left .. '_x + tri_left_dx_dy * tri_y_correction - 0.5\n'
-				            .. 'local tri_right_x = rasterize_' .. top_right .. '_x + tri_right_dx_dy * tri_y_correction - 1.5\n'
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					result = result .. 'local tri_left_dw_dy = (rasterize_' .. bottom_left .. '_w - rasterize_' .. top_left .. '_w) / tri_dy\n'
-					                .. 'local tri_right_dw_dy = (rasterize_' .. bottom_right .. '_w - rasterize_' .. top_right .. '_w) / tri_dy\n'
-					                .. 'local tri_left_w = rasterize_' .. top_left .. '_w + tri_left_dw_dy * tri_y_correction\n'
-					                .. 'local tri_right_w = rasterize_' .. top_right .. '_w + tri_right_dw_dy * tri_y_correction\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						result = result .. 'local tri_left_va_d' .. s .. 'w_dy = (rasterize_' .. bottom_left .. '_va_' .. s .. ' * rasterize_' .. bottom_left .. '_w - rasterize_' .. top_left .. '_va_' .. s .. ' * rasterize_' .. top_left .. '_w) / tri_dy\n'
-						                .. 'local tri_right_va_d' .. s .. 'w_dy = (rasterize_' .. bottom_right .. '_va_' .. s .. ' * rasterize_' .. bottom_right .. '_w - rasterize_' .. top_right .. '_va_' .. s .. ' * rasterize_' .. top_right .. '_w) / tri_dy\n'
-						                .. 'local tri_left_va_' .. s .. '_w = rasterize_' .. top_left .. '_va_' .. s .. ' * rasterize_' .. top_left .. '_w + tri_left_va_d' .. s .. 'w_dy * tri_y_correction\n'
-						                .. 'local tri_right_va_' .. s .. '_w = rasterize_' .. top_right .. '_va_' .. s .. ' * rasterize_' .. top_right .. '_w + tri_right_va_d' .. s .. 'w_dy * tri_y_correction\n'
-					end
-				end
-
-				return result
-			end,
-			ROW_CALCULATIONS = function()
-				local result = ''
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					result = result .. 'local row_x_correction = row_min_column - tri_left_x\n'
-					                .. 'local row_dx = tri_right_x - tri_left_x + 1\n' -- TODO: + 1 ???
-					                .. 'local row_dw_dx = (tri_right_w - tri_left_w) / row_dx\n'
-					                .. 'local row_w = tri_left_w + row_dw_dx * row_x_correction\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						result = result .. 'local row_va_d' .. s .. 'w_dx = (tri_right_va_' .. s .. '_w - tri_left_va_' .. s .. '_w) / row_dx\n'
-						                .. 'local row_va_' .. s .. '_w = tri_left_va_' .. s .. '_w + row_va_d' .. s .. 'w_dx * row_x_correction\n'
-					end
-				end
-
-				return result
-			end,
-			FRAGMENT_SHADER_CALCULATE_ATTRIBUTES = function()
-				local result = ''
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						result = result .. 'local fs_p_va_' .. s .. ' = row_va_' .. s .. '_w / row_w\n'
-
-						if opt_pack_attributes then
-							result = result .. 'fs_params_' .. attr.name .. '[' .. i .. '] = fs_p_va_' .. attr.name .. (i - 1) .. '\n'
-						end
-					end
-				end
-
-				return result
-			end,
-			COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED = opt_fragment_shader and COLUMN_DRAW_PIXEL_FRAGMENT_SHADER_EMBED
-			                                                           or COLUMN_DRAW_PIXEL_FIXED_COLOUR_EMBED,
-			COLUMN_DRAW_PIXEL_DEPTH_STORE = opt_depth_store and 'fb_depth[index] = row_w\n' or '',
-			COLUMN_DRAW_PIXEL_ENTRY = opt_depth_test and COLUMN_DRAW_PIXEL_DEPTH_TESTED_EMBED
-			                                          or '-- #embed COLUMN_DRAW_PIXEL_DEPTH_TEST_PASSED\n',
-			COLUMN_ADVANCE = function()
-				local result = ''
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					result = result .. 'row_w = row_w + row_dw_dx\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						result = result .. 'row_va_' .. s .. '_w = row_va_' .. s .. '_w + row_va_d' .. s .. 'w_dx\n'
-					end
-				end
-
-				return result
-			end,
-			ROW_ADVANCE = function()
-				local result = ''
-
-				if opt_depth_test or opt_depth_store or #interpolate_attributes > 0 then
-					result = result .. 'tri_left_w = tri_left_w + tri_left_dw_dy\n'
-					                .. 'tri_right_w = tri_right_w + tri_right_dw_dy\n'
-				end
-
-				for _, attr in ipairs(interpolate_attributes) do
-					for i = 1, attr.size do
-						local s = attr.name .. (i - 1)
-						result = result .. 'tri_left_va_' .. s .. '_w = tri_left_va_' .. s .. '_w + tri_left_va_d' .. s .. 'w_dy\n'
-						                .. 'tri_right_va_' .. s .. '_w = tri_right_va_' .. s .. '_w + tri_right_va_d' .. s .. 'w_dy\n'
-					end
-				end
-
-				return result
-			end,
-		}
-		local count
-
-		repeat
-			pipeline_source, count = pipeline_source:gsub('(\t+)%-%-%s*#embed%s+([%w_]+)([^\n]*)\n', function(indent, name, params)
-				local embed = embeds[name]
-
-				if not embed then
-					error(name)
-				end
-
-				if type(embed) == 'function' then
-					local ps = {}
-					for p in params:sub(2, -2):gmatch '[^,]+' do
-						table.insert(ps, (p:gsub('^%s+', '', 1):gsub('%s+$', '', 1)))
-					end
-					embed = embed(table.unpack(ps))
-				end
-
-				--- @cast embed string
-
-				return indent .. embed:gsub('\n', '\n' .. indent) .. '\n'
-			end)
-		until count == 0
-	end
-
-	do -- variables
-		local position_base_offset = opt_layout:get_attribute(opt_position_attribute).offset
-		local face_colour_snippet = '1'
-
-		if opt_colour_attribute then
-			local colour_base_offset = opt_layout:get_attribute(opt_colour_attribute).offset
-			face_colour_snippet = 'geometry[face_offset+' .. (colour_base_offset + 1) .. ']'
-		end
-
-		local replacements = {
-			['${PIXEL_ASPECT_RATIO}'] = opt_pixel_aspect_ratio,
-			['${P0X_OFFSET}'] = position_base_offset + 1,
-			['${P0Y_OFFSET}'] = position_base_offset + 2,
-			['${P0Z_OFFSET}'] = position_base_offset + 3,
-			['${P1X_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 1,
-			['${P1Y_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 2,
-			['${P1Z_OFFSET}'] = position_base_offset + opt_layout.vertex_stride + 3,
-			['${P2X_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 1,
-			['${P2Y_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 2,
-			['${P2Z_OFFSET}'] = position_base_offset + opt_layout.vertex_stride * 2 + 3,
-			['${FACE_COLOUR_SNIPPET}'] = face_colour_snippet,
-			['${VERTEX_STRIDE_3}'] = opt_layout.vertex_stride * 3,
-			['${FACE_STRIDE}'] = opt_layout.face_stride,
-			['${CULL_FACE_COMPARISON_OPERATOR}'] = opt_cull_face == v3d.CULL_FRONT_FACE and '<' or '>',
-			['${CLIPPING_PLANE}'] = '0.0001',
-			['${FRAGMENT_SHADER_PARAMETERS}'] = function()
-				local fs_params = ''
-
-				if opt_pack_attributes then
-					fs_params = fs_params .. ', fs_params'
-				else
-					for _, attr in ipairs(attributes) do
-						for i = 1, attr.size do
-							if attr.type == 'vertex' then
-								fs_params = fs_params .. ', fs_p_va_'
-							else
-								fs_params = fs_params .. ', fa_'
-							end
-							fs_params = fs_params .. attr.name .. (i - 1)
-						end
-					end
-				end
-
-				return fs_params
-			end
-		}
-
-		pipeline_source = pipeline_source:gsub('%${[%w_]+}', function(name)
-			local replacement = replacements[name]
-
-			if type(replacement) == 'function' then
-				replacement = replacement()
-			end
-
-			return replacement
+local function create_debug_cube(cx, cy, cz, size)
+	local s2 = (size or 1) / 2
+
+	cx = cx or 0
+	cy = cy or 0
+	cz = cz or 0
+
+	return create_geometry_builder(v3d.DEBUG_CUBE_FORMAT)
+		:set_data('position', {
+			-s2,  s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -- front 1
+			-s2, -s2,  s2,  s2, -s2,  s2,  s2,  s2,  s2, -- front 2
+			 s2,  s2, -s2,  s2, -s2, -s2, -s2,  s2, -s2, -- back 1
+			 s2, -s2, -s2, -s2, -s2, -s2, -s2,  s2, -s2, -- back 2
+			-s2,  s2, -s2, -s2, -s2, -s2, -s2,  s2,  s2, -- left 1
+			-s2, -s2, -s2, -s2, -s2,  s2, -s2,  s2,  s2, -- left 2
+			 s2,  s2,  s2,  s2, -s2,  s2,  s2,  s2, -s2, -- right 1
+			 s2, -s2,  s2,  s2, -s2, -s2,  s2,  s2, -s2, -- right 2
+			-s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -s2, -- top 1
+			-s2,  s2,  s2,  s2,  s2,  s2,  s2,  s2, -s2, -- top 2
+			 s2, -s2, -s2,  s2, -s2,  s2, -s2, -s2, -s2, -- bottom 1
+			 s2, -s2,  s2, -s2, -s2,  s2, -s2, -s2, -s2, -- bottom 2
+		})
+		:set_data('uv', {
+			0, 0, 0, 1, 1, 0, -- front 1
+			0, 1, 1, 1, 1, 0, -- front 2
+			0, 0, 0, 1, 1, 0, -- back 1
+			0, 1, 1, 1, 1, 0, -- back 2
+			0, 0, 0, 1, 1, 0, -- left 1
+			0, 1, 1, 1, 1, 0, -- left 2
+			0, 0, 0, 1, 1, 0, -- right 1
+			0, 1, 1, 1, 1, 0, -- right 2
+			0, 0, 0, 1, 1, 0, -- top 1
+			0, 1, 1, 1, 1, 0, -- top 2
+			0, 0, 0, 1, 1, 0, -- bottom 1
+			0, 1, 1, 1, 1, 0, -- bottom 2
+		})
+		:set_data('colour', {
+			colours.blue, colours.cyan, -- front,
+			colours.brown, colours.yellow, -- back
+			colours.lightBlue, colours.pink, -- left
+			colours.red, colours.orange, -- right
+			colours.green, colours.lime, -- top
+			colours.purple, colours.magenta, -- bottom
+		})
+		:set_data('face_normal', {
+			 0,  0,  1,  0,  0,  1, -- front
+			 0,  0,  1,  0,  0, -1, -- back
+			-1,  0,  0, -1,  0,  0, -- left
+			 1,  0,  0,  1,  0,  0, -- right
+			 0,  1,  0,  0,  1,  0, -- top
+			 0, -1,  0,  0, -1,  0, -- bottom
+		})
+		:set_data('face_index', { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 })
+		:set_data('side_index', { 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 })
+		:set_data('side_name', {
+			'front', 'front',
+			'back', 'back',
+			'left', 'left',
+			'right', 'right',
+			'top', 'top',
+			'bottom', 'bottom',
+		})
+		:map('position', function(d)
+			return { d[1] + cx, d[2] + cy, d[3] + cz }
 		end)
-	end
-
-	for k, v in pairs(pipeline.options.statistics) do -- statistics
-		local name = k:match '^count_(.+)$'
-		if name then
-			local replace = '--%s*#increment_statistic%s+' .. name
-			local replace_with = v and 'stat_' .. name .. ' = stat_' .. name .. ' + 1' or ''
-			pipeline_source = pipeline_source:gsub(replace, replace_with)
-		end
-	end
-
-	pipeline.source = pipeline_source
-	pipeline.render_geometry = assert(load(pipeline_source, 'pipeline source'))(uniforms, opt_fragment_shader)
-
-	pipeline.set_uniform = function(_, name, value)
-		uniforms[name] = value
-	end
-
-	pipeline.get_uniform = function(_, name)
-		return uniforms[name]
-	end
-
-	pipeline.list_uniforms = function(_)
-		local t = {}
-		for k in pairs(uniforms) do
-			t[#t + 1] = k
-		end
-		return t
-	end
-
-	return pipeline
-end
-
-local function create_texture_sampler(texture_uniform, width_uniform, height_uniform)
-	local math_floor = math.floor
-
-	texture_uniform = texture_uniform or 'u_texture'
-	width_uniform = width_uniform or 'u_texture_width'
-	height_uniform = height_uniform or 'u_texture_height'
-
-	return function(uniforms, u, v)
-		local image = uniforms[texture_uniform]
-		local image_width = uniforms[width_uniform]
-		local image_height = uniforms[height_uniform]
-
-		local x = math_floor(u * image_width)
-		if x < 0 then x = 0 end
-		if x >= image_width then x = image_width - 1 end
-		local y = math_floor(v * image_height)
-		if y < 0 then y = 0 end
-		if y >= image_height then y = image_height - 1 end
-
-		local colour = image[y + 1][x + 1]
-
-		if colour == 0 then
-			return nil
-		end
-
-		return colour
-	end
 end
 
 
@@ -1692,7 +2093,7 @@ do
 	set_library('scale', create_scale_transform)
 	set_library('rotate', create_rotate_transform)
 	set_library('camera', create_camera_transform)
-	set_library('create_pipeline', create_pipeline)
+	set_library('create_pipeline', v3d_create_pipeline)
 	set_library('create_texture_sampler', create_texture_sampler)
 
 	set_library('CULL_FRONT_FACE', -1)
@@ -1700,18 +2101,18 @@ do
 	set_library('GEOMETRY_COLOUR', 1)
 	set_library('GEOMETRY_UV', 2)
 	set_library('GEOMETRY_COLOUR_UV', 3)
-	set_library('COLOUR_FORMAT', v3d.create_format()
-		:add_attachment('colour', 'exp-palette-index', 1))
-	set_library('COLOUR_DEPTH_FORMAT', v3d.create_format()
-		:add_attachment('colour', 'exp-palette-index', 1)
-		:add_attachment('depth', 'depth-reciprocal', 1))
-	set_library('DEFAULT_LAYOUT', v3d.create_layout()
+	set_library('COLOUR_LAYOUT', v3d.create_layout()
+		:add_layer('colour', 'exp-palette-index', 1))
+	set_library('COLOUR_DEPTH_LAYOUT', v3d.create_layout()
+		:add_layer('colour', 'exp-palette-index', 1)
+		:add_layer('depth', 'depth-reciprocal', 1))
+	set_library('DEFAULT_FORMAT', v3d.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_face_attribute('colour', 1))
-	set_library('UV_LAYOUT', v3d.create_layout()
+	set_library('UV_FORMAT', v3d.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_vertex_attribute('uv', 2, true))
-	set_library('DEBUG_CUBE_LAYOUT', v3d.create_layout()
+	set_library('DEBUG_CUBE_FORMAT', v3d.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_vertex_attribute('uv', 2, true)
 		:add_face_attribute('colour', 1)

@@ -176,26 +176,24 @@ do -- generate the wrapper
 
 	convert_instance_v3d(v3d_wrapper, 'v3d')
 
-	-- TODO: automate this:
-
-	for _, format_name in ipairs { 'COLOUR_FORMAT', 'COLOUR_DEPTH_FORMAT' } do
-		local s = tostring {}
-		-- take a copy of the format in a really hacky way, then wrap it
-		-- we don't wanna wrap_format the original since that would mutate it
-		local format_copy = v3d_wrapper[format_name]
-			:add_attachment(s, 'any', 0):drop_attachment(s) -- we take a copy like this
-		convert_instance_V3DFormat(format_copy, 'v3d.' .. format_name)
-		v3d_wrapper[format_name] = format_copy
-	end
-
-	for _, layout_name in ipairs { 'DEFAULT_LAYOUT', 'UV_LAYOUT', 'DEBUG_CUBE_LAYOUT' } do
+	for _, layout_name in ipairs { 'COLOUR_LAYOUT', 'COLOUR_DEPTH_LAYOUT' } do
 		local s = tostring {}
 		-- take a copy of the layout in a really hacky way, then wrap it
 		-- we don't wanna wrap_layout the original since that would mutate it
 		local layout_copy = v3d_wrapper[layout_name]
-			:add_face_attribute(s, 0):drop_attribute(s) -- we take a copy like this
+			:add_layer(s, 'any', 0):drop_layer(s) -- we take a copy like this
 		convert_instance_V3DLayout(layout_copy, 'v3d.' .. layout_name)
 		v3d_wrapper[layout_name] = layout_copy
+	end
+
+	for _, format_name in ipairs { 'DEFAULT_FORMAT', 'UV_FORMAT', 'DEBUG_CUBE_FORMAT' } do
+		local s = tostring {}
+		-- take a copy of the format in a really hacky way, then wrap it
+		-- we don't wanna wrap_format the original since that would mutate it
+		local format_copy = v3d_wrapper[format_name]
+			:add_face_attribute(s, 0):drop_attribute(s) -- we take a copy like this
+		convert_instance_V3DFormat(format_copy, 'v3d.' .. format_name)
+		v3d_wrapper[format_name] = format_copy
 	end
 end
 
@@ -582,7 +580,16 @@ end
 local event_queue = {}
 local event = args
 local filter = nil
-local program_co = coroutine.create(program_fn)
+local xpcall_line = select(2, pcall(debug.traceback)):match ':(%d+):' + 2
+local program_co = coroutine.create(function()
+	local ok, err = xpcall(program_fn, function(err)
+		return debug.traceback(err)
+	end)
+	if not ok then
+		err = err:gsub('\n%s*%[C%]: in function \'xpcall\'\n.*:' .. xpcall_line ..'.*$', '', 1)
+		error(err, 0)
+	end
+end)
 local last_frame = currentTime()
 local fps_avg = 0
 local frame_time_avg = 0

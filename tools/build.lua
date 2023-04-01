@@ -1,4 +1,6 @@
 
+local no_minify = ...
+
 local luatools = require 'luatools'
 local docparse = require 'docparse'
 
@@ -442,7 +444,7 @@ ${SDF_SUB_DETAILS}]]
 		local is_optional = false
 		local needs_structural_check = nil
 		local needs_attribute_check = nil
-		local needs_attachment_check = nil
+		local needs_layer_check = nil
 		local type_checker
 
 		do -- generate 4 fields above
@@ -460,8 +462,8 @@ ${SDF_SUB_DETAILS}]]
 			elseif param_type == 'V3DAttributeName | V3DAttribute' then
 				needs_attribute_check = v3d_types.V3DAttribute
 				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
-			elseif param_type == 'V3DAttachmentName | V3DAttachment' then
-				needs_attachment_check = v3d_types.V3DAttachment
+			elseif param_type == 'V3DLayerName | V3DLayer' then
+				needs_layer_check = v3d_types.V3DLayer
 				type_checker = 'type(%s) == \'string\' or type(%s) == \'table\''
 			elseif param_type:find '%[%]$' or param_type:find '^%b{}$' then
 				-- TODO: check contents of the table?
@@ -482,7 +484,7 @@ ${SDF_SUB_DETAILS}]]
 		local content = logged and PARAM_TEMPLATE_LOGGED
 		                        or PARAM_TEMPLATE_UNLOGGED
 
-		-- TODO: use needs_structural_check and needs_attribute_check and needs_attachment_check
+		-- TODO: use needs_structural_check and needs_attribute_check and needs_layer_check
 
 		local pt_details = ''
 
@@ -765,10 +767,12 @@ ${SDF_SUB_DETAILS}]]
 
 	local pre_minify_len = #luatools.concat(tokens)
 
-	luatools.strip_comments(tokens)
-	luatools.strip_doccomments(tokens)
-	luatools.strip_whitespace(tokens)
-	luatools.minify(tokens)
+	if not no_minify then
+		luatools.strip_comments(tokens)
+		luatools.strip_doccomments(tokens)
+		luatools.strip_whitespace(tokens)
+		luatools.minify(tokens)
+	end
 
 	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
 	                 .. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias\n'
@@ -804,11 +808,11 @@ do -- produce compiled v3d.d.ts
 			expected = '{ [string]: unknown }',
 			replace_with = '{ [name: string]: unknown }',
 		},
-		V3DPackedFragmentShader = {
-			expected = 'fun(uniforms: V3DUniforms, ...: unknown): integer | nil',
-			replace_with = '(uniforms: V3DUniforms, ...attr_values: unknown[]) => integer | null',
-		},
 		V3DUnpackedFragmentShader = {
+			expected = 'fun(...: unknown): integer | nil',
+			replace_with = '(...uniform_attr_values: unknown[]) => integer | null',
+		},
+		V3DPackedFragmentShader = {
 			expected = 'fun(uniforms: V3DUniforms, attr_values: { [string]: unknown[] }): integer | nil',
 			replace_with = '(uniforms: V3DUniforms, attr_values: { [name: string]: unknown[] }) => integer | null',
 		},
@@ -886,7 +890,7 @@ do -- produce compiled v3d.d.ts
 				local alias_type = v3d_types[i].extends
 
 				if alias_mappings[v3d_types[i].name] then
-					assert(alias_mappings[v3d_types[i].name].expected == alias_type)
+					assert(alias_mappings[v3d_types[i].name].expected == alias_type, 'Expected alias of ' .. alias_mappings[v3d_types[i].name].expected .. ' for ' .. v3d_types[i].name .. ' doesn\'t match ' .. alias_type)
 					alias_type = alias_mappings[v3d_types[i].name].replace_with
 				else
 					alias_type = type_to_ts(alias_type)

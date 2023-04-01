@@ -23,16 +23,16 @@
 --- @field CULL_FRONT_FACE V3DCullFace
 --- Specify to cull (not draw) the back face (facing away from the camera).
 --- @field CULL_BACK_FACE V3DCullFace
---- Framebuffer format with just a colour attachment.
---- @field COLOUR_FORMAT V3DFormat
---- Framebuffer format with colour and depth attachments.
---- @field COLOUR_DEPTH_FORMAT V3DFormat
---- A default layout containing just position and colour attributes.
---- @field DEFAULT_LAYOUT V3DLayout
---- A layout containing just position and UV attributes, useful for textures or
+--- Framebuffer layout with just a colour layer.
+--- @field COLOUR_LAYOUT V3DLayout
+--- Framebuffer layout with colour and depth layers.
+--- @field COLOUR_DEPTH_LAYOUT V3DLayout
+--- A default format containing just position and colour attributes.
+--- @field DEFAULT_FORMAT V3DFormat
+--- A format containing just position and UV attributes, useful for textures or
 --- other UV based rendering.
---- @field UV_LAYOUT V3DLayout
---- The layout used by [[@v3d.create_debug_cube]], containing the following
+--- @field UV_FORMAT V3DFormat
+--- The format used by [[@v3d.create_debug_cube]], containing the following
 --- attributes:
 --- * `position` - numeric vertex attribute - 3 components
 --- * `uv` - numeric vertex attribute - 2 components
@@ -41,12 +41,12 @@
 --- * `face_index` - face attribute - 1 components
 --- * `side_index` - face attribute - 1 components
 --- * `side_name` - face attribute - 1 components
---- @field DEBUG_CUBE_LAYOUT V3DLayout
+--- @field DEBUG_CUBE_FORMAT V3DFormat
 local v3d = {}
 
 do
-	--- Create a [[@V3DGeometryBuilder]] cube in the [[@v3d.DEBUG_CUBE_LAYOUT]]
-	--- layout.
+	--- Create a [[@V3DGeometryBuilder]] cube in the [[@v3d.DEBUG_CUBE_FORMAT]]
+	--- format.
 	--- @param cx number | nil Centre X coordinate of the cube.
 	--- @param cy number | nil Centre Y coordinate of the cube.
 	--- @param cz number | nil Centre Z coordinate of the cube.
@@ -54,116 +54,108 @@ do
 	--- @return V3DGeometryBuilder
 	--- @nodiscard
 	function v3d.create_debug_cube(cx, cy, cz, size) end
-
-	--- TODO
-	--- @param texture_uniform string | nil TODO
-	--- @param width_uniform string | nil TODO
-	--- @param height_uniform string | nil TODO
-	--- @return V3DFragmentShader
-	--- @nodiscard
-	function v3d.create_texture_sampler(texture_uniform, width_uniform, height_uniform) end
 end
 
 --------------------------------------------------------------------------------
 --[ Framebuffers ]--------------------------------------------------------------
 --------------------------------------------------------------------------------
 
---- Create an empty [[@V3DFormat]].
---- See also: [[@v3d.COLOUR]], [[@v3d.COLOUR_DEPTH_FORMAT]]
---- @return V3DFormat
+--- Create an empty [[@V3DLayout]].
+--- See also: [[@v3d.COLOUR_LAYOUT]], [[@v3d.COLOUR_DEPTH_LAYOUT]]
+--- @return V3DLayout
 --- @nodiscard
-function v3d.create_format() end
+function v3d.create_layout() end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width` x `height` pixels.
 ---
 --- Note, for using subpixel rendering (you probably are), use
 --- `create_framebuffer_subpixel` instead.
---- @param format V3DFormat Format of the framebuffer, i.e. what data it contains.
+--- @param layout V3DLayout Layout of the framebuffer, i.e. what data it contains.
 --- @param width integer Width of the framebuffer in pixels
 --- @param height integer Height of the framebuffer in pixels
 --- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
 --- @nodiscard
-function v3d.create_framebuffer(format, width, height, label) end
+function v3d.create_framebuffer(layout, width, height, label) end
 
 --- Create an empty [[@V3DFramebuffer]] of exactly `width * 2` x `height * 3`
 --- pixels, suitable for rendering subpixels.
---- @param format V3DFormat Format of the framebuffer, i.e. what data it contains.
+--- @param layout V3DLayout Layout of the framebuffer, i.e. what data it contains.
 --- @param width integer Width of the framebuffer in full screen pixels
 --- @param height integer Height of the framebuffer in full screen pixels
 --- @param label string | nil Optional label for debugging
 --- @return V3DFramebuffer
 --- @nodiscard
-function v3d.create_framebuffer_subpixel(format, width, height, label) end
+function v3d.create_framebuffer_subpixel(layout, width, height, label) end
 
-do -- V3DAttachmentName
-	--- Name of an attachment. Should be a string matching the following Lua
-	--- pattern: `[a-zA-Z][a-zA-Z0-9_]*`.
-	--- @alias V3DAttachmentName string
+do -- V3DLayerName
+	--- Name of a layer. Should be a string matching the following Lua pattern:
+	--- `[a-zA-Z][a-zA-Z0-9_]*`.
+	--- @alias V3DLayerName string
 end
 
-do -- V3DAttachmentType
+do -- V3DLayerType
 	--- TODO
-	--- @alias V3DAttachmentType 'palette-index' | 'exp-palette-index' | 'depth-reciprocal' | 'any-numeric' | 'any'
+	--- @alias V3DLayerType 'palette-index' | 'exp-palette-index' | 'depth-reciprocal' | 'any-numeric' | 'any'
 end
 
-do -- V3DAttachment
+do -- V3DLayer
 	--- TODO
-	--- @class V3DAttachment
+	--- @class V3DLayer
 	--- TODO
-	--- @field name V3DAttachmentName
+	--- @field name V3DLayerName
 	--- TODO
-	--- @field type V3DAttachmentType
+	--- @field type V3DLayerType
 	--- TODO
 	--- @field components integer
 end
 
-do -- V3DFormat
+do -- V3DLayout
 	--- TODO
-	--- @class V3DFormat
+	--- @class V3DLayout
 	--- TODO
-	--- @field attachments V3DAttachment[]
+	--- @field layers V3DLayer[]
 	--- TODO
-	--- @field private attachment_lookup { [V3DAttachmentName]: integer | nil }
-	local V3DFormat = {}
+	--- @field private layer_lookup { [V3DLayerName]: integer | nil }
+	local V3DLayout = {}
 
 	--- TODO
-	--- @param name V3DAttachmentName
-	--- @param type V3DAttachmentType
+	--- @param name V3DLayerName
+	--- @param type V3DLayerType
 	--- @param components integer
-	--- @return V3DFormat
+	--- @return V3DLayout
 	--- @nodiscard
-	function V3DFormat:add_attachment(name, type, components) end
+	function V3DLayout:add_layer(name, type, components) end
 
 	--- TODO
-	--- @param attachment V3DAttachmentName | V3DAttachment
-	--- @return V3DFormat
+	--- @param layer V3DLayerName | V3DLayer
+	--- @return V3DLayout
 	--- @nodiscard
-	function V3DFormat:drop_attachment(attachment) end
+	function V3DLayout:drop_layer(layer) end
 
 	--- TODO
-	--- @param attachment V3DAttachmentName | V3DAttachment
+	--- @param layer V3DLayerName | V3DLayer
 	--- @return boolean
-	function V3DFormat:has_attachment(attachment) end
+	function V3DLayout:has_layer(layer) end
 
 	--- TODO
-	--- @param name V3DAttachmentName
-	--- @return V3DAttachment | nil
-	function V3DFormat:get_attachment(name) end
+	--- @param name V3DLayerName
+	--- @return V3DLayer | nil
+	function V3DLayout:get_layer(name) end
 end
 
 do -- CCTermAPI
 	--- ComputerCraft native terminal objects, for example `term` or `window`
 	--- objects.
-	--- @alias CCTermAPI {}
+	--- @alias CCTermAPI table
 end
 
 do -- V3DFramebuffer
 	--- Stores the per-pixel data for rendered triangles.
 	--- @class V3DFramebuffer
-	--- Format of the framebuffer which determines which data the framebuffer
+	--- Layout of the framebuffer which determines which data the framebuffer
 	--- stores.
-	--- @field format V3DFormat
+	--- @field layout V3DLayout
 	--- Width of the framebuffer in pixels. Note, if you're using subpixel
 	--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
 	--- width of 102 pixels in its framebuffer.
@@ -172,17 +164,17 @@ do -- V3DFramebuffer
 	--- rendering, this includes the subpixels, e.g. a 51x19 screen would have a
 	--- height of 57 pixels in its framebuffer.
 	--- @field height integer
-	--- @field private attachment_data { [V3DAttachmentName]: unknown[] }
+	--- @field private layer_data { [V3DLayerName]: unknown[] }
 	local V3DFramebuffer = {}
 
-	--- Get the data for a given attachment
-	--- @param attachment V3DAttachmentName
+	--- Get the data for a given layer.
+	--- @param layer V3DLayerName
 	--- @return unknown[]
 	--- @nodiscard
-	function V3DFramebuffer:get_buffer(attachment) end
+	function V3DFramebuffer:get_buffer(layer) end
 
-	--- Sets the data for the entire attachment to a particular value. If `value` is
-	--- nil, a default value based on the attachment's type will be used, as
+	--- Sets the data for the entire layer to a particular value. If `value` is
+	--- nil, a default value based on the layer's type will be used, as
 	--- follows:
 	--- Type | Default
 	--- -|-
@@ -191,61 +183,43 @@ do -- V3DFramebuffer
 	--- `depth-reciprocal` | `0`
 	--- `any-numeric` | `0`
 	--- `any` | `false`
-	--- @param attachment V3DAttachmentName
+	--- @param layer V3DLayerName
 	--- @param value any | nil
 	--- @return nil
-	function V3DFramebuffer:clear(attachment, value) end
+	function V3DFramebuffer:clear(layer, value) end
 
 	--- Render the framebuffer to the terminal, drawing a high resolution image
 	--- using subpixel conversion.
 	--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
-	--- @param attachment V3DAttachmentName TODO
+	--- @param layer V3DLayerName TODO
 	--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 	--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 	--- @return nil
-	function V3DFramebuffer:blit_term_subpixel(term, attachment, dx, dy) end
-
-	-- TODO: remove this
-	--- Similar to `blit_subpixel` but draws the depth instead of colour.
-	--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
-	--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
-	--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
-	--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
-	--- @return nil
-	function V3DFramebuffer:blit_term_subpixel_depth(term, dx, dy, update_palette) end
+	function V3DFramebuffer:blit_term_subpixel(term, layer, dx, dy) end
 
 	--- TODO
 	--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
-	--- @param attachment V3DAttachmentName TODO
+	--- @param layer V3DLayerName TODO
 	--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 	--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
 	--- @return nil
-	function V3DFramebuffer:blit_graphics(term, attachment, dx, dy) end
-
-	-- TODO: remove this
-	--- TODO
-	--- @param term CCTermAPI CC term API, e.g. 'term', or a window object you want to draw to.
-	--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
-	--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
-	--- @param update_palette boolean | nil Whether to update the term palette to better show depth. Defaults to true.
-	--- @return nil
-	function V3DFramebuffer:blit_graphics_depth(term, dx, dy, update_palette) end
+	function V3DFramebuffer:blit_graphics(term, layer, dx, dy) end
 end
 
 --------------------------------------------------------------------------------
 --[ Geometry ]------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
---- Create an empty [[@V3DLayout]].
---- @return V3DLayout
+--- Create an empty [[@V3DFormat]].
+--- @return V3DFormat
 --- @nodiscard
-function v3d.create_layout() end
+function v3d.create_format() end
 
---- Create an empty [[@V3DGeometryBuilder]] with the given layout.
---- @param layout V3DLayout Initial layout, which can be changed with [[@V3DGeometryBuilder.cast]].
+--- Create an empty [[@V3DGeometryBuilder]] with the given format.
+--- @param format V3DFormat Initial format, which can be changed with [[@V3DGeometryBuilder.cast]].
 --- @return V3DGeometryBuilder
 --- @nodiscard
-function v3d.create_geometry_builder(layout) end
+function v3d.create_geometry_builder(format) end
 
 do -- V3DAttributeName
 	--- Name of an attribute. Should be a string matching the following Lua pattern:
@@ -254,7 +228,7 @@ do -- V3DAttributeName
 end
 
 do -- V3DAttribute
-	--- An attribute in a layout. Attributes represent a unit of data that can form
+	--- An attribute in a format. Attributes represent a unit of data that can form
 	--- vertices or faces of geometry. For example, "position" might be an
 	--- attribute, as well as "colour" or "uv". Attributes have a number of fields
 	--- that describe how much information is stored, and how it may be used.
@@ -279,9 +253,9 @@ do -- V3DAttribute
 	--- @field offset integer
 end
 
-do -- V3DLayout
+do -- V3DFormat
 	--- TODO
-	--- @class V3DLayout
+	--- @class V3DFormat
 	--- TODO
 	--- @field attributes V3DAttribute[]
 	--- TODO
@@ -290,50 +264,50 @@ do -- V3DLayout
 	--- @field vertex_stride integer
 	--- TODO
 	--- @field face_stride integer
-	local V3DLayout = {}
+	local V3DFormat = {}
 
 	--- TODO
 	--- @param name V3DAttributeName
 	--- @param size integer
 	--- @param is_numeric true | false
-	--- @return V3DLayout
+	--- @return V3DFormat
 	--- @nodiscard
-	function V3DLayout:add_vertex_attribute(name, size, is_numeric) end
+	function V3DFormat:add_vertex_attribute(name, size, is_numeric) end
 
 	--- TODO
 	--- @param name V3DAttributeName
 	--- @param size integer
-	--- @return V3DLayout
+	--- @return V3DFormat
 	--- @nodiscard
-	function V3DLayout:add_face_attribute(name, size) end
+	function V3DFormat:add_face_attribute(name, size) end
 
 	--- TODO
 	--- @param attribute V3DAttributeName | V3DAttribute
-	--- @return V3DLayout
+	--- @return V3DFormat
 	--- @nodiscard
-	function V3DLayout:drop_attribute(attribute) end
+	function V3DFormat:drop_attribute(attribute) end
 
 	--- TODO
 	--- @param attribute V3DAttributeName | V3DAttribute
 	--- @return boolean
-	function V3DLayout:has_attribute(attribute) end
+	function V3DFormat:has_attribute(attribute) end
 
 	--- TODO
 	--- @param name V3DAttributeName
 	--- @return V3DAttribute | nil
-	function V3DLayout:get_attribute(name) end
+	function V3DFormat:get_attribute(name) end
 end
 
 do -- V3DGeometry
 	--- [[@V3DGeometry]] stores the data for shapes and triangles in an optimised
-	--- format determined by its `layout`. Data is stored as a contiguous array of
+	--- format determined by its `format`. Data is stored as a contiguous array of
 	--- unpacked attribute components. [[@V3DPipeline]]s are then specifically
-	--- compiled to draw geometry of a specific layout as quickly as possible.
+	--- compiled to draw geometry of a specific format as quickly as possible.
 	---
 	--- Use [[@V3DGeometryBuilder.build]] to create a geometry instance.
 	--- @class V3DGeometry
-	--- [[@V3DLayout]] of this geometry, which defines the format data is stored in.
-	--- @field layout V3DLayout
+	--- [[@V3DFormat]] of this geometry, which defines the format data is stored in.
+	--- @field format V3DFormat
 	--- Number of vertices contained within this geometry.
 	--- @field vertices integer
 	--- Number of faces contained within this geometry.
@@ -351,7 +325,7 @@ end
 
 do -- V3DGeometryBuilder
 	--- Object used to build [[@V3DGeometry]] instances. [[@V3DGeometry]] is stored
-	--- in an optimised format which depends on its layout and is an implementation
+	--- in an optimised format which depends on its format and is an implementation
 	--- detail of the library. As a result, we use geometry builders to pass data
 	--- for our geometry with a well-defined interface, and then build that to bake
 	--- it into the optimised format.
@@ -362,10 +336,10 @@ do -- V3DGeometryBuilder
 	--- See [[@V3DGeometryBuilder.set_data]], [[@V3DGeometryBuilder.cast]],
 	--- [[@V3DGeometryBuilder.build]].
 	--- @class V3DGeometryBuilder
-	--- Layout of this geometry builder, used when building the geometry using
+	--- Format of this geometry builder, used when building the geometry using
 	--- [[@V3DGeometryBuilder.build]]. Can be changed with
 	--- [[@V3DGeometryBuilder.cast]].
-	--- @field layout V3DLayout
+	--- @field format V3DFormat
 	--- @field private attribute_data { [V3DAttributeName]: any[] }
 	local V3DGeometryBuilder = {}
 
@@ -405,26 +379,26 @@ do -- V3DGeometryBuilder
 	--- @return V3DGeometryBuilder
 	function V3DGeometryBuilder:transform(attribute_name, transform, translate) end
 
-	--- Copy the data from `other` into this geometry builder. The layout of the
+	--- Copy the data from `other` into this geometry builder. The format of the
 	--- other builder and this must be identical, and only data that is part of the
-	--- layout will be copied.
+	--- format will be copied.
 	--- @param other V3DGeometryBuilder Geometry builder to copy data from.
 	--- @return V3DGeometryBuilder
 	function V3DGeometryBuilder:insert(other) end
 
-	--- Change the layout of this geometry builder to `layout`. There are no
-	--- requirements on the `layout` provided, and this function can be called as
+	--- Change the format of this geometry builder to `format`. There are no
+	--- requirements on the `format` provided, and this function can be called as
 	--- many times as necessary.
 	---
-	--- Note, the layout of a geometry builder affects how geometry is constructed
+	--- Note, the format of a geometry builder affects how geometry is constructed
 	--- when using [[@V3DGeometryBuilder.build]], as well as other functions.
-	--- @param layout V3DLayout Any layout to change to.
+	--- @param format V3DFormat Any format to change to.
 	--- @return V3DGeometryBuilder
-	function V3DGeometryBuilder:cast(layout) end
+	function V3DGeometryBuilder:cast(format) end
 
 	--- Construct a [[@V3DGeometry]] instance using the data set in this builder.
-	--- The resultant [[@V3DGeometry]] will have the same layout as this builder;
-	--- consider using [[@V3DGeometryBuilder.cast]] to change layouts if necessary.
+	--- The resultant [[@V3DGeometry]] will have the same format as this builder;
+	--- consider using [[@V3DGeometryBuilder.cast]] to change formats if necessary.
 	--- @param label string | nil Optional label for the constructed [[@V3DGeometry]] instance.
 	--- @return V3DGeometry
 	--- @nodiscard
@@ -549,50 +523,18 @@ end
 --[ Pipelines ]-----------------------------------------------------------------
 --------------------------------------------------------------------------------
 
---- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
---- use defaults, and any field within the options can also be omitted to use
---- defaults.
----
---- Example usage:
---- ```lua
---- local pipeline = v3d.create_pipeline {
---- 	layout = v3d.DEFAULT_LAYOUT,
---- 	cull_face = false,
---- }
---- ```
+-- TODO: v3d.shaders.write_constant()
+-- TODO: v3d.shaders.write_attribute()
+-- TODO: v3d.shaders.write_uniform()
+-- TODO: v3d.shaders.depth_test()
+-- TODO: v3d.shaders.combine()
+
+--- Create a [[@V3DPipeline]] with the given options.
 --- @param options V3DPipelineOptions Immutable options for the pipeline.
 --- @param label string | nil Optional label for debugging
 --- @return V3DPipeline
 --- @nodiscard
 function v3d.create_pipeline(options, label) end
-
---- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
---- use defaults, and any field within the options can also be omitted to use
---- defaults.
----
---- Example usage:
---- ```lua
---- TODO
---- ```
---- @param options V3DShadedPipelineOptions Immutable options for the pipeline.
---- @param label string | nil Optional label for debugging
---- @return V3DPipeline
---- @nodiscard
-function v3d.create_shaded_pipeline(options, label) end
-
---- Create a [[@V3DPipeline]] with the given options. Options can be omitted to
---- use defaults, and any field within the options can also be omitted to use
---- defaults.
----
---- Example usage:
---- ```lua
---- TODO
---- ```
---- @param options V3DFlatPipelineOptions Immutable options for the pipeline.
---- @param label string | nil Optional label for debugging
---- @return V3DPipeline
---- @nodiscard
-function v3d.create_flat_pipeline(options, label) end
 
 do -- V3DCullFace
 	--- Specifies which face to cull, either the front or back face.
@@ -606,142 +548,136 @@ do -- V3DUniforms
 	--- @alias V3DUniforms { [string]: unknown }
 end
 
-do -- V3D*FragmentShader
-	--- Variant of [[@V3DFragmentShader]] which accepts geometry attributes as an
-	--- unpacked list of parameters.
-	--- @alias V3DPackedFragmentShader fun(uniforms: V3DUniforms, ...: unknown): integer | nil
-
-	--- Variant of [[@V3DFragmentShader]] which accepts geometry attributes as a
-	--- packed string-keyed table of parameters.
-	--- @alias V3DUnpackedFragmentShader fun(uniforms: V3DUniforms, attr_values: { [string]: unknown[] }): integer | nil
-
-	-- TODO: screen X/Y, depth (new & old), face index
-	--- A fragment shader runs for every pixel being drawn, accepting the
-	--- interpolated attributes for that pixel. See
-	--- [[@V3DPipelineOptions.attributes]] and
-	--- [[@V3DPipelineOptions.pack_attributes]].
-	--- The shader should return a value to be written directly to the framebuffer.
-	--- Note: if `nil` is returned, no pixel is written, and the depth value is not
-	--- updated for that pixel.
+do -- VFSL
+	--- V3D fragment shader language.
+	--- Normal Lua code, with some macros and constraints on variable names.
+	--- * Variable names beginning with `_v3d` should strictly not be used.
+	--- * Variable names beginning with `v3d` should not be used besides using
+	---   the macros listed below.
 	---
-	--- `uniforms` is a table containing the values for all user-set uniforms, plus
-	--- certain special values listed under [[@V3DUniforms]].
+	--- ### Macros
 	---
-	--- See: [[@V3DPackedFragmentShader]], [[@V3DUnpackedFragmentShader]]
-	--- @alias V3DFragmentShader V3DPackedFragmentShader | V3DUnpackedFragmentShader
+	--- v3d_pixel_aspect_ratio()
+	--- v3d_transform()
+	--- v3d_model_transform()
+	---
+	--- v3d_read_attribute_values(string-literal)
+	--- v3d_read_attribute(string-literal)
+	--- v3d_read_attribute(string-literal, integer-literal)
+	---
+	--- v3d_read_attribute_gradient(string-literal)
+	--- v3d_read_attribute_gradient(string-literal, integer-literal)
+	---
+	--- v3d_write_layer_values(string-literal, any...)
+	--- v3d_write_layer(string-literal, any)
+	--- v3d_write_layer(string-literal, integer-literal, any)
+	--- v3d_read_layer_values(string-literal)
+	--- v3d_read_layer(string-literal)
+	--- v3d_read_layer(string-literal, integer-literal)
+	--- v3d_was_layer_written(string-literal)
+	--- v3d_was_layer_written()
+	---
+	--- v3d_write_uniform(string-literal, any)
+	--- v3d_read_uniform(string-literal)
+	--- 
+	--- v3d_framebuffer_size('width' | 'height' | 'width-1' | 'height-1')
+	--- v3d_framebuffer_width()
+	--- v3d_framebuffer_height()
+	---
+	--- v3d_face_row_bounds()
+	--- v3d_face_row_bounds('min' | 'max')
+	--- v3d_row_column_bounds()
+	--- v3d_row_column_bounds('min' | 'max')
+	---
+	--- v3d_face_world_normal()
+	--- v3d_face_world_normal('x' | 'y' | 'z')
+	---
+	--- v3d_face_was_clipped()
+	---
+	--- v3d_fragment_polygon_section()
+	---
+	--- v3d_fragment_is_face_front_facing()
+	---
+	--- v3d_fragment_depth()
+	---
+	--- v3d_fragment_screen_position()
+	--- v3d_fragment_screen_position('x' | 'y')
+	---
+	--- v3d_fragment_view_position()
+	--- v3d_fragment_view_position('x' | 'y' | 'z')
+	---
+	--- v3d_fragment_world_position()
+	--- v3d_fragment_world_position('x' | 'y' | 'z')
+	---
+	--- v3d_discard_fragment()
+	--- v3d_was_fragment_discarded()
+	---
+	--- v3d_compare_depth(any, any)
+	---
+	--- v3d_count_event(string-literal)
+	--- v3d_count_event(string-literal, any)
+	---
+	--- TODO:
+	--- To write a value to a layer in the framebuffer, use
+	--- `v3d_write_layer(layer, values...)`, for example
+	--- `v3d_write_layer('rgb_colour', r, g, b)`, or
+	--- `v3d_write_layer('colour', sample_texture(u_texture, uv0, uv1))`. Note
+	--- that calls to this 'function' are actually expanded into assignment
+	--- expressions. As a result, don't call this 'function' in an expression
+	--- context.
+	--- E.g. `v3d_write_layer(...)` is fine, but `v = v3d_write_layer(...)` is
+	--- not.
+	---
+	--- To read a value from a layer in the framebuffer, use
+	--- `v3d_read_layer(layer)`, for example
+	--- `local r, g, b = v3d_read_layer('rgb_colour')`.
+	--- @class VFSL
+end
+
+do -- VFSLString
+	--- A string containing [[@VFSL]] (v3d fragment shader language) code.
+	--- @alias VFSLString string
 end
 
 do -- V3DStatistics*
-	--- @class V3DStatisticsOptions
-	--- @field measure_total_time boolean | nil
-	--- @field measure_rasterize_time boolean | nil
-	--- @field count_candidate_faces boolean | nil
-	--- @field count_drawn_faces boolean | nil
-	--- @field count_culled_faces boolean | nil
-	--- @field count_clipped_faces boolean | nil
-	--- @field count_discarded_faces boolean | nil
-	--- @field count_candidate_fragments boolean | nil
-	--- @field count_fragments_occluded boolean | nil
-	--- @field count_fragments_shaded boolean | nil
-	--- @field count_fragments_discarded boolean | nil
-	--- @field count_fragments_drawn boolean | nil
-
+	--- TODO
 	--- @class V3DStatistics
+	--- TODO
 	--- @field total_time number
+	--- TODO
 	--- @field rasterize_time number
+	--- TODO
 	--- @field candidate_faces integer
+	--- TODO
 	--- @field drawn_faces integer
+	--- TODO
 	--- @field culled_faces integer
+	--- TODO
 	--- @field clipped_faces integer
+	--- TODO
 	--- @field discarded_faces integer
+	--- TODO
 	--- @field candidate_fragments integer
-	--- @field fragments_occluded integer
-	--- @field fragments_shaded integer
-	--- @field fragments_discarded integer
-	--- @field fragments_drawn integer
+	--- TODO
+	--- @field timers { [string]: number }
+	--- TODO
+	--- @field events { [string]: integer }
 end
 
-do -- V3D*PipelineOptions
+do -- V3DPipelineOptions
 	--- Pipeline options describe the settings used to create a pipeline. Most
-	--- fields are optional and have a sensible default. Not using or disabling
-	--- features may lead to a performance gain, for example disabling depth testing
-	--- or not using shaders.
+	--- fields are optional and have a sensible default. Different combinations
+	--- of options will affect the performance of geometry drawn with this
+	--- pipeline.
 	--- @class V3DPipelineOptions
-	--- Layout of the [[@V3DGeometry]] that this pipeline is compatible with. A
-	--- pipeline cannot draw geometry of other layouts, and cannot change its
-	--- layout. This parameter is not optional.
-	--- @field layout V3DLayout
-	--- Names of the attributes to interpolate values across polygons being drawn.
-	--- Only useful when using fragment shaders, and has a slight performance loss
-	--- when used. Defaults to `nil`.
-	--- @field attributes V3DAttributeName[] | nil
-	--- Optional attribute to specify which attribute vertex positions are stored
-	--- in. Must be a numeric, 3 component vertex attribute. Defaults to
-	--- `'position'`.
-	--- @field position_attribute V3DAttributeName | nil
-	--- If specified, this option tells v3d to use the given attribute as a "colour"
-	--- attribute to draw a fixed colour per polygon. Note: this should not be used
-	--- with fragment shaders, as it will do nothing.
-	---
-	--- Defaults to `nil`, meaning the fragment shader or 'white' is used to draw
-	--- pixels.
-	--- @field colour_attribute V3DAttributeName | nil
-	--- Whether the fragment shader should receive attributes packed in a table.
-	--- Defaults to `true`.
-	---
-	--- When packed, the 2nd parameter to the fragment shader is a table where the
-	--- attribute name is the key to a list of attribute component values. For
-	--- example, to access UVs, you might use `attr.uv[1]` and `attr.uv[2]`.
-	---
-	--- When unpacked, each component of each attribute is passed as an individual
-	--- parameter, based on the order the attributes are specified in `attributes`.
-	--- For example, to access UVs and colour with `attributes = { 'colour', 'uv' }`
-	--- you would have the parameters `(uniforms, colour1, uv1, uv2)` for your
-	--- fragment shader.
-	--- @field pack_attributes boolean | nil
-	--- Specify a face to cull (not draw), or false to disable face culling.
-	--- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
-	--- performance and should only be changed from the default when doing something
-	--- weird. For example, to not draw faces facing towards the camera, use
-	--- `cull_face = v3d.CULL_FRONT_FACE`.
-	--- @field cull_face V3DCullFace | false | nil
-	--- Whether to write the depth of drawn pixels to the depth buffer. Defaults to
-	--- true.
-	--- Slight performance gain if both this and `depth_test` are disabled.
-	--- Defaults to `true`.
-	--- @field depth_store boolean | nil
-	--- Whether to test the depth of candidate pixels, and only draw ones that are
-	--- closer to the camera than what's been drawn already.
-	--- Slight performance gain if both this and `depth_store` are disabled.
-	--- Defaults to `true`.
-	--- @field depth_test boolean | nil
-	--- Function to run for every pixel being drawn that determines the colour of
-	--- the pixel.
-	--- Note: for the UV values passed to the fragment shader to be correct, you
-	--- need to enable UV interpolation using the `interpolate_uvs` setting.
-	--- Slight performance loss when using fragment shaders.
-	--- @field fragment_shader V3DFragmentShader | nil
-	--- Aspect ratio of the pixels being drawn. For square pixels, this should be 1.
-	--- For non-square pixels, like the ComputerCraft non-subpixel characters, this
-	--- should be their width/height, for example 2/3 for non-subpixel characters.
-	--- Defaults to `1`.
-	--- @field pixel_aspect_ratio number | nil
-	--- @field statistics V3DStatisticsOptions | nil
-
-	--- Pipeline options describe the settings used to create a pipeline. Most
-	--- fields are optional and have a sensible default. Not using or disabling
-	--- features may lead to a performance gain, for example disabling depth testing
-	--- or not using shaders.
-	--- @class V3DCommonPipelineOptions
 	--- TODO
-	--- @field format V3DFormat
-	--- Layout of the [[@V3DGeometry]] that this pipeline is compatible with. A
-	--- pipeline cannot draw geometry of other layouts, and cannot change its
-	--- layout. This parameter is not optional.
 	--- @field layout V3DLayout
-	--- Optional attribute to specify which attribute vertex positions are stored
-	--- in. Must be a numeric, 3 component vertex attribute. Defaults to
-	--- `'position'`.
+	--- Format of the [[@V3DGeometry]] that this pipeline is compatible with. A
+	--- pipeline cannot draw geometry of other formats, and cannot change its
+	--- format. This parameter is not optional.
+	--- @field format V3DFormat
+	--- Specify which attribute vertex positions are stored in. Must be a
+	--- numeric, 3 component vertex attribute.
 	--- @field position_attribute V3DAttributeName
 	--- Specify a face to cull (not draw), or false to disable face culling.
 	--- Defaults to [[@v3d.CULL_BACK_FACE]]. This is a technique to improve
@@ -749,59 +685,17 @@ do -- V3D*PipelineOptions
 	--- weird. For example, to not draw faces facing towards the camera, use
 	--- `cull_face = v3d.CULL_FRONT_FACE`.
 	--- @field cull_face V3DCullFace | false | nil
-	--- TODO
-	--- @field depth_attachment V3DAttachmentName
-	--- Whether to test the depth of candidate pixels, and only draw ones that are
-	--- closer to the camera than what's been drawn already.
-	--- Slight performance gain if both this and `depth_store` are disabled.
-	--- Defaults to `true`.
-	--- @field depth_test boolean | nil
-	--- Whether to write the depth of drawn pixels to the depth buffer. Defaults to
-	--- true.
-	--- Slight performance gain if both this and `depth_test` are disabled.
-	--- Defaults to `true`.
-	--- @field depth_store boolean | nil
+	--- Lua code which will run for every candidate pixel of a polygon. This
+	--- code is entirely responsible for writing values to framebuffer layers
+	--- and implementing any custom logic.
+	--- @field fragment_shader VFSLString
 	--- Aspect ratio of the pixels being drawn. For square pixels, this should be 1.
 	--- For non-square pixels, like the ComputerCraft non-subpixel characters, this
 	--- should be their width/height, for example 2/3 for non-subpixel characters.
 	--- Defaults to `1`.
 	--- @field pixel_aspect_ratio number | nil
-	--- @field statistics V3DStatisticsOptions | nil
-
-	--- @class V3DShadedPipelineOptions: V3DCommonPipelineOptions
-	--- @field attachments V3DAttachmentName[] | nil
-	--- Names of the attributes to interpolate values across polygons being drawn.
-	--- Only useful when using fragment shaders, and has a slight performance loss
-	--- when used. Defaults to `nil`.
-	--- @field attributes V3DAttributeName[] | nil
-	--- Whether the fragment shader should receive attributes packed in a table.
-	--- Defaults to `true`.
-	---
-	--- When packed, the 2nd parameter to the fragment shader is a table where the
-	--- attribute name is the key to a list of attribute component values. For
-	--- example, to access UVs, you might use `attr.uv[1]` and `attr.uv[2]`.
-	---
-	--- When unpacked, each component of each attribute is passed as an individual
-	--- parameter, based on the order the attributes are specified in `attributes`.
-	--- For example, to access UVs and colour with `attributes = { 'colour', 'uv' }`
-	--- you would have the parameters `(uniforms, colour1, uv1, uv2)` for your
-	--- fragment shader.
-	---
-	--- Note, this attribute corresponds to which of [[@V3DPackedFragmentShader]] or
-	--- [[@V3DUnpackedFragmentShader]] should be used when creating a pipeline.
-	--- @field pack_attributes boolean | nil
-	--- Function to run for every pixel being drawn that determines the colour of
-	--- the pixel.
-	--- Note: for the UV values passed to the fragment shader to be correct, you
-	--- need to enable UV interpolation using the `interpolate_uvs` setting.
-	--- Slight performance loss when using fragment shaders.
-	--- @field fragment_shader V3DFragmentShader
-
-	--- @class V3DFlatPipelineOptions: V3DCommonPipelineOptions
-	--- @field colour_attachment V3DAttachmentName
-	--- If specified, this option tells v3d to use the given attribute as a "colour"
-	--- attribute to draw a fixed colour per polygon.
-	--- @field colour_attribute V3DAttributeName
+	--- TODO
+	--- @field statistics boolean | nil
 end
 
 do -- V3DPipeline
