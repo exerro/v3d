@@ -63,7 +63,7 @@ end
 local v3d_types = docparse.parse(interface_text)
 local v3d_library_type = v3d_types['v3d']
 
-do -- warn on missing documentation
+if false then -- warn on missing documentation
 	local missing = 0
 
 	local function warn(fmt, ...)
@@ -120,7 +120,7 @@ do -- warn on missing documentation
 	print('Total of ' .. missing .. ' missing entries')
 end
 
-do -- produce compiled v3d.lua
+if false then -- produce compiled v3d.lua
 	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
 	                 .. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias\n'
 	local content = interface_text .. '\n' .. implementation_text
@@ -148,7 +148,7 @@ do -- produce compiled v3d.lua
 	term.setTextColour(colours.white)
 end
 
-do -- produce compiled api_reference.md
+if false then -- produce compiled api_reference.md
 	local function type_to_markdown(s)
 		return (s:gsub('\'.-\'', function(ss)
 			return '`' .. ss .. '`'
@@ -340,7 +340,7 @@ do -- produce compiled api_reference.md
 	term.setTextColour(colours.white)
 end
 
-do -- produce compiled v3dd.lua
+if false then -- produce compiled v3dd.lua
 	local meta_aliases = build_config.v3dd_meta_aliases
 	local type_checkers = build_config.v3dd_type_checkers
 	local fn_logging_blacklist = build_config.v3dd_fn_logging_blacklist
@@ -818,7 +818,7 @@ ${SDF_SUB_DETAILS}]]
 	term.setTextColour(colours.white)
 end
 
-do -- produce compiled v3d.d.ts
+if false then -- produce compiled v3d.d.ts
 	local header_text = '// ' .. license_text:gsub('\n', '\n// ') .. '\n'
 	                 .. 'type integer = number;\n'
 	local content = header_text

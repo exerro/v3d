@@ -29,5 +29,4 @@ function v3d.internal_error(message, context)
 	error(error_message, 0)
 end
 
-
 return v3d

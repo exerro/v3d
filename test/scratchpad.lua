@@ -3,13 +3,15 @@ if not shell.execute '/v3d/tools/build' then return end
 
 local t = 0
 
-local fixed_palette_size = 16
+local show_palette = false
+
+local fixed_palette_size = show_palette and 255 or 256
 
 local use_fast_palette = not fixed_palette_size or fixed_palette_size == 255
 
 local use_standard_cc = fixed_palette_size <= 16
 
-local do_fast_dither = true
+local do_fast_dither = false
 local dithering_factor = 0.9
 local hatch_dither_factor = 0.1
 
@@ -20,7 +22,7 @@ local ambient_lighting = 0.5
 
 local do_lighting = true
 
-local value_exp = 2.2
+local value_exp = 1.5
 
 --- @class KDTreeNodeConstructorLeaf
 --- @field is_leaf true
@@ -618,7 +620,7 @@ local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_b
 	-- error(sum_n / (width * height))
 end
 
-if false then
+if show_palette then
 	local size = 4
 	local lines = {}
 
@@ -716,7 +718,6 @@ if false then
 	return
 end
 
-local v3d = require '/v3d'
 local v3d2 = require '/v3d/gen/v3dtest'
 
 local layout = v3d2.create_layout()
@@ -733,7 +734,7 @@ end
 
 local camera_x, camera_y, camera_z, camera_rotation, camera_pitch = 10, 20, 10, math.pi / 6, math.pi / 4
 local geometry = v3d2.create_debug_cube():build()
-local pipeline = v3d.create_pipeline {
+local pipeline = v3d2.create_pipeline {
 	layout = layout,
 	format = v3d2.support.DEBUG_CUBE_FORMAT,
 	position_attribute = 'position',
@@ -857,7 +858,10 @@ pipeline:set_uniform('ambient', do_lighting and ambient_lighting or 1)
 pipeline:set_uniform('alpha', 1)
 
 local h = assert(io.open('/.v3d_crash_dump.txt', 'w'))
-h:write(pipeline.source)
+h:write 'do '
+h:write(pipeline:get_shaders()['render_geometry'].compiled)
+h:write ' end\n'
+h:write(pipeline:get_shaders()['fragment_shader'].compiled)
 h:close()
 
 local statistics

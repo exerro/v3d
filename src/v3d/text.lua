@@ -27,6 +27,63 @@ do
 end
 
 --------------------------------------------------------------------------------
+--[[ v3d.text.trim ]]--------------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	--- TODO
+	function v3d.text.trim(text)
+		return text:gsub('^%s+', '', 1):gsub('%s+$', '', 1)
+	end
+end
+
+--------------------------------------------------------------------------------
+--[[ v3d.text.unindent ]]-------------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	--- Strips common leading whitespace from all lines.
+	function v3d.text.unindent(text)
+		text = text:gsub('%s+$', '')
+
+		local lines = {}
+		local min_line_length = math.huge
+		local matching_indentation_length = 0
+
+		for line in text:gmatch '[^\n]+' do
+			if line:find '%S' then
+				line = line:match '^%s*'
+				table.insert(lines, line)
+				min_line_length = math.min(min_line_length, #line)
+			end
+		end
+
+		if lines[1] then
+			for i = 1, min_line_length do
+				local c = lines[1]:sub(i, i)
+				local ok = true
+				for j = 2, #lines do
+					if lines[j]:sub(i, i) ~= c then
+						ok = false
+						break
+					end
+				end
+				if not ok then
+					break
+				end
+				matching_indentation_length = i
+			end
+
+			text = text
+				:gsub('^' .. lines[1]:sub(1, matching_indentation_length), '')
+				:gsub('\n' .. lines[1]:sub(1, matching_indentation_length), '\n')
+		end
+
+		return text
+	end
+end
+
+--------------------------------------------------------------------------------
 --[[ v3d.text.generate_template ]]----------------------------------------------
 --------------------------------------------------------------------------------
 

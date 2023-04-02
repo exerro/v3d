@@ -13,6 +13,17 @@ v3d.vsl = {}
 
 do
 	--- TODO
+	--- V3D shader language code.
+	---
+	--- Normal Lua code, with some macros and constraints on variable names.
+	--- * Variable names beginning with `_v3d` should strictly not be used.
+	--- * Variable names beginning with `v3d` are always function-style macros
+	---   expanded by V3D into inline code. The specific type of code should
+	---   inform you of which macros are accessible for your use case. All VSL
+	---   code has the following macros:
+	---
+	--- v3d_count_event(string-literal)
+	--- v3d_count_event(string-literal, any)
 	--- @alias v3d.vsl.Code string
 end
 
@@ -22,6 +33,63 @@ end
 
 do
 	--- TODO
+	--- v3d_pixel_aspect_ratio()
+	--- v3d_transform()
+	--- v3d_model_transform()
+	---
+	--- v3d_read_attribute_values(string-literal)
+	--- v3d_read_attribute(string-literal)
+	--- v3d_read_attribute(string-literal, integer-literal)
+	---
+	--- v3d_read_attribute_gradient(string-literal)
+	--- v3d_read_attribute_gradient(string-literal, integer-literal)
+	---
+	--- v3d_write_layer_values(string-literal, any...)
+	--- v3d_write_layer(string-literal, any)
+	--- v3d_write_layer(string-literal, integer-literal, any)
+	--- v3d_read_layer_values(string-literal)
+	--- v3d_read_layer(string-literal)
+	--- v3d_read_layer(string-literal, integer-literal)
+	--- v3d_was_layer_written(string-literal)
+	--- v3d_was_layer_written()
+	---
+	--- v3d_write_uniform(string-literal, any)
+	--- v3d_read_uniform(string-literal)
+	--- 
+	--- v3d_framebuffer_size('width' | 'height' | 'width-1' | 'height-1')
+	--- v3d_framebuffer_width()
+	--- v3d_framebuffer_height()
+	---
+	--- v3d_face_row_bounds()
+	--- v3d_face_row_bounds('min' | 'max')
+	--- v3d_row_column_bounds()
+	--- v3d_row_column_bounds('min' | 'max')
+	---
+	--- v3d_face_world_normal()
+	--- v3d_face_world_normal('x' | 'y' | 'z')
+	---
+	--- v3d_face_was_clipped()
+	---
+	--- v3d_fragment_polygon_section()
+	---
+	--- v3d_fragment_is_face_front_facing()
+	---
+	--- v3d_fragment_depth()
+	---
+	--- v3d_fragment_screen_position()
+	--- v3d_fragment_screen_position('x' | 'y')
+	---
+	--- v3d_fragment_view_position()
+	--- v3d_fragment_view_position('x' | 'y' | 'z')
+	---
+	--- v3d_fragment_world_position()
+	--- v3d_fragment_world_position('x' | 'y' | 'z')
+	---
+	--- v3d_discard_fragment()
+	--- v3d_was_fragment_discarded()
+	---
+	--- v3d_compare_depth(any, any)
+	---
 	--- @alias v3d.vsl.FragmentShaderCode v3d.vsl.Code
 end
 
@@ -82,6 +150,75 @@ end
 do
 	--- TODO
 	--- @alias v3d.vsl.MacroHandler fun (local_context: v3d.vsl.MacroContext, context: v3d.vsl.MacroContext, append_line: fun (line: string), parameters: string[])
+end
+
+--------------------------------------------------------------------------------
+--[[ v3d.vsl.UniformName ]]-----------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	--- Name of an attribute. Should be a string matching the following Lua
+	--- pattern:
+	--- `[a-zA-Z][a-zA-Z0-9_]*`.
+	--- @alias v3d.vsl.UniformName string
+end
+
+--------------------------------------------------------------------------------
+--[[ v3d.vsl.Accelerated ]]-----------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	--- TODO
+	--- @class v3d.vsl.Accelerated
+	--- @field private sources { [string]: { source: v3d.vsl.Code | nil, compiled: string } }
+	--- @field private uniforms table
+	v3d.vsl.Accelerated = {}
+
+	--- @private
+	function v3d.vsl.Accelerated:add_source(name, source_code, compiled_block)
+		local _, s = compiled_block:find('%-%-%-?%s*#%s*vsl_embed_start%s+' .. name)
+		local f = compiled_block:find('%-%-%-?%s*#%s*vsl_embed_end%s+' .. name)
+
+		self.sources[name] = {
+			source = source_code,
+			compiled = s and f and v3d.text.trim(v3d.text.unindent(compiled_block:sub(s + 1, f - 1))) or compiled_block,
+		}
+	end
+
+	--- TODO
+	 -- TODO: Should be somewhere else?
+	--- @return { [string]: { source: v3d.vsl.Code, compiled: string } }
+	--- @nodiscard
+	function v3d.vsl.Accelerated:get_shaders()
+		return self.sources
+	end
+	
+	--- Set a uniform value which can be accessed from shaders.
+	--- @param name v3d.vsl.UniformName Name of the uniform. Shaders can access using `uniforms[name]`
+	--- @param value any Any value to pass to the shader.
+	--- @return nil
+	function v3d.vsl.Accelerated:set_uniform(name, value)
+		self.uniforms[name] = value
+	end
+
+	--- Get a uniform value that's been set with `set_uniform`.
+	--- @param name v3d.vsl.UniformName Name of the uniform.
+	--- @return unknown
+	--- @nodiscard
+	function v3d.vsl.Accelerated:get_uniform(name)
+		return self.uniforms[name]
+	end
+
+	--- Get a list of uniform names that have been set with `set_uniform`.
+	--- @return v3d.vsl.UniformName[]
+	--- @nodiscard
+	function v3d.vsl.Accelerated:list_uniforms()
+		local names = {}
+		for k, v in pairs(self.uniforms) do
+			table.insert(names, k)
+		end
+		return names
+	end
 end
 
 --------------------------------------------------------------------------------
