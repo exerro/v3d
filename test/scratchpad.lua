@@ -3,7 +3,7 @@ if not shell.execute '/v3d/tools/build' then return end
 
 local t = 0
 
-local fixed_palette_size = 256
+local fixed_palette_size = 16
 
 local use_fast_palette = not fixed_palette_size or fixed_palette_size == 255
 
@@ -13,7 +13,7 @@ local do_fast_dither = true
 local dithering_factor = 0.9
 local hatch_dither_factor = 0.1
 
-local n_cubes = 10000
+local n_cubes = 100
 local cube_saturation = 0.9
 
 local ambient_lighting = 0.5
@@ -717,24 +717,25 @@ if false then
 end
 
 local v3d = require '/v3d'
+local v3d2 = require '/v3d/gen/v3dtest'
 
-local layout = v3d.create_layout()
+local layout = v3d2.create_layout()
 	:add_layer('index_colour', 'any-numeric', 1)
 	:add_layer('albedo', 'any-numeric', 3)
 	:add_layer('position', 'any-numeric', 3)
 	:add_layer('depth', 'depth-reciprocal', 1)
 local framebuffer
 if use_standard_cc then
-	framebuffer = v3d.create_framebuffer_subpixel(layout, term.getSize())
+	framebuffer = v3d2.create_framebuffer_subpixel(layout, term.getSize())
 else
-	framebuffer = v3d.create_framebuffer(layout, term.getSize(2))
+	framebuffer = v3d2.create_framebuffer(layout, term.getSize(2))
 end
 
 local camera_x, camera_y, camera_z, camera_rotation, camera_pitch = 10, 20, 10, math.pi / 6, math.pi / 4
-local geometry = v3d.create_debug_cube():build()
+local geometry = v3d2.create_debug_cube():build()
 local pipeline = v3d.create_pipeline {
 	layout = layout,
-	format = v3d.DEBUG_CUBE_FORMAT,
+	format = v3d2.support.DEBUG_CUBE_FORMAT,
 	position_attribute = 'position',
 	-- cull_face = false,
 	fragment_shader = [[
@@ -784,6 +785,9 @@ local pipeline = v3d.create_pipeline {
 			v3d_write_layer('depth', v3d_fragment_depth())
 			v3d_count_event('fragment_drawn')
 		end
+		local a = v3d_is_fragment_discarded()
+		v3d_write_uniform('a', v3d_was_layer_written())
+		v3d_write_uniform('a', v3d_was_layer_written('albedo'))
 	]],
 	statistics = true,
 }
@@ -792,20 +796,20 @@ local scene = {}
 local object_colours = {}
 
 -- table.insert(scene, v3d.translate(50, 0, -50) * v3d.scale(100, 0.1, 100))
-table.insert(scene, v3d.translate(-50, -1, -50) * v3d.scale(100, 0.1, 100))
+table.insert(scene, v3d2.translate(-50, -1, -50) * v3d2.scale(100, 0.1, 100))
 object_colours[1] = { 1, 1, 1 }
 
 --- @param tree KDTreeNode
 local function visualise_kd(tree, depth, min_x, min_y, min_z, max_x, max_y, max_z)
 	if tree.is_leaf then
-		table.insert(scene, v3d.scale(25, 25, 25) * v3d.translate(tree[1] - 1, tree[2], tree[3] - 1) * v3d.scale(0.02))
+		table.insert(scene, v3d2.scale(25, 25, 25) * v3d2.translate(tree[1] - 1, tree[2], tree[3] - 1) * v3d2.scale(0.02))
 		table.insert(object_colours, { tree[1], tree[2], tree[3] })
 	else
 		local cx = (min_x + max_x) / 2 * (1 - tree[8]) + tree[5]
 		local cy = (min_y + max_y) / 2 * (1 - tree[9]) + tree[6]
 		local cz = (min_z + max_z) / 2 * (1 - tree[10]) + tree[7]
 		if depth <= 5 then
-			table.insert(scene, v3d.translate(-25, 0, -25) * v3d.scale(25) * v3d.translate(cx, cy, cz) * v3d.scale((1 - tree[8]) * (max_x - min_x), (1 - tree[9]) * (max_y - min_y), (1 - tree[10]) * (max_z - min_z)))
+			table.insert(scene, v3d2.translate(-25, 0, -25) * v3d2.scale(25) * v3d2.translate(cx, cy, cz) * v3d2.scale((1 - tree[8]) * (max_x - min_x), (1 - tree[9]) * (max_y - min_y), (1 - tree[10]) * (max_z - min_z)))
 			table.insert(object_colours, { hsv_to_rgb(depth / 5, 0.5, 1) })
 		end
 		visualise_kd(tree[1], depth + 1, min_x, min_y, min_z, max_x * (1 - tree[8]) + cx * tree[8], max_y * (1 - tree[9]) + cy * tree[9], max_z * (1 - tree[10]) + cz * tree[10])
@@ -829,9 +833,9 @@ end
 
 for _ = 1, n_cubes do
 	local scale_value = math.random(10, 30) / 10
-	local position = v3d.translate(math.random(-100, 0), -1 + scale_value / 2, math.random(-100, 0))
-	local rotation = v3d.rotate(0, math.random() * math.pi * 2, 0)
-	local scale = v3d.scale(scale_value)
+	local position = v3d2.translate(math.random(-100, 0), -1 + scale_value / 2, math.random(-100, 0))
+	local rotation = v3d2.rotate(0, math.random() * math.pi * 2, 0)
+	local scale = v3d2.scale(scale_value)
 	table.insert(scene, position * rotation * scale)
 end
 
@@ -864,7 +868,7 @@ local camera_delta_rotation = 0
 local camera_delta_pitch = 0
 
 while true do
-	local transform = v3d.camera(camera_x, camera_y, camera_z, camera_pitch, camera_rotation, 0, math.pi / 2)
+	local transform = v3d2.camera(camera_x, camera_y, camera_z, camera_pitch, camera_rotation, 0, math.pi / 2)
 
 	-- transform = transform * v3d.rotate(0, 0.05, 0)
 	framebuffer:clear('index_colour', 0)
@@ -899,7 +903,7 @@ while true do
 	end
 
 	for i = 2, #scene do
-		scene[i] = v3d.translate(0, math.random() - 0.5, 0) * scene[i] * v3d.rotate(0, math.random() * 0.1, 0)
+		scene[i] = v3d2.translate(0, math.random() - 0.5, 0) * scene[i] * v3d2.rotate(0, math.random() * 0.1, 0)
 	end
 
 	rgba_to_index_colour(framebuffer.width, framebuffer.height, framebuffer:get_buffer('albedo'), framebuffer:get_buffer('index_colour'), use_fast_palette)

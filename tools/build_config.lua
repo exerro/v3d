@@ -222,7 +222,7 @@ for i = 1, #instance.attributes do
 	attribute_count[attr.type] = attribute_count[attr.type] + 1
 	table.insert(attr_trees[attr.type].children, {
 		content = attr.name,
-		content_right = '&lightGrey;' .. attr.size .. ' components',
+		content_right = '&lightGrey;' .. attr.components .. ' components',
 		children = {
 			{ content = '&lightBlue;offset&reset; = ' .. fmtobject(attr.offset) },
 			{ content = '&lightBlue;is_numeric&reset; = ' .. fmtobject(attr.is_numeric) },

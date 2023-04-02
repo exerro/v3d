@@ -10,30 +10,54 @@ local base_path = shell and (shell.getRunningProgram():match '^(.+/).-/' or '') 
 local src_path = base_path .. 'src/'
 local gen_path = base_path .. 'gen/'
 local license_text, interface_text, implementation_text, v3dd_text
+local module_dependencies = {}
+local modules = {}
 
 do -- read the files
 	local function preprocess(text)
 		return text:gsub('%-%-%s*#remove.-%-%-%s*#end', '')
 	end
 
-	local h = assert(io.open(base_path .. 'LICENSE'), 'Failed to read LICENSE')
+	local h
+
+	h = assert(io.open(base_path .. 'LICENSE'), 'Failed to read LICENSE')
 	license_text = h:read '*a'
 	h:close()
 
-	local h = assert(io.open(src_path .. 'v3d.lua'), 'Failed to read v3d.lua')
+	h = assert(io.open(src_path .. 'v3d.lua'), 'Failed to read v3d.lua')
 	interface_text = h:read '*a'
 	h:close()
 
-	local h = assert(io.open(src_path .. 'implementation.lua'), 'Failed to read implementation.lua')
+	h = assert(io.open(src_path .. 'implementation.lua'), 'Failed to read implementation.lua')
 	implementation_text = h:read '*a'
 	h:close()
 
-	local h = assert(io.open(src_path .. 'v3dd.lua'), 'Failed to read v3dd.lua')
+	h = assert(io.open(src_path .. 'v3dd.lua'), 'Failed to read v3dd.lua')
 	v3dd_text = h:read '*a'
 	h:close()
 
 	interface_text = preprocess(interface_text)
 	implementation_text = preprocess(implementation_text)
+
+	local module_names = fs.list(src_path .. 'v3d')
+	for i = 1, #module_names do
+		local module_name = module_names[i]:gsub('%.lua$', '', 1)
+		h = assert(io.open(src_path .. 'v3d/' .. module_names[i], 'r'))
+		local content = h:read '*a'
+
+		local dependencies = {}
+
+		for dependency in content:gmatch 'require%s*[\'"]([%w_]+)[\'"]' do
+			table.insert(dependencies, dependency)
+		end
+
+		content = content:gsub('local%s+v3d%s*=%s*require%s*[\'"]core[\'"]', '')
+		                 :gsub('require%s*[\'"][%w_]+[\'"]', '')
+
+		module_dependencies[module_name] = dependencies
+		modules[module_name] = content
+		h:close()
+	end
 end
 
 local v3d_types = docparse.parse(interface_text)
@@ -932,6 +956,81 @@ do -- produce compiled v3d.d.ts
 	term.write('Compiled typescript declarations to ')
 	term.setTextColour(colours.cyan)
 	print(OUTPUT_PATH)
+	term.setTextColour(colours.white)
+end
+
+do -- produce compiled v3d modules
+	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
+	.. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias,need-check-nil\n'
+	local content = ''
+	local insertion_fringe = {}
+
+	for k, v in pairs(modules) do
+		if k == 'core' then
+			v = v:gsub('%s*return%s+v3d%s*$', '\n', 1)
+		end
+		local insertion = { k, v }
+		for i = 1, #module_dependencies[k] do
+			insertion[i + 2] = module_dependencies[k][i]
+		end
+		table.insert(insertion_fringe, insertion)
+	end
+
+	while insertion_fringe[1] do
+		local changed = false
+
+		for i = #insertion_fringe, 1, -1 do
+			if #insertion_fringe[i] == 2 then
+				local module_data = table.remove(insertion_fringe, i)
+				local module_name = module_data[1]
+
+				content = content .. module_data[2]
+				changed = true
+
+				for j = 1, #insertion_fringe do
+					for k = #insertion_fringe[j], 3, -1 do
+						if insertion_fringe[j][k] == module_name then
+							table.remove(insertion_fringe[j], k)
+							break
+						end
+					end
+				end
+			end
+		end
+
+		if not changed then
+			error('Cyclic dependency between modules :(')
+		end
+	end
+
+	content = content .. 'return v3d\n'
+
+	local pre_minify_len = #header_text + #content
+	local content_tokens = luatools.tokenise(content)
+
+	if not no_minify then
+		luatools.strip_comments(content_tokens)
+		luatools.strip_whitespace(content_tokens)
+		luatools.minify(content_tokens)
+	end
+
+	content = header_text .. luatools.concat(content_tokens)
+	content = content:gsub('---%s*@cast.-\n', '')
+	content = content:gsub('\n%s*\n', '\n')
+
+	local OUTPUT_PATH = gen_path .. 'v3dtest.lua'
+	local h = assert(io.open(OUTPUT_PATH, 'w'))
+	h:write(content)
+	h:close()
+
+	assert(load(content, 'v3d.lua'))
+
+	term.setTextColour(colours.lightGrey)
+	term.write('Compiled library code to ')
+	term.setTextColour(colours.cyan)
+	print(OUTPUT_PATH)
+	term.setTextColour(colours.lightGrey)
+	print(string.format('  minification: %d / %d (%d%%)', #content, pre_minify_len, #content / pre_minify_len * 100 + 0.5))
 	term.setTextColour(colours.white)
 end
 

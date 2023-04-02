@@ -15,6 +15,12 @@ local patterns = {
 	{ 'string', '^%[(=*)%[', '%]%s%]' },
 }
 
+local reserved_words = {
+	x = true,
+	y = true,
+	z = true,
+}
+
 local opening_brackets = { ['{'] = true, ['('] = true, ['['] = true, }
 local closing_brackets = { ['}'] = '{', [')'] = '(', [']'] = '[', }
 
@@ -51,7 +57,7 @@ do
 		return nil
 	end
 
-	function next_variable_name(v)
+	local function raw_next_variable_name(v)
 		if v == '' then
 			return first_characters[1]
 		end
@@ -68,6 +74,14 @@ do
 		else
 			return next_variable_name(v:sub(1, -2)) .. all_characters[1]
 		end
+	end
+
+	function next_variable_name(v)
+		local name = raw_next_variable_name(v)
+		while reserved_words[name] do
+			name = raw_next_variable_name(name)
+		end
+		return name
 	end
 end
 
@@ -209,6 +223,8 @@ function luatools.strip_comments(tokens)
 	for i = #tokens, 1, -1 do
 		if tokens[i].type == 'comment' then
 			table.remove(tokens, i)
+		elseif tokens[i].type == 'doccomment' then
+			tokens[i].text = '---' .. tokens[i].text:sub(5)
 		end
 	end
 end
