@@ -31,10 +31,9 @@ end
 --------------------------------------------------------------------------------
 
 do
-	--- Pipeline options describe the settings used to create a pipeline. Most
-	--- fields are optional and have a sensible default. Different combinations
-	--- of options will affect the performance of geometry drawn with this
-	--- pipeline.
+	--- Pipeline options describe the settings used to create a pipeline.
+	--- Different combinations of options will affect the performance of
+	--- geometry drawn with this pipeline.
 	--- @class v3d.PipelineOptions
 	--- TODO
 	--- @field layout v3d.Layout
@@ -100,7 +99,7 @@ end
 do
 	--- A pipeline is an optimised object used to draw [[@v3d.Geometry]] to a
 	--- [[@v3d.Framebuffer]] using a [[@v3d.Transform]]. It is created using
-	--- [[@V3DPipelineOptions]] which cannot change. To configure the pipeline
+	--- [[@v3d.PipelineOptions]] which cannot change. To configure the pipeline
 	--- after creation, uniforms can be used alongside shaders. Alternatively,
 	--- multiple pipelines can be created or re-created at will according to the
 	--- needs of the application.
@@ -120,7 +119,7 @@ do
 	--- @param transform v3d.Transform Transform applied to all vertices.
 	--- @param model_transform v3d.Transform | nil Transform applied to all vertices before `transform`, if specified.
 	--- @return v3d.PipelineStatistics
-	function v3d.Pipeline:render_geometry(geometry, framebuffer, transform, model_transform) end
+	function v3d.Pipeline:render_geometry(framebuffer, geometry, transform, model_transform) end
 end
 
 --------------------------------------------------------------------------------
@@ -130,14 +129,14 @@ end
 do
 	local RENDER_GEOMETRY_SOURCE = [[
 local _v3d_upvalue_uniforms = ...
-return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
+return function(_, _v3d_fb, _v3d_geometry, _v3d_transform, _v3d_model_transform)
 	local _v3d_math_ceil = math.ceil
 	local _v3d_math_floor = math.floor
 	local _v3d_fb_width = _v3d_fb.width
 	local _v3d_fb_width_m1 = _v3d_fb_width - 1
 	local _v3d_fb_height_m1 = _v3d_fb.height - 1
-	local _v3d_screen_dx = (_v3d_fb.width - 1) / 2
-	local _v3d_screen_dy = (_v3d_fb.height - 1) / 2
+	local _v3d_screen_dx = _v3d_fb_width_m1 / 2
+	local _v3d_screen_dy = _v3d_fb_height_m1 / 2
 	local _v3d_screen_sy = -(_v3d_screen_dy - 0.5)
 	local _v3d_screen_sx = {= opt_pixel_aspect_ratio =} * (_v3d_screen_dy - 0.5)
 
@@ -156,6 +155,7 @@ return function(_, _v3d_geometry, _v3d_fb, _v3d_transform, _v3d_model_transform)
 	{% for _, layer in ipairs(fragment_shader.layers_accessed) do %}
 	local _v3d_layer_{= layer.name =} = _v3d_fb.layer_data['{= layer.name =}']
 	{% end %}
+
 	{% if opt_statistics then %}
 		{% for _, counter_name in ipairs(fragment_shader.event_counters_written_to) do %}
 	local _v3d_event_counter_{= counter_name =} = 0
@@ -559,13 +559,6 @@ for _v3d_base_index = _v3d_row_min_index, _v3d_row_max_index, _v3d_fb_width do
 		%}
 	for _v3d_fragment_layer_index{= fragment_shader.layer_sizes_accessed[1] =} = {= min_bound =} + 1, {= max_bound =} + 1, {= fragment_shader.layer_sizes_accessed[1] =} do
 	{% end %}
-		{% if fragment_shader.is_called_any_layer_was_written then %}
-		local _v3d_any_layer_written = false
-		{% end %}
-		{% for layer in pairs(fragment_shader.is_called_layer_was_written) do %}
-		local _v3d_specific_layer_written_{= layer =} = false
-		{% end %}
-
 		{% if #fragment_shader.layer_sizes_accessed > 1 then %}
 			{% for _, i in ipairs(fragment_shader.layer_sizes_accessed) do %}
 		local _v3d_fragment_layer_index{= i =} = (_v3d_base_index + _v3d_x) * {= i =} + 1
@@ -610,7 +603,7 @@ end
 
 	--- @diagnostic enable missing-return, unused-local
 
-	--- Create a [[@V3DPipeline]] with the given options.
+	--- Create a [[@v3d.Pipeline]] with the given options.
 	--- @param options v3d.PipelineOptions Immutable options for the pipeline.
 	--- @param label string | nil Optional label for debugging
 	--- @return v3d.Pipeline
@@ -675,6 +668,18 @@ end
 			return '_v3d_interp_' .. name .. component
 		end
 
+		function template_context.get_layer(name)
+			return '_v3d_layer_' .. name
+		end
+
+		function template_context.get_layer_index(components, component)
+			if component == 1 then
+				return '_v3d_fragment_layer_index' .. components
+			else
+				return '(_v3d_fragment_layer_index' .. components .. ' + ' .. (component - 1) .. ')'
+			end
+		end
+
 		function template_context.increment_event_counter(name, amount)
 			return '{% if opt_statistics then %}_v3d_event_counter_' .. name .. ' = _v3d_event_counter_' .. name .. ' + ' .. amount .. '{% end %}'
 		end
@@ -684,7 +689,7 @@ end
 		end
 
 		function template_context.notify_any_layer_written()
-			return '_v3d_any_layer_written = true'
+			return fragment_shader_context.is_called_any_layer_was_written and '_v3d_any_layer_written = true' or ''
 		end
 
 		function template_context.notify_specific_layer_written(name)

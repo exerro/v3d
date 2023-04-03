@@ -1,28 +1,74 @@
 
 if not shell.execute '/v3d/tools/build' then return end
 
+local v3d = require '/v3d.gen.v3dtest'
+
+local palette = v3d.rgb.grid_palette({ red = 2, green = 4, blue = 2 }, 0.6)
+
+--- @type 'effect-fast' | 'slow'
+local palettization = 'effect-fast'
+
+local images = {}
+do
+	for _, image_name in ipairs(fs.list('/v3d/gen/images/')) do
+		local h = assert(io.open('/v3d/gen/images/' .. image_name))
+		local content = h:read '*a'
+		h:close()
+
+		local w, h
+		local image = {}
+		local i = 1
+
+		for part in content:gmatch '%d+' do
+			if not w then w = tonumber(part)
+			elseif not h then h = tonumber(part)
+			else image[i] = tonumber(part) / 255; i = i + 1
+			end
+		end
+
+		image.name = image_name:gsub('%.%w+$', '', 1)
+		image.width = w
+		image.height = h
+		table.insert(images, image)
+	end
+end
+
 local t = 0
 
 local show_palette = false
 
-local fixed_palette_size = show_palette and 255 or 256
+local fixed_palette_size = show_palette and 255 or 255
 
-local use_fast_palette = not fixed_palette_size or fixed_palette_size == 255
+local use_legacy_cc = false
+local use_standard_cc = false
 
-local use_standard_cc = fixed_palette_size <= 16
+local use_fast_palette = fixed_palette_size == 255
 
-local do_fast_dither = false
-local dithering_factor = 0.9
-local hatch_dither_factor = 0.1
+if use_legacy_cc then
+	fixed_palette_size = 16
+	use_standard_cc = true
+end
 
-local n_cubes = 100
+local do_fast_dither = true
+local dithering_factor = 1.0
+local hatch_dither_factor = 0.15
+
+local n_cubes = 2000
 local cube_saturation = 0.9
+local cube_height_variation = 40
 
-local ambient_lighting = 0.5
+local ambient_lighting = 1.0
 
 local do_lighting = true
 
-local value_exp = 1.5
+local value_exp = 2.2
+
+if use_standard_cc then
+	value_exp = 1
+	do_fast_dither = false
+	dithering_factor = 0.5
+	hatch_dither_factor = 0.0
+end
 
 --- @class KDTreeNodeConstructorLeaf
 --- @field is_leaf true
@@ -466,7 +512,12 @@ local function set_palette_indices(tree)
 		set_palette_indices(tree[2])
 	end
 end
-if not use_fast_palette then
+if palettization ~= 'slow' then
+	for i = 1, palette:count() do
+		local r, g, b = palette:get_colour(i)
+		term.native().setPaletteColour(use_standard_cc and 2 ^ (i - 1) or i - 1, r, g, b)
+	end
+elseif not use_fast_palette then
 	for i = fixed_palette_size, use_standard_cc and 15 or 255 do
 		term.native().setPaletteColour(i, 0, 0, 0)
 	end
@@ -505,6 +556,8 @@ local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_b
 
 	local sum_n = 0
 
+	local ordered_dithering_map_size = #ordered_dithering_map
+
 	for index_colour_index_base = 0, width * height - 1, width do
 		for index_colour_index = index_colour_index_base + 1, index_colour_index_base + width do
 			local r = albedo_buffer[albedo_index]
@@ -513,9 +566,9 @@ local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_b
 
 			local x = (index_colour_index - 1) % width
 			local y = (index_colour_index - x - 1) / width
-			local Mij1 = ordered_dithering_map[y % #ordered_dithering_map + 1][x % #ordered_dithering_map[1] + 1]
-			local Mij2 = ordered_dithering_map[#ordered_dithering_map - y % #ordered_dithering_map][x % #ordered_dithering_map[1] + 1]
-			local Mij3 = ordered_dithering_map[y % #ordered_dithering_map + 1][#ordered_dithering_map[1] - x % #ordered_dithering_map[1]]
+			local Mij1 = ordered_dithering_map[y % ordered_dithering_map_size + 1][x % ordered_dithering_map_size + 1]
+			local Mij2 = ordered_dithering_map[ordered_dithering_map_size - y % ordered_dithering_map_size][x % ordered_dithering_map_size + 1]
+			local Mij3 = ordered_dithering_map[y % ordered_dithering_map_size + 1][ordered_dithering_map_size - x % ordered_dithering_map_size]
 
 			r = math_max(0, math_min(1, r + alg_r * Mij1))
 			g = math_max(0, math_min(1, g + alg_r * Mij2))
@@ -584,6 +637,10 @@ local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_b
 				local error_r = r - pal_red
 				local error_g = g - pal_green
 				local error_b = b - pal_blue
+
+				if error_r > 0.05 then error_r = 0.05 end
+				if error_g > 0.05 then error_g = 0.05 end
+				if error_b > 0.05 then error_b = 0.05 end
 
 				if x % 8 ~= 7 and albedo_index + albedo_stride < width * height * albedo_stride then
 					albedo_buffer[albedo_index + albedo_stride] = albedo_buffer[albedo_index + albedo_stride] + error_r * 7/16 * dithering_factor
@@ -718,25 +775,37 @@ if show_palette then
 	return
 end
 
-local v3d2 = require '/v3d/gen/v3dtest'
-
-local layout = v3d2.create_layout()
+local layout = v3d.create_layout()
 	:add_layer('index_colour', 'any-numeric', 1)
 	:add_layer('albedo', 'any-numeric', 3)
 	:add_layer('position', 'any-numeric', 3)
 	:add_layer('depth', 'depth-reciprocal', 1)
 local framebuffer
-if use_standard_cc then
-	framebuffer = v3d2.create_framebuffer_subpixel(layout, term.getSize())
+if use_legacy_cc then
+	framebuffer = v3d.create_framebuffer_subpixel(layout, 51, 19)
+elseif use_standard_cc then
+	framebuffer = v3d.create_framebuffer_subpixel(layout, term.getSize())
 else
-	framebuffer = v3d2.create_framebuffer(layout, term.getSize(2))
+	framebuffer = v3d.create_framebuffer(layout, term.getSize(2))
 end
 
-local camera_x, camera_y, camera_z, camera_rotation, camera_pitch = 10, 20, 10, math.pi / 6, math.pi / 4
-local geometry = v3d2.create_debug_cube():build()
-local pipeline = v3d2.create_pipeline {
+local palettize_effect = v3d.rgb.palettize_effect {
 	layout = layout,
-	format = v3d2.support.DEBUG_CUBE_FORMAT,
+	rgb_layer = 'albedo',
+	index_layer = 'index_colour',
+	palette = palette,
+	ordered_dithering_amount = 0,
+	ordered_dithering_r = 0.15,
+	exponential_indices = use_standard_cc,
+	dynamic_palette = false,
+	ordered_dithering_dynamic_amount = true,
+}
+
+local camera_x, camera_y, camera_z, camera_rotation, camera_pitch = 10, 20, 10, math.pi / 6, math.pi / 4
+local geometry = v3d.create_debug_cube():build()
+local pipeline = v3d.create_pipeline {
+	layout = layout,
+	format = v3d.support.DEBUG_CUBE_FORMAT,
 	position_attribute = 'position',
 	-- cull_face = false,
 	fragment_shader = [[
@@ -755,22 +824,34 @@ local pipeline = v3d2.create_pipeline {
 			local write_g = g * v3d_read_uniform('ambient')
 			local write_b = b * v3d_read_uniform('ambient')
 
-			local x, y, z = v3d_fragment_world_position()
-			local normal_r, normal_g, normal_b = v3d_face_world_normal()
-
-			for i = 1, #u_lights do
-				local light = u_lights[i]
-				local dx = light[1] - x
-				local dy = light[2] - y
-				local dz = light[3] - z
-				local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-				local dot = math.max(0, (normal_r * dx + normal_g * dy + normal_b * dz) / distance)
-				local k = dot / (1 + distance)
-
-				write_r = write_r + r * light[4] * k
-				write_g = write_g + g * light[5] * k
-				write_b = write_b + b * light[6] * k
+			if v3d_read_uniform('image') then
+				local image = v3d_read_uniform('image')
+				local u = v3d_read_attribute('uv', 1)
+				local v = v3d_read_attribute('uv', 2)
+				local ix = _v3d_math_floor(u * (image.width - 1))
+				local iy = _v3d_math_floor(v * (image.height - 1))
+				local idx = (iy * image.width + ix) * 3
+				write_r = (image[idx + 1] or 1)
+				write_g = (image[idx + 2] or 1)
+				write_b = (image[idx + 3] or 1)
 			end
+
+			-- local x, y, z = v3d_fragment_world_position()
+			-- local normal_r, normal_g, normal_b = v3d_face_world_normal()
+
+			-- for i = 1, #u_lights do
+			-- 	local light = u_lights[i]
+			-- 	local dx = light[1] - x
+			-- 	local dy = light[2] - y
+			-- 	local dz = light[3] - z
+			-- 	local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+			-- 	local dot = math.max(0, (normal_r * dx + normal_g * dy + normal_b * dz) / distance)
+			-- 	local k = dot / (1 + distance)
+
+			-- 	write_r = write_r + r * light[4] * k
+			-- 	write_g = write_g + g * light[5] * k
+			-- 	write_b = write_b + b * light[6] * k
+			-- end
 
 			-- local current_r, current_g, current_b, _ = v3d_read_layer_values('albedo')
 
@@ -786,9 +867,6 @@ local pipeline = v3d2.create_pipeline {
 			v3d_write_layer('depth', v3d_fragment_depth())
 			v3d_count_event('fragment_drawn')
 		end
-		local a = v3d_is_fragment_discarded()
-		v3d_write_uniform('a', v3d_was_layer_written())
-		v3d_write_uniform('a', v3d_was_layer_written('albedo'))
 	]],
 	statistics = true,
 }
@@ -797,20 +875,20 @@ local scene = {}
 local object_colours = {}
 
 -- table.insert(scene, v3d.translate(50, 0, -50) * v3d.scale(100, 0.1, 100))
-table.insert(scene, v3d2.translate(-50, -1, -50) * v3d2.scale(100, 0.1, 100))
+table.insert(scene, v3d.translate(-50, -1, -50) * v3d.scale(100, 0.1, 100))
 object_colours[1] = { 1, 1, 1 }
 
 --- @param tree KDTreeNode
 local function visualise_kd(tree, depth, min_x, min_y, min_z, max_x, max_y, max_z)
 	if tree.is_leaf then
-		table.insert(scene, v3d2.scale(25, 25, 25) * v3d2.translate(tree[1] - 1, tree[2], tree[3] - 1) * v3d2.scale(0.02))
+		table.insert(scene, v3d.scale(25, 25, 25) * v3d.translate(tree[1] - 1, tree[2], tree[3] - 1) * v3d.scale(0.02))
 		table.insert(object_colours, { tree[1], tree[2], tree[3] })
 	else
 		local cx = (min_x + max_x) / 2 * (1 - tree[8]) + tree[5]
 		local cy = (min_y + max_y) / 2 * (1 - tree[9]) + tree[6]
 		local cz = (min_z + max_z) / 2 * (1 - tree[10]) + tree[7]
 		if depth <= 5 then
-			table.insert(scene, v3d2.translate(-25, 0, -25) * v3d2.scale(25) * v3d2.translate(cx, cy, cz) * v3d2.scale((1 - tree[8]) * (max_x - min_x), (1 - tree[9]) * (max_y - min_y), (1 - tree[10]) * (max_z - min_z)))
+			table.insert(scene, v3d.translate(-25, 0, -25) * v3d.scale(25) * v3d.translate(cx, cy, cz) * v3d.scale((1 - tree[8]) * (max_x - min_x), (1 - tree[9]) * (max_y - min_y), (1 - tree[10]) * (max_z - min_z)))
 			table.insert(object_colours, { hsv_to_rgb(depth / 5, 0.5, 1) })
 		end
 		visualise_kd(tree[1], depth + 1, min_x, min_y, min_z, max_x * (1 - tree[8]) + cx * tree[8], max_y * (1 - tree[9]) + cy * tree[9], max_z * (1 - tree[10]) + cz * tree[10])
@@ -832,16 +910,26 @@ if false then
 	end
 end
 
-for _ = 1, n_cubes do
-	local scale_value = math.random(10, 30) / 10
-	local position = v3d2.translate(math.random(-100, 0), -1 + scale_value / 2, math.random(-100, 0))
-	local rotation = v3d2.rotate(0, math.random() * math.pi * 2, 0)
-	local scale = v3d2.scale(scale_value)
-	table.insert(scene, position * rotation * scale)
+if true then
+	for _ = 1, n_cubes do
+		local scale_value = math.random(10, 30) / 10
+		local position = v3d.translate(math.random(-100, 0), cube_height_variation and math.random(0, cube_height_variation) or -1 + scale_value / 2, math.random(-100, 0))
+		local rotation = v3d.rotate(0, math.random() * math.pi * 2, 0)
+		local scale = v3d.scale(scale_value)
+		table.insert(scene, position * rotation * scale)
+	end
+
+	for i = 2, #scene do
+		object_colours[i] = { hsv_to_rgb(math.random(), cube_saturation, 1) }
+	end
 end
 
-for i = 2, #scene do
-	object_colours[i] = { hsv_to_rgb(math.random(), cube_saturation, 1) }
+if palette then
+	for i = 1, palette:count() do
+		local r, g, b = palette:get_colour(i)
+		table.insert(scene, v3d.translate(r * 25 - 25, g * 25, b * 25 - 25))
+		table.insert(object_colours, { r, g, b })
+	end
 end
 
 local lights = {}
@@ -857,7 +945,20 @@ pipeline:set_uniform('lights', lights)
 pipeline:set_uniform('ambient', do_lighting and ambient_lighting or 1)
 pipeline:set_uniform('alpha', 1)
 
+local effect = v3d.create_effect({
+	layout = layout,
+	pixel_shader = [[
+		{% for i = 1, 3 do %}
+		do
+			local value = v3d_read_layer('albedo', ${i})
+			v3d_write_layer('albedo', ${i}, 1 - value)
+		end
+		{% end %}
+	]],
+})
+
 local h = assert(io.open('/.v3d_crash_dump.txt', 'w'))
+-- h:write(effect:get_shaders()['apply'].compiled)
 h:write 'do '
 h:write(pipeline:get_shaders()['render_geometry'].compiled)
 h:write ' end\n'
@@ -868,15 +969,27 @@ local statistics
 
 local camera_move_fwd = 0
 local camera_move_strafe = 0
+local camera_move_up = 0
 local camera_delta_rotation = 0
 local camera_delta_pitch = 0
 
-while true do
-	local transform = v3d2.camera(camera_x, camera_y, camera_z, camera_pitch, camera_rotation, 0, math.pi / 2)
+local paused = false
 
+local ordered_dithering_amount = use_standard_cc and 0.2 or 1
+
+local fps = 0
+local palettize_time = 0
+local render_time = 0
+local stat_convergence = 0.5
+local last_frame_time = os.clock()
+
+while true do
+	local transform = v3d.camera(camera_x, camera_y, camera_z, camera_pitch, camera_rotation, 0, math.pi / 2)
+
+	local t_render_start = os.clock()
 	-- transform = transform * v3d.rotate(0, 0.05, 0)
 	framebuffer:clear('index_colour', 0)
-	framebuffer:clear('albedo', 0)
+	framebuffer:clear_values('albedo', { hsv_to_rgb(t / 6, 0.5, 1) })
 	framebuffer:clear('depth')
 
 	if do_lighting then
@@ -889,7 +1002,8 @@ while true do
 		pipeline:set_uniform('red', object_colours[i][1])
 		pipeline:set_uniform('green', object_colours[i][2])
 		pipeline:set_uniform('blue', object_colours[i][3])
-		local this_statistics = pipeline:render_geometry(geometry, framebuffer, transform, scene[i])
+		pipeline:set_uniform('image', images[(i - 1) % #images + 1])
+		local this_statistics = pipeline:render_geometry(framebuffer, geometry, transform, scene[i])
 
 		if statistics then
 			for k, v in pairs(this_statistics) do
@@ -906,23 +1020,36 @@ while true do
 		end
 	end
 
-	for i = 2, #scene do
-		scene[i] = v3d2.translate(0, math.random() - 0.5, 0) * scene[i] * v3d2.rotate(0, math.random() * 0.1, 0)
-	end
+	render_time = render_time * (1 - stat_convergence) + (os.clock() - t_render_start) * stat_convergence
 
-	rgba_to_index_colour(framebuffer.width, framebuffer.height, framebuffer:get_buffer('albedo'), framebuffer:get_buffer('index_colour'), use_fast_palette)
+	-- effect:apply(framebuffer)
+	-- effect:apply(framebuffer, 120, 200, 400, 150)
+
+	local t0 = os.clock()
+	if palettization == 'effect-fast' then
+		palettize_effect:set_uniform('ordered_dithering_amount', ordered_dithering_amount)
+		palettize_effect:apply(framebuffer)
+	elseif palettization == 'slow' then
+		rgba_to_index_colour(framebuffer.width, framebuffer.height, framebuffer:get_buffer('albedo'), framebuffer:get_buffer('index_colour'), use_fast_palette)
+	else
+		error(palettization)
+	end
+	palettize_time = palettize_time * (1 - stat_convergence) + (os.clock() - t0) * stat_convergence
 
 	if use_standard_cc then
 		framebuffer:blit_term_subpixel(term, 'index_colour')
 	else
 		framebuffer:blit_graphics(term, 'index_colour')
 	end
-	term.setCursorPos(1, 1)
-	term.setBackgroundColour(colours.black)
-	term.setTextColour(colours.white)
-	print(textutils.serialize(statistics))
-	local timer = os.startTimer(0.05)
-	local start = os.clock()
+
+	if use_standard_cc and not use_legacy_cc then
+		term.setCursorPos(1, 1)
+		term.setBackgroundColour(colours.black)
+		term.setTextColour(colours.white)
+		print(textutils.serialize(statistics))
+	end
+	-- local timer = os.startTimer(last_frame_time + 0.05 - os.clock())
+	local timer = os.startTimer(0)
 
 	if not pcall(function()
 		repeat
@@ -936,6 +1063,10 @@ while true do
 					camera_move_strafe = camera_move_strafe + 1
 				elseif event[2] == keys.d then
 					camera_move_strafe = camera_move_strafe - 1
+				elseif event[2] == keys.space then
+					camera_move_up = camera_move_up + 1
+				elseif event[2] == keys.leftShift then
+					camera_move_up = camera_move_up - 1
 				elseif event[2] == keys.left then
 					camera_delta_rotation = camera_delta_rotation + 1
 				elseif event[2] == keys.right then
@@ -944,6 +1075,12 @@ while true do
 					camera_delta_pitch = camera_delta_pitch - 1
 				elseif event[2] == keys.down then
 					camera_delta_pitch = camera_delta_pitch + 1
+				elseif event[2] == keys.e then
+					ordered_dithering_amount = ordered_dithering_amount + 0.1
+				elseif event[2] == keys.q then
+					ordered_dithering_amount = ordered_dithering_amount - 0.1
+				elseif event[2] == keys.p then
+					paused = not paused
 				end
 			elseif event[1] == 'key_up' then
 				if event[2] == keys.w then
@@ -954,6 +1091,10 @@ while true do
 					camera_move_strafe = camera_move_strafe - 1
 				elseif event[2] == keys.d then
 					camera_move_strafe = camera_move_strafe + 1
+				elseif event[2] == keys.space then
+					camera_move_up = camera_move_up - 1
+				elseif event[2] == keys.leftShift then
+					camera_move_up = camera_move_up + 1
 				elseif event[2] == keys.left then
 					camera_delta_rotation = camera_delta_rotation - 1
 				elseif event[2] == keys.right then
@@ -966,12 +1107,25 @@ while true do
 			end
 		until event[1] == 'timer' and event[2] == timer
 	end) then break end
-	local dt = os.clock() - start
+	local dt = os.clock() - last_frame_time
+	last_frame_time = os.clock()
+
+	fps = fps * (1 - stat_convergence) + stat_convergence / dt
 
 	camera_x = camera_x - (math.sin(camera_rotation) * camera_move_fwd + math.cos(camera_rotation) * camera_move_strafe) * dt * 20
+	camera_y = camera_y + camera_move_up
 	camera_z = camera_z - (math.cos(camera_rotation) * camera_move_fwd - math.sin(camera_rotation) * camera_move_strafe) * dt * 20
 	camera_rotation = camera_rotation + camera_delta_rotation * dt * 1
 	camera_pitch = camera_pitch + camera_delta_pitch * dt * 1
+
+	if paused then
+		dt = 0
+	end
+
+	for i = 2, #scene do
+		-- scene[i] = v3d.translate(0, math.random() - 0.5, 0) * scene[i] * v3d.rotate(0, math.random() * 0.1, 0)
+		scene[i] = scene[i] * v3d.rotate(0, math.random() * dt, 0)
+	end
 
 	t = t + dt
 end
@@ -981,8 +1135,11 @@ term.native().setCursorPos(1, 1)
 term.native().setBackgroundColour(colours.black)
 term.native().setTextColour(colours.white)
 term.clear()
-print(framebuffer.width, framebuffer.height)
+print('Resolution:', framebuffer.width, framebuffer.height)
 print(textutils.serialize(statistics))
+print('FPS:', math.floor(fps))
+print('Palettize:', math.floor(palettize_time * 1000) .. 'ms')
+print('Render:', math.floor(render_time * 1000) .. 'ms')
 
 for i = 0, 15 do
 	term.native().setPaletteColour(2 ^ i, term.nativePaletteColour(2 ^ i))
