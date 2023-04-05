@@ -31,6 +31,11 @@ do
 	end
 end
 
+do
+	images[1] = images[9]
+	while images[2] do table.remove(images, 2) end
+end
+
 local t = 0
 
 local fixed_palette_size = 16
