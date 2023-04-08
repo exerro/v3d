@@ -3,8 +3,8 @@ if not shell.execute '/v3d/tools/build' then return end
 
 local v3d = require '/v3d.gen.v3dtest'
 
---- @type 'effect-hypercube' | 'effect-slow' | 'effect-fast' | 'slow'
-local palettization = 'effect-hypercube'
+--- @type 'effect-hypercube' | 'effect-slow' | 'effect-grid' | 'slow'
+local palettization = 'effect-slow'
 
 local images = {}
 do
@@ -32,13 +32,106 @@ do
 end
 
 do
-	images[1] = images[9]
+	images[1] = images[4]
 	while images[2] do table.remove(images, 2) end
 end
 
+-- images[1] = {
+-- 	width = 7,
+-- 	height = 7,
+-- 	1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1,
+-- 	1,1,1, 1,1,1, 1,1,1, 0,0,0, 1,1,1, 1,1,1, 1,1,1,
+-- 	1,1,1, 1,1,1, 1,1,1, 1,1,1, 0,0,0, 1,1,1, 1,1,1,
+-- 	1,1,1, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 0,0,0, 1,1,1,
+-- 	1,1,1, 1,1,1, 1,1,1, 1,1,1, 0,0,0, 1,1,1, 1,1,1,
+-- 	1,1,1, 1,1,1, 1,1,1, 0,0,0, 1,1,1, 1,1,1, 1,1,1,
+-- 	1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1, 1,1,1,
+-- }
+
+local function generate_mipmaps(image, pixel_size)
+	local width = image.width
+	local height = image.height
+
+	local height_divisor = 1
+
+	local horizontal_mips = 0
+	local vertical_mips = 0
+
+	local mip_x_offset = 0
+	local mip_y_offset = 0
+	local mipmaps = {}
+
+	while true do
+		local width_divisor = 1
+		local mip_height = math.ceil(height / height_divisor)
+
+		mip_x_offset = 0
+		horizontal_mips = 0
+
+		while true do
+			local mip_width = math.ceil(width / width_divisor)
+
+			table.insert(mipmaps, { x = mip_x_offset, y = mip_y_offset, width = mip_width, height = mip_height })
+
+			mip_x_offset = mip_x_offset + mip_width
+			horizontal_mips = horizontal_mips + 1
+
+			if mip_width == 1 then
+				break
+			else
+				width_divisor = width_divisor * 2
+			end
+		end
+
+		mip_y_offset = mip_y_offset + mip_height
+		vertical_mips = vertical_mips + 1
+
+		if mip_height == 1 then
+			break
+		else
+			height_divisor = height_divisor * 2
+		end
+	end
+
+	print("Total size: " .. mip_x_offset .. ', ' .. mip_y_offset)
+	print("Mip levels: " .. horizontal_mips .. ', ' .. vertical_mips)
+
+	for i = 1, #mipmaps do
+		print(mipmaps[i].x, mipmaps[i].y, mipmaps[i].width, mipmaps[i].height)
+	end
+
+	-- error('daghjk')
+	local t = {
+		horizontal_count = horizontal_mips,
+		vertical_count = vertical_mips,
+	}
+
+	for i = 1, #mipmaps do
+		t[i] = { width = mipmaps[i].width, height = mipmaps[i].height }
+
+		for iy = 1, image.height do
+			for ix = 1, image.width do
+				local mxf = (ix + 0.5) / image.width * mipmaps[i].width
+				local myf = (iy + 0.5) / image.height * mipmaps[i].height
+
+				local mxb = math.floor(mxf)
+				local myb = math.floor(myf)
+
+				for j = 1, pixel_size do
+					t[i][(myb * mipmaps[i].width + mxb) * pixel_size + j] = image[(iy * image.width + ix) * pixel_size + j]
+				end
+			end
+		end
+	end
+
+	return t
+end
+
+local mipmap = generate_mipmaps(images[1], 3)
+
 local t = 0
 
-local fixed_palette_size = 16
+local fixed_palette_size = 256
 
 local use_legacy_cc = false
 local use_standard_cc = false
@@ -190,11 +283,11 @@ for i = 1, #rgb_lookup do
 	rgb_lookup_flattened[i * 3 - 0] = rgb_lookup[i][3]
 end
 
-local grid_palette = v3d.rgb.grid_palette({ red = 2, green = 4, blue = 2 }, 0.6)
+local grid_palette = v3d.rgb.grid_palette({ red = 4, green = 4, blue = 1 }, 1)
 local kd_palette = v3d.rgb.kd_tree_palette(fixed_palette_size, rgb_lookup_flattened)
 -- local kd_palette = v3d.rgb.kd_tree_palette(fixed_palette_size, v3d.rgb.grid_palette({ red = 2, green = 2, blue = 2 }, 0.5, 1):get_all_colours())
 local hypercube_palette = v3d.rgb.hypercube_palette(0.2)
-local palette = palettization == 'effect-hypercube' and hypercube_palette or palettization == 'effect-slow' and kd_palette or grid_palette
+local palette = palettization == 'effect-hypercube' and hypercube_palette or palettization == 'effect-slow' and kd_palette or palettization == 'effect-grid' and grid_palette or grid_palette
 
 if palettization ~= 'slow' then
 	for i = 1, palette:count() do
@@ -220,7 +313,7 @@ for y = 1, #ordered_dithering_map do
 	end
 end
 
-local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_buffer, use_fast_palette)
+local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_buffer)
 	local albedo_index = 1
 	local math_min = math.min
 	local math_max = math.max
@@ -230,12 +323,7 @@ local function rgba_to_index_colour(width, height, albedo_buffer, index_colour_b
 	-- local dithering_factor = (math.sin(t * 3) + 1) / 2
 	local alg_r = dithering_factor * hatch_dither_factor
 
-	local sum_n = 0
-
 	local ordered_dithering_map_size = #ordered_dithering_map
-
-	local fringe_trees = {}
-	local fringe_min_distance_squared = {}
 
 	for index_colour_index_base = 0, width * height - 1, width do
 		for index_colour_index = index_colour_index_base + 1, index_colour_index_base + width do
@@ -413,7 +501,7 @@ local palettize_effect = v3d.rgb.palettize_effect {
 }
 
 local camera_x, camera_y, camera_z, camera_rotation, camera_pitch = 10, 20, 10, math.pi / 6, math.pi / 4
-local geometry = v3d.create_debug_cube():build()
+local geometry = v3d.support.create_debug_cube():build()
 local pipeline = v3d.create_pipeline {
 	layout = layout,
 	format = v3d.support.DEBUG_CUBE_FORMAT,
@@ -439,8 +527,8 @@ local pipeline = v3d.create_pipeline {
 				local image = v3d_read_uniform('image')
 				local u = v3d_read_attribute('uv', 1)
 				local v = v3d_read_attribute('uv', 2)
-				local ix = _v3d_math_floor(u * (image.width - 1))
-				local iy = _v3d_math_floor(v * (image.height - 1))
+				local ix = _v3d_math_floor(u * image.width)
+				local iy = _v3d_math_floor(v * image.height)
 				local idx = (iy * image.width + ix) * 3
 				write_r = (image[idx + 1] or 1)
 				write_g = (image[idx + 2] or 1)
@@ -471,6 +559,32 @@ local pipeline = v3d.create_pipeline {
 			-- write_g = current_g * (1 - alpha) + write_g * alpha
 			-- write_b = current_b * (1 - alpha) + write_b * alpha
 
+			-- if v3d_framebuffer_position('x') > v3d_framebuffer_size('width') / 2 then
+			-- 	write_r = write_r * v3d_face_attribute_max_pixel_delta('uv', 1) / 100
+			-- 	write_g = write_g * v3d_face_attribute_max_pixel_delta('uv', 2) / 100
+			-- end
+
+			-- if v3d_read_uniform('image') then
+			-- 	local tex_width = v3d_read_uniform('image').width
+			-- 	local tex_height = v3d_read_uniform('image').height
+			-- 	local mips_horizontal = v3d_read_uniform('mipmap').horizontal_count
+			-- 	local mips_vertical = v3d_read_uniform('mipmap').vertical_count
+			-- 	local mip_x = math.min(mips_horizontal - 1, math.max(0, math.floor(mips_horizontal - 1 - 10 * math.log(v3d_face_attribute_max_pixel_delta('uv', 1) / tex_width, 2))))
+			-- 	local mip_y = math.min(mips_vertical - 1, math.max(0, math.floor(mips_vertical - 1 - 10 * math.log(v3d_face_attribute_max_pixel_delta('uv', 2) / tex_height, 2))))
+			-- 	local mip = v3d_read_uniform('mipmap')[mip_y * mips_horizontal + mip_x + 1]
+			-- 	-- local mip = v3d_read_uniform('mipmap')[1]
+	
+			-- 	local u = v3d_read_attribute('uv', 1)
+			-- 	local v = v3d_read_attribute('uv', 2)
+			-- 	local ix = _v3d_math_floor(u * mip.width)
+			-- 	local iy = _v3d_math_floor(v * mip.height)
+			-- 	local idx = (iy * mip.width + ix) * 3
+			-- 	write_r = (mip[idx + 1] or 1)
+			-- 	write_g = (mip[idx + 2] or 1)
+			-- 	write_b = (mip[idx + 3] or 1)
+			-- end
+
+			-- v3d_write_layer_values('albedo', v3d_read_attribute('uv', 1), v3d_read_attribute('uv', 2), 0)
 			v3d_write_layer_values('albedo', write_r, write_g, write_b)
 			-- v3d_write_layer_values('albedo', normal_r, normal_g, normal_b)
 			-- v3d_write_layer_values('albedo', x / -25, y, z / -25)
@@ -503,8 +617,8 @@ if true then
 	end
 end
 
-for i = 1, grid_palette:count() do
-	local r, g, b = grid_palette:get_colour(i)
+for i = 1, palette:count() do
+	local r, g, b = palette:get_colour(i)
 	table.insert(scene, v3d.translate(r * 25 - 25, g * 25, b * 25 - 25))
 	table.insert(object_colours, { r, g, b })
 end
@@ -521,6 +635,7 @@ pipeline:set_uniform('rgb_to_idx', fast_rgb_to_idx)
 pipeline:set_uniform('lights', lights)
 pipeline:set_uniform('ambient', do_lighting and ambient_lighting or 1)
 pipeline:set_uniform('alpha', 1)
+pipeline:set_uniform('mipmap', mipmap)
 
 local effect = v3d.create_effect({
 	layout = layout,
@@ -608,14 +723,14 @@ while true do
 	if palettization == 'effect-slow' then
 		kd_palettize_effect:set_uniform('ordered_dithering_amount', ordered_dithering_amount)
 		kd_palettize_effect:apply(framebuffer)
-	elseif palettization == 'effect-fast' then
+	elseif palettization == 'effect-grid' then
 		grid_palettize_effect:set_uniform('ordered_dithering_amount', ordered_dithering_amount)
 		grid_palettize_effect:apply(framebuffer)
 	elseif palettization == 'effect-hypercube' then
 		hypercube_palettize_effect:set_uniform('ordered_dithering_amount', ordered_dithering_amount)
 		hypercube_palettize_effect:apply(framebuffer)
 	elseif palettization == 'slow' then
-		rgba_to_index_colour(framebuffer.width, framebuffer.height, framebuffer:get_buffer('albedo'), framebuffer:get_buffer('index_colour'), use_fast_palette)
+		rgba_to_index_colour(framebuffer.width, framebuffer.height, framebuffer:get_buffer('albedo'), framebuffer:get_buffer('index_colour'))
 	else
 		error(palettization)
 	end

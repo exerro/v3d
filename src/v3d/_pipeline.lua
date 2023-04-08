@@ -1,11 +1,12 @@
 
-local v3d = require 'core'
+local v3d_framebuffer = require '_framebuffer'
+local v3d_geometry = require '_geometry'
+local v3d_internal = require '_internal'
+local v3d_text = require 'text'
+local v3d_transform = require '_transform'
+local v3d_vsl = require 'vsl'
 
-require 'framebuffer'
-require 'geometry'
-require 'text'
-require 'transform'
-require 'vsl'
+local v3d_pipeline = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.CullFace ]]------------------------------------------------------------
@@ -19,11 +20,11 @@ do
 
 	--- Specify to cull (not draw) the front face (facing towards the camera).
 	--- @type v3d.CullFace
-	v3d.CULL_FRONT_FACE = -1
+	v3d_pipeline.CULL_FRONT_FACE = -1
 
 	--- Specify to cull (not draw) the back face (facing away from the camera).
 	--- @type v3d.CullFace
-	v3d.CULL_BACK_FACE = 1
+	v3d_pipeline.CULL_BACK_FACE = 1
 end
 
 --------------------------------------------------------------------------------
@@ -107,7 +108,7 @@ do
 	--- Options that the pipeline is using. Note that this differs to the ones
 	--- it was created with, as these options will have defaults applied etc.
 	--- @field options v3d.PipelineOptions
-	v3d.Pipeline = {}
+	v3d_pipeline.Pipeline = {}
 
 	--- We disable diagnostics here since render_geometry is compiled for us
 	--- upon creation. This function here does nothing.
@@ -119,7 +120,9 @@ do
 	--- @param transform v3d.Transform Transform applied to all vertices.
 	--- @param model_transform v3d.Transform | nil Transform applied to all vertices before `transform`, if specified.
 	--- @return v3d.PipelineStatistics
-	function v3d.Pipeline:render_geometry(framebuffer, geometry, transform, model_transform) end
+	function v3d_pipeline.Pipeline:render_geometry(framebuffer, geometry, transform, model_transform) end
+
+	--- @diagnostic enable missing-return, unused-local
 end
 
 --------------------------------------------------------------------------------
@@ -204,8 +207,13 @@ return function(_, _v3d_fb, _v3d_geometry, _v3d_transform, _v3d_model_transform)
 	local _v3d_transform_zz = _v3d_transform[11]
 	local _v3d_transform_dz = _v3d_transform[12]
 
-	{% if needs_world_face_normal then %}
+	{% if needs_world_face_normal or #fragment_shader.face_attribute_max_pixel_deltas > 0 then %}
 	local _v3d_math_sqrt = math.sqrt
+	{% end %}
+	{% if #fragment_shader.face_attribute_max_pixel_deltas > 0 then %}
+	local _v3d_math_abs = math.abs
+	local _v3d_math_log = math.log
+	local _v3d_math_min = math.min
 	{% end %}
 
 	local _v3d_vertex_offset = _v3d_geometry.vertex_offset
@@ -430,6 +438,34 @@ end
 {= swap_test(1, 2) =}
 {= swap_test(0, 1) =}
 
+{% for _, attr in ipairs(fragment_shader.face_attribute_max_pixel_deltas) do %}
+local _v3d_face_attribute_max_pixel_delta_${attr.name}${attr.component}
+{% end %}
+{% if #fragment_shader.face_attribute_max_pixel_deltas > 0 then %}
+do
+	local dx_0_1 = _v3d_rasterize_p1_x - _v3d_rasterize_p0_x
+	local dx_0_2 = _v3d_rasterize_p2_x - _v3d_rasterize_p0_x
+	local dx_1_2 = _v3d_rasterize_p2_x - _v3d_rasterize_p1_x
+	local dy_0_1 = _v3d_rasterize_p1_y - _v3d_rasterize_p0_y
+	local dy_0_2 = _v3d_rasterize_p2_y - _v3d_rasterize_p0_y
+	local dy_1_2 = _v3d_rasterize_p2_y - _v3d_rasterize_p1_y
+	local len_0_1 = _v3d_math_sqrt(dx_0_1 * dx_0_1 + dy_0_1 * dy_0_1)
+	local len_0_2 = _v3d_math_sqrt(dx_0_2 * dx_0_2 + dy_0_2 * dy_0_2)
+	local len_1_2 = _v3d_math_sqrt(dx_1_2 * dx_1_2 + dy_1_2 * dy_1_2)
+
+	{% for _, attr in ipairs(fragment_shader.face_attribute_max_pixel_deltas) do %}
+	local d_attr_${attr.name}${attr.component}_0_1 = _v3d_rasterize_p1_va_${attr.name}${attr.component} - _v3d_rasterize_p0_va_${attr.name}${attr.component}
+	local d_attr_${attr.name}${attr.component}_0_2 = _v3d_rasterize_p2_va_${attr.name}${attr.component} - _v3d_rasterize_p0_va_${attr.name}${attr.component}
+	local d_attr_${attr.name}${attr.component}_1_2 = _v3d_rasterize_p2_va_${attr.name}${attr.component} - _v3d_rasterize_p1_va_${attr.name}${attr.component}
+	_v3d_face_attribute_max_pixel_delta_${attr.name}${attr.component} = _v3d_math_min(
+		len_0_1 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_0_1),
+		len_0_2 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_0_2),
+		len_1_2 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_1_2)
+	)
+	{% end %}
+end
+{% end %}
+
 local _v3d_midpoint_scalar = (_v3d_rasterize_p1_y - _v3d_rasterize_p0_y) / (_v3d_rasterize_p2_y - _v3d_rasterize_p0_y)
 local _v3d_rasterize_pM_x = _v3d_rasterize_p0_x * (1 - _v3d_midpoint_scalar) + _v3d_rasterize_p2_x * _v3d_midpoint_scalar
 
@@ -608,12 +644,12 @@ end
 	--- @param label string | nil Optional label for debugging
 	--- @return v3d.Pipeline
 	--- @nodiscard
-	function v3d.create_pipeline(options, label)
+	function v3d_pipeline.create_pipeline(options, label)
 		local opt_layout = options.layout
 		local opt_format = options.format
 		local opt_position_attribute = options.position_attribute
-		local opt_cull_face = options.cull_face == nil and v3d.CULL_BACK_FACE or options.cull_face
-		local opt_fragment_shader = v3d.text.unindent(options.fragment_shader)
+		local opt_cull_face = options.cull_face == nil and v3d_pipeline.CULL_BACK_FACE or options.cull_face
+		local opt_fragment_shader = v3d_text.unindent(options.fragment_shader)
 		local opt_pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 		local opt_statistics = options.statistics or false
 
@@ -631,10 +667,10 @@ end
 			statistics = opt_statistics,
 		}
 
-		local fragment_shader_context, fragment_shader_code = v3d.vsl.process_fragment_shader(opt_layout, opt_format, opt_fragment_shader)
+		local fragment_shader_context, fragment_shader_code = v3d_vsl.process_fragment_shader(opt_layout, opt_format, opt_fragment_shader)
 
 		local template_context = {
-			v3d = v3d,
+			v3d = v3d_pipeline,
 
 			opt_layout = opt_layout,
 			opt_format = opt_format,
@@ -652,6 +688,7 @@ end
 			builtin_fragment_discarded = '_v3d_builtin_fragment_discarded',
 
 			ref_fragment_depth = '_v3d_row_w',
+			ref_framebuffer_x = '_v3d_x',
 
 			needs_fragment_world_position = fragment_shader_context.is_called_fragment_world_position
 										 or fragment_shader_context.is_called_face_world_normal,
@@ -666,6 +703,10 @@ end
 
 		function template_context.get_interpolated_attribute_component_name(name, component)
 			return '_v3d_interp_' .. name .. component
+		end
+
+		function template_context.get_face_attribute_max_pixel_delta(name, component)
+			return '_v3d_face_attribute_max_pixel_delta_' .. name .. component
 		end
 
 		function template_context.get_layer(name)
@@ -688,26 +729,18 @@ end
 			return '{% if opt_statistics then %}_v3d_stat_' .. name .. ' = _v3d_stat_' .. name .. ' + 1{% end %}'
 		end
 
-		function template_context.notify_any_layer_written()
-			return fragment_shader_context.is_called_any_layer_was_written and '_v3d_any_layer_written = true' or ''
-		end
-
-		function template_context.notify_specific_layer_written(name)
-			return fragment_shader_context.is_called_layer_was_written[name] and '_v3d_specific_layer_written_' .. name .. ' = true' or ''
-		end
-
-		local pipeline_source = v3d.text.generate_template(RENDER_GEOMETRY_SOURCE, template_context)
+		local pipeline_source = v3d_text.generate_template(RENDER_GEOMETRY_SOURCE, template_context)
 		local f, err = load(pipeline_source, 'pipeline source')
 
 		if not f then -- TODO: aaa bad validation no, but also until v3debug I need this for my sanity
-			f = v3d.internal_error('Failed to compile pipeline render_geometry function: ' .. err, pipeline_source)
+			f = v3d_internal.internal_error('Failed to compile pipeline render_geometry function: ' .. err, pipeline_source)
 		end
 
-		for k, v in pairs(v3d.vsl.Accelerated) do
+		for k, v in pairs(v3d_vsl.Accelerated) do
 			pipeline[k] = v
 		end
 
-		for k, v in pairs(v3d.Pipeline) do
+		for k, v in pairs(v3d_pipeline.Pipeline) do
 			pipeline[k] = v
 		end
 
@@ -719,3 +752,5 @@ end
 		return pipeline
 	end
 end
+
+return v3d_pipeline

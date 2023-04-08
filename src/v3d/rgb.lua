@@ -1,9 +1,9 @@
 
-local v3d = require 'core'
+local v3d_effect = require '_effect'
+local v3d_internal = require '_internal'
+local v3d_text = require 'text'
 
-require 'effect'
-
-v3d.rgb = {}
+local v3d_rgb = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.Palette ]]-------------------------------------------------------------
@@ -14,12 +14,12 @@ do
 	--- @class v3d.rgb.Palette
 	--- @field private n_colours integer
 	--- @field private colours number[]
-	v3d.rgb.Palette = {}
+	v3d_rgb.Palette = {}
 
 	--- TODO: remove palette from these names!
 	--- @return integer
 	--- @nodiscard
-	function v3d.rgb.Palette:count()
+	function v3d_rgb.Palette:count()
 		return self.n_colours
 	end
 
@@ -29,7 +29,7 @@ do
 	--- @param palette_index integer
 	--- @return number red, number blue, number green
 	--- @nodiscard
-	function v3d.rgb.Palette:get_colour(palette_index)
+	function v3d_rgb.Palette:get_colour(palette_index)
 		local idx = palette_index * 3
 		local colours = self.colours
 
@@ -43,7 +43,7 @@ do
 	--- index 3 will always begin at index 7 in this table, and so on (3i - 2).
 	--- @return number[]
 	--- @nodiscard
-	function v3d.rgb.Palette:get_all_colours()
+	function v3d_rgb.Palette:get_all_colours()
 		return self.colours
 	end
 
@@ -56,7 +56,7 @@ do
 	--- @param blue number
 	--- @return integer palette_index, number red, number green, number blue
 	--- @nodiscard
-	function v3d.rgb.Palette:lookup_closest(red, green, blue) end
+	function v3d_rgb.Palette:lookup_closest(red, green, blue) end
 
 	--- @param in_self string
 	--- @param in_red string
@@ -68,7 +68,7 @@ do
 	--- @param out_blue string | nil
 	--- @return string code, { name: string, value: string, global: boolean }[] cache
 	--- @nodiscard
-	function v3d.rgb.Palette:embed_lookup_algorithm(
+	function v3d_rgb.Palette:embed_lookup_algorithm(
 		in_self,
 		in_red,
 		in_green,
@@ -90,7 +90,7 @@ do
 	local function create_palette(base, colours, embed_lookup_algorithm)
 		local palette = {}
 
-		for k, v in pairs(v3d.rgb.Palette) do
+		for k, v in pairs(v3d_rgb.Palette) do
 			palette[k] = v
 		end
 
@@ -122,7 +122,7 @@ do
 		local fn, err = load(lookup_closest_source, 'v3d.rgb.Palette:lookup_closest', nil, _ENV)
 
 		if not fn then
-			v3d.internal_error(err, lookup_closest_source)
+			v3d_internal.internal_error(err, lookup_closest_source)
 		end
 
 		palette.n_colours = #colours / 3
@@ -155,7 +155,7 @@ do
 	--- @param gamma number | { red: number, green: number, blue: number } | nil
 	--- @return v3d.rgb.Palette
 	--- @nodiscard
-	function v3d.rgb.grid_palette(samples, saturation, gamma)
+	function v3d_rgb.grid_palette(samples, saturation, gamma)
 		local red_samples = samples
 		local green_samples = samples
 		local blue_samples = samples
@@ -298,7 +298,7 @@ do
 	--- TODO
 	--- @return v3d.rgb.Palette
 	--- @nodiscard
-	function v3d.rgb.hypercube_palette(saturation)
+	function v3d_rgb.hypercube_palette(saturation)
 		local colours = {}
 
 		local red_saturation = saturation or 0.5
@@ -363,7 +363,7 @@ do
 					palette_index_def = 'local ' .. out_palette_index
 				end
 
-				local s = v3d.text.unindent([[
+				local s = v3d_text.unindent([[
 					local red = ]] .. in_red .. [[ - 0.5
 					local green = ]] .. in_green .. [[ - 0.5
 					local blue = ]] .. in_blue .. [[ - 0.5
@@ -421,7 +421,7 @@ do
 	--- @param do_fast_lookups boolean | nil
 	--- @return v3d.rgb.Palette
 	--- @nodiscard
-	function v3d.rgb.kd_tree_palette(count, colours, do_fast_lookups)
+	function v3d_rgb.kd_tree_palette(count, colours, do_fast_lookups)
 		-- TODO: fast lookups
 
 		local math_abs = math.abs
@@ -663,6 +663,7 @@ do
 		else
 			used_colours = {}
 
+			--- @type KDTreeNode[]
 			local fringe = { tree }
 			local fringe_n = 1
 
@@ -709,7 +710,7 @@ do
 					in_green = 'green'
 				end
 
-				local content = prefix .. v3d.text.unindent([[
+				local content = prefix .. v3d_text.unindent([[
 					local best_distance_squared = v3d_palette_var_math_huge
 					local best_tree = nil
 
@@ -824,7 +825,7 @@ do
 	--- @param options v3d.rgb.PalettizeOptions
 	--- @param label string | nil
 	--- @return v3d.Effect
-	function v3d.rgb.palettize_effect(options, label)
+	function v3d_rgb.palettize_effect(options, label)
 		local any_ordered_dithering = options.ordered_dithering_amount
 		                           or options.ordered_dithering_r
 		                           or options.normalise_ordered_dithering_kernel
@@ -873,7 +874,7 @@ do
 			end
 		end
 
-		local effect = v3d.create_effect({
+		local effect = v3d_effect.create_effect({
 			layout = options.layout,
 			pixel_shader = [[
 				local px_red = v3d_read_layer(']] .. options.rgb_layer .. [[', 1)
@@ -946,3 +947,5 @@ do
 		return effect
 	end
 end
+
+return v3d_rgb

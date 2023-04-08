@@ -52,7 +52,8 @@ do -- read the files
 		end
 
 		content = content:gsub('local%s+v3d%s*=%s*require%s*[\'"]core[\'"]', '')
-		                 :gsub('require%s*[\'"][%w_]+[\'"]', '')
+		                 :gsub('require%s*[\'"]([%w_]+)[\'"]', '__modules_%1')
+		                 :gsub('return (v3d_' .. module_name:gsub('^_', '') .. ')%s*$', '__modules_' .. module_name .. ' = %1\n')
 
 		module_dependencies[module_name] = dependencies
 		modules[module_name] = content
@@ -961,9 +962,10 @@ end
 
 do -- produce compiled v3d modules
 	local header_text = '-- ' .. license_text:gsub('\n', '\n-- ') .. '\n'
-	.. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias,need-check-nil\n'
+	.. '---@diagnostic disable:duplicate-doc-field,duplicate-set-field,duplicate-doc-alias,duplicate-doc-field,need-check-nil\n'
 	local content = ''
 	local insertion_fringe = {}
+	local ordered_modules = {}
 
 	for k, v in pairs(modules) do
 		if k == 'core' then
@@ -974,7 +976,11 @@ do -- produce compiled v3d modules
 			insertion[i + 2] = module_dependencies[k][i]
 		end
 		table.insert(insertion_fringe, insertion)
+		table.insert(ordered_modules, k)
 	end
+
+	table.sort(ordered_modules)
+	table.sort(insertion_fringe, function (a, b) return a[1] < b[1] end)
 
 	while insertion_fringe[1] do
 		local changed = false
@@ -984,6 +990,7 @@ do -- produce compiled v3d modules
 				local module_data = table.remove(insertion_fringe, i)
 				local module_name = module_data[1]
 
+				content = content .. 'local __modules_' .. module_name .. '\n'
 				content = content .. module_data[2]
 				changed = true
 
@@ -999,7 +1006,23 @@ do -- produce compiled v3d modules
 		end
 
 		if not changed then
+			for i = 1, #insertion_fringe do
+				print(insertion_fringe[i][1], table.concat(insertion_fringe[i], ', ', 3))
+			end
 			error('Cyclic dependency between modules :(')
+		end
+	end
+
+	content = content .. 'local v3d = {}\n'
+
+	for i = 1, #ordered_modules do
+		local module_name = ordered_modules[i]
+		if module_name:sub(1, 1) == '_' then
+			content = content .. 'for k, v in pairs(__modules_' .. module_name .. ') do\n'
+			                  .. '\tv3d[k] = v\n'
+			                  .. 'end\n'
+		else
+			content = content .. 'v3d.' .. module_name .. ' = __modules_' .. module_name .. '\n'
 		end
 	end
 

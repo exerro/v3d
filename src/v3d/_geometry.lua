@@ -1,21 +1,17 @@
 
-local v3d = require 'core'
+local v3d_internal = require '_internal'
+
+local v3d_geometry = {}
 
 --------------------------------------------------------------------------------
---[[ v3d.AttributeName ]]-------------------------------------------------------
+--[[ v3d.Attribute* ]]----------------------------------------------------------
 --------------------------------------------------------------------------------
 
 do
 	--- Name of an attribute. Should be a string matching the following Lua pattern:
 	--- `[a-zA-Z][a-zA-Z0-9_]*`.
 	--- @alias v3d.AttributeName string
-end
 
---------------------------------------------------------------------------------
---[[ v3d.Attribute ]]-----------------------------------------------------------
---------------------------------------------------------------------------------
-
-do
 	--- An attribute in a format. Attributes represent a unit of data that can form
 	--- vertices or faces of geometry. For example, "position" might be an
 	--- attribute, as well as "colour" or "uv". Attributes have a number of fields
@@ -56,7 +52,7 @@ do
 		attr.offset = type == 'vertex' and self.vertex_stride or self.face_stride
 	
 		--- @type table
-		local new_format = v3d.create_format()
+		local new_format = v3d_geometry.create_format()
 	
 		for i = 1, #self.attributes do
 			new_format.attributes[i] = self.attributes[i]
@@ -87,7 +83,7 @@ do
 	--- @field vertex_stride integer
 	--- TODO
 	--- @field face_stride integer
-	v3d.Format = {}
+	v3d_geometry.Format = {}
 
 	--- TODO
 	--- @param name v3d.AttributeName
@@ -95,7 +91,7 @@ do
 	--- @param is_numeric true | false
 	--- @return v3d.Format
 	--- @nodiscard
-	function v3d.Format:add_vertex_attribute(name, components, is_numeric)
+	function v3d_geometry.Format:add_vertex_attribute(name, components, is_numeric)
 		return format_add_attribute(self, name, components, 'vertex', is_numeric)
 	end
 
@@ -104,7 +100,7 @@ do
 	--- @param components integer
 	--- @return v3d.Format
 	--- @nodiscard
-	function v3d.Format:add_face_attribute(name, components)
+	function v3d_geometry.Format:add_face_attribute(name, components)
 		return format_add_attribute(self, name, components, 'face', false)
 	end
 
@@ -112,11 +108,11 @@ do
 	--- @param attribute v3d.AttributeName | v3d.Attribute
 	--- @return v3d.Format
 	--- @nodiscard
-	function v3d.Format:drop_attribute(attribute)
+	function v3d_geometry.Format:drop_attribute(attribute)
 		if not self:has_attribute(attribute) then return self end
 		local attribute_name = attribute.name or attribute
 	
-		local new_format = v3d.create_format()
+		local new_format = v3d_geometry.create_format()
 	
 		for i = 1, #self.attributes do
 			local attr = self.attributes[i]
@@ -131,7 +127,7 @@ do
 	--- TODO
 	--- @param attribute v3d.AttributeName | v3d.Attribute
 	--- @return boolean
-	function v3d.Format:has_attribute(attribute)
+	function v3d_geometry.Format:has_attribute(attribute)
 		if attribute.name then
 			local index = self.attribute_lookup[attribute.name]
 			if not index then return false end
@@ -146,7 +142,7 @@ do
 	--- TODO
 	--- @param attribute v3d.AttributeName | v3d.Attribute
 	--- @return v3d.Attribute | nil
-	function v3d.Format:get_attribute(attribute)
+	function v3d_geometry.Format:get_attribute(attribute)
 		if attribute.name then
 			return attribute
 		end
@@ -178,7 +174,7 @@ do
 	--- [[@v3d.GeometryBuilder.cast]].
 	--- @field format v3d.Format
 	--- @field private attribute_data { [v3d.AttributeName]: any[] }
-	v3d.GeometryBuilder = {}
+	v3d_geometry.GeometryBuilder = {}
 
 	--- Set the data for an attribute, replacing any existing data.
 	---
@@ -186,7 +182,7 @@ do
 	--- @param attribute_name v3d.AttributeName Name of the attribute to set the data for.
 	--- @param data any[] New data, which replaces any existing data.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:set_data(attribute_name, data)
+	function v3d_geometry.GeometryBuilder:set_data(attribute_name, data)
 		self.attribute_data[attribute_name] = data
 
 		return self
@@ -198,7 +194,7 @@ do
 	--- @param attribute_name v3d.AttributeName Name of the attribute to append data to.
 	--- @param data any[] New data to append.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:append_data(attribute_name, data)
+	function v3d_geometry.GeometryBuilder:append_data(attribute_name, data)
 		local existing_data = self.attribute_data[attribute_name] or {}
 
 		self.attribute_data[attribute_name] = existing_data
@@ -221,7 +217,7 @@ do
 	--- @param attribute_name v3d.AttributeName Name of the attribute to apply `fn` to.
 	--- @param fn fun(data: any[]): any[] Function called with the data for this attribute, which should return the new data.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:map(attribute_name, fn)
+	function v3d_geometry.GeometryBuilder:map(attribute_name, fn)
 		local components = self.format:get_attribute(attribute_name).components
 		local data = self.attribute_data[attribute_name]
 	
@@ -244,7 +240,7 @@ do
 	--- @param transform v3d.Transform Transformation to apply.
 	--- @param translate boolean | nil Whether vertices should be translated. Defaults to true unless a 4-component attribute is given, in which case vertices are translated if the 4th component is equal to 1.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:transform(attribute_name, transform, translate)
+	function v3d_geometry.GeometryBuilder:transform(attribute_name, transform, translate)
 		local attr_components = self.format:get_attribute(attribute_name).components
 		local tr_fn = transform.transform
 	
@@ -274,7 +270,7 @@ do
 	--- format will be copied.
 	--- @param other v3d.GeometryBuilder Geometry builder to copy data from.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:insert(other)
+	function v3d_geometry.GeometryBuilder:insert(other)
 		for i = 1, #self.format.attributes do
 			local attr = self.format.attributes[i]
 			local self_data = self.attribute_data[attr.name]
@@ -300,7 +296,7 @@ do
 	--- when using [[@v3d.GeometryBuilder.build]], as well as other functions.
 	--- @param format v3d.Format Any format to change to.
 	--- @return v3d.GeometryBuilder self
-	function v3d.GeometryBuilder:cast(format)
+	function v3d_geometry.GeometryBuilder:cast(format)
 		self.format = format
 		return self
 	end
@@ -311,7 +307,7 @@ do
 	--- @param label string | nil Optional label for the constructed [[@v3d.Geometry]] instance.
 	--- @return v3d.Geometry
 	--- @nodiscard
-	function v3d.GeometryBuilder:build(label)
+	function v3d_geometry.GeometryBuilder:build(label)
 		local geometry = {}
 		local format = self.format
 
@@ -319,7 +315,7 @@ do
 		geometry.vertices = 0
 		geometry.faces = 0
 
-		for k, v in pairs(v3d.Geometry) do
+		for k, v in pairs(v3d_geometry.Geometry) do
 			geometry[k] = v
 		end
 
@@ -387,16 +383,16 @@ do
 	--- Offset of the first vertex data. An offset of `0` would mean the first
 	--- vertex starts from index `1`.
 	--- @field vertex_offset integer
-	v3d.Geometry = {}
+	v3d_geometry.Geometry = {}
 
 	--- Convert this geometry back into a builder so it can be modified or
 	--- transformed.
 	--- @return v3d.GeometryBuilder
-	function v3d.Geometry:to_builder()
-		local gb = v3d.create_geometry_builder(self.format)
+	function v3d_geometry.Geometry:to_builder()
+		local gb = v3d_geometry.create_geometry_builder(self.format)
 
 		-- TODO
-		v3d.internal_error 'NYI: v3d.Geometry:to_builder()'
+		v3d_internal.internal_error 'NYI: v3d.Geometry:to_builder()'
 
 		return gb
 	end
@@ -410,7 +406,7 @@ do
 	--- Create an empty [[@v3d.Format]].
 	--- @return v3d.Format
 	--- @nodiscard
-	function v3d.create_format()
+	function v3d_geometry.create_format()
 		local format = {}
 
 		format.attributes = {}
@@ -418,7 +414,7 @@ do
 		format.vertex_stride = 0
 		format.face_stride = 0
 
-		for k, v in pairs(v3d.Format) do
+		for k, v in pairs(v3d_geometry.Format) do
 			format[k] = v
 		end
 
@@ -429,16 +425,18 @@ do
 	--- @param format v3d.Format Initial format, which can be changed with [[@v3d.GeometryBuilder.cast]].
 	--- @return v3d.GeometryBuilder
 	--- @nodiscard
-	function v3d.create_geometry_builder(format)
+	function v3d_geometry.create_geometry_builder(format)
 		local gb = {}
 
 		gb.format = format
 		gb.attribute_data = {}
 
-		for k, v in pairs(v3d.GeometryBuilder) do
+		for k, v in pairs(v3d_geometry.GeometryBuilder) do
 			gb[k] = v
 		end
 
 		return gb
 	end
 end
+
+return v3d_geometry

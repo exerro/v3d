@@ -1,11 +1,10 @@
 
-local v3d = require 'core'
+local v3d_internal = require '_internal'
+local v3d_framebuffer = require '_framebuffer'
+local v3d_geometry = require '_geometry'
+local v3d_text = require 'text'
 
-require 'framebuffer'
-require 'geometry'
-require 'text'
-
-v3d.vsl = {}
+local v3d_vsl = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.vsl.UniformName ]]-----------------------------------------------------
@@ -83,8 +82,7 @@ do
 	--- v3d_read_attribute(string-literal)
 	--- v3d_read_attribute(string-literal, integer-literal)
 	---
-	--- v3d_read_attribute_gradient(string-literal)
-	--- v3d_read_attribute_gradient(string-literal, integer-literal)
+	--- v3d_face_attribute_max_pixel_delta(string-literal, integer-literal)
 	---
 	--- v3d_face_row_bounds()
 	--- v3d_face_row_bounds('min' | 'max')
@@ -149,7 +147,7 @@ do
 	end
 
 	function register_generic(context, list, name, value)
-		if not list then v3d.internal_error('Missing list (' .. tostring(name) .. ')', 2) end
+		if not list then v3d_internal.internal_error('Missing list (' .. tostring(name) .. ')', 2) end
 
 		context.__internal_lookups = context.__internal_lookups or {}
 		context.__internal_lookups[list] = context.__internal_lookups[list] or {}
@@ -175,21 +173,21 @@ do -- default
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function macro_sets.default:v3d_count_event(context, append_line, parameters)
-		local name = v3d.text.unquote(parameters[1])
+		local name = v3d_text.unquote(parameters[1])
 		register_generic(context, context.event_counters_written_to, name)
 		append_line('{! increment_event_counter(\'' .. name .. '\', ' .. (parameters[2] or '1') .. ') !}')
 	end
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function macro_sets.default:v3d_read_uniform(context, append_line, parameters)
-		local name = v3d.text.unquote(parameters[1])
+		local name = v3d_text.unquote(parameters[1])
 		register_generic(context, context.uniforms_accessed, name)
 		append_line('{= get_uniform_name(\'' .. name .. '\') =}')
 	end
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function macro_sets.default:v3d_write_uniform(context, append_line, parameters)
-		local name = v3d.text.unquote(parameters[1])
+		local name = v3d_text.unquote(parameters[1])
 		register_generic(context, context.uniforms_accessed, name)
 		register_generic(context, context.uniforms_written_to, name)
 		append_line('{= get_uniform_name(\'' .. name .. '\') =} = ' .. parameters[2])
@@ -201,7 +199,7 @@ do -- framebuffer_bound
 
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	local function register_layer(context, name)
-		local layer = context.layout:get_layer(name) or v3d.contextual_error('Unknown layer \'' .. name .. '\'')
+		local layer = context.layout:get_layer(name) or v3d_internal.contextual_error('Unknown layer \'' .. name .. '\'')
 
 		register_generic(context, context.layers_accessed, name, layer)
 		register_generic(context, context.layer_sizes_accessed, layer.components)
@@ -243,7 +241,7 @@ do -- framebuffer_bound
 
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	function macro_sets.framebuffer_bound:v3d_framebuffer_layer(context, append_line, parameters)
-		local name = v3d.text.unquote(parameters[1])
+		local name = v3d_text.unquote(parameters[1])
 		local layer = context.layout:get_layer(name) or error('Unknown layer \'' .. name .. '\'')
 
 		register_generic(context, context.layers_accessed, name, layer)
@@ -258,7 +256,7 @@ do -- framebuffer_bound
 			return
 		end
 
-		local attr = v3d.text.unquote(parameters[1])
+		local attr = v3d_text.unquote(parameters[1])
 
 		if attr == 'x' then
 			context.framebuffer_x_accessed = true
@@ -281,7 +279,7 @@ do -- framebuffer_bound
 			return
 		end
 
-		local attr = v3d.text.unquote(parameters[1])
+		local attr = v3d_text.unquote(parameters[1])
 		local scale = parameters[2] or '1'
 		local prefix = scale == '1' and '' or '('
 		local suffix = scale == '1' and '' or ' * ' .. scale .. ')'
@@ -300,7 +298,7 @@ do -- framebuffer_bound
 
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	function macro_sets.framebuffer_bound:v3d_read_layer_values(context, append_line, parameters)
-		local layer = register_layer(context, v3d.text.unquote(parameters[1]))
+		local layer = register_layer(context, v3d_text.unquote(parameters[1]))
 		local parts = {}
 
 		for i = 1, layer.components do
@@ -313,14 +311,14 @@ do -- framebuffer_bound
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	function macro_sets.framebuffer_bound:v3d_read_layer(context, append_line, parameters)
 		local i = tonumber(parameters[2] or '1')
-		local layer = register_layer(context, v3d.text.unquote(parameters[1]))
+		local layer = register_layer(context, v3d_text.unquote(parameters[1]))
 
 		append_line('v3d_framebuffer_layer(\'' .. layer.name .. '\')[v3d_framebuffer_index(' .. layer.components .. ', ' .. i .. ')]')
 	end
 
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	function macro_sets.framebuffer_bound:v3d_write_layer_values(context, append_line, parameters)
-		local layer = register_layer(context, v3d.text.unquote(parameters[1]))
+		local layer = register_layer(context, v3d_text.unquote(parameters[1]))
 
 		for i = 1, layer.components do
 			append_line('v3d_framebuffer_layer(\'' .. layer.name .. '\')[v3d_framebuffer_index(' .. layer.components .. ', ' .. i .. ')] = ' .. parameters[i + 1])
@@ -330,7 +328,7 @@ do -- framebuffer_bound
 	--- @param context v3d.vsl.FramebufferBoundMacroContext
 	function macro_sets.framebuffer_bound:v3d_write_layer(context, append_line, parameters)
 		local i = tonumber(parameters[3] and parameters[2] or '1')
-		local layer = register_layer(context, v3d.text.unquote(parameters[1]))
+		local layer = register_layer(context, v3d_text.unquote(parameters[1]))
 
 		append_line('v3d_framebuffer_layer(\'' .. layer.name .. '\')[v3d_framebuffer_index(' .. layer.components .. ', ' .. i .. ')] = ' .. (parameters[3] or parameters[2]))
 	end
@@ -421,6 +419,8 @@ do
 	--- TODO
 	--- @field face_attributes_accessed v3d.Attribute[]
 	--- TODO
+	--- @field face_attribute_max_pixel_deltas { name: string, component: integer }[]
+	--- TODO
 	--- @field interpolate_attribute_components { name: string, component: integer }[]
 	--- TODO
 	--- @field is_called_face_world_normal boolean
@@ -437,6 +437,7 @@ do
 	function init_context:fragment_shader(format)
 		self.format = format
 		self.face_attributes_accessed = {}
+		self.face_attribute_max_pixel_deltas = {}
 		self.interpolate_attribute_components = {}
 		self.is_called_face_world_normal = false
 		self.is_called_fragment_depth = false
@@ -477,16 +478,16 @@ do
 	--- @class v3d.vsl.Accelerated
 	--- @field private sources { [string]: { source: v3d.vsl.Code | nil, compiled: string } }
 	--- @field private uniforms table
-	v3d.vsl.Accelerated = {}
+	v3d_vsl.Accelerated = {}
 
 	--- @private
-	function v3d.vsl.Accelerated:add_source(name, source_code, compiled_block)
+	function v3d_vsl.Accelerated:add_source(name, source_code, compiled_block)
 		local _, s = compiled_block:find('%-%-%-?%s*#%s*vsl_embed_start%s+' .. name)
 		local f = compiled_block:find('%-%-%-?%s*#%s*vsl_embed_end%s+' .. name)
 
 		self.sources[name] = {
 			source = source_code,
-			compiled = s and f and v3d.text.trim(v3d.text.unindent(compiled_block:sub(s + 1, f - 1))) or compiled_block,
+			compiled = s and f and v3d_text.trim(v3d_text.unindent(compiled_block:sub(s + 1, f - 1))) or compiled_block,
 		}
 	end
 
@@ -494,7 +495,7 @@ do
 	 -- TODO: Should be somewhere else?
 	--- @return { [string]: { source: v3d.vsl.Code, compiled: string } }
 	--- @nodiscard
-	function v3d.vsl.Accelerated:get_shaders()
+	function v3d_vsl.Accelerated:get_shaders()
 		return self.sources
 	end
 	
@@ -502,7 +503,7 @@ do
 	--- @param name v3d.vsl.UniformName Name of the uniform. Shaders can access using `uniforms[name]`
 	--- @param value any Any value to pass to the shader.
 	--- @return nil
-	function v3d.vsl.Accelerated:set_uniform(name, value)
+	function v3d_vsl.Accelerated:set_uniform(name, value)
 		self.uniforms[name] = value
 	end
 
@@ -510,16 +511,16 @@ do
 	--- @param name v3d.vsl.UniformName Name of the uniform.
 	--- @return unknown
 	--- @nodiscard
-	function v3d.vsl.Accelerated:get_uniform(name)
+	function v3d_vsl.Accelerated:get_uniform(name)
 		return self.uniforms[name]
 	end
 
 	--- Get a list of uniform names that have been set with `set_uniform`.
 	--- @return v3d.vsl.UniformName[]
 	--- @nodiscard
-	function v3d.vsl.Accelerated:list_uniforms()
+	function v3d_vsl.Accelerated:list_uniforms()
 		local names = {}
-		for k, v in pairs(self.uniforms) do
+		for k in pairs(self.uniforms) do
 			table.insert(names, k)
 		end
 		return names
@@ -579,7 +580,7 @@ do
 	--- @param code v3d.vsl.Code
 	--- @return string
 	--- @nodiscard
-	function v3d.vsl.process(macros, context, code)
+	function v3d_vsl.process(macros, context, code)
 		local changed
 		local table_insert = table.insert
 		local local_contexts = {}
@@ -620,7 +621,7 @@ do
 				elseif #params == 0 then
 					result[1] = replace
 				else
-					v3d.contextual_error('Tried to pass parameters to a string replacement')
+					v3d_internal.contextual_error('Tried to pass parameters to a string replacement')
 				end
 
 				changed = true
@@ -644,14 +645,14 @@ do
 	--- @param shader_code v3d.vsl.FragmentShaderCode
 	--- @param context v3d.vsl.MacroContext | nil
 	--- @return v3d.vsl.FragmentShaderMacroContext, string
-	function v3d.vsl.process_default_shader(shader_code, context)
+	function v3d_vsl.process_default_shader(shader_code, context)
 		if not context then
 			context = {}
 
 			init_context.default(context)
 		end
 
-		local code = v3d.vsl.process(macro_sets.default, context, shader_code)
+		local code = v3d_vsl.process(macro_sets.default, context, shader_code)
 
 		table.sort(context.layer_sizes_accessed)
 
@@ -672,7 +673,7 @@ do
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	local function register_attribute(context, name)
-		local attr = context.format:get_attribute(name) or v3d.contextual_error('Unknown attribute \'' .. name .. '\'')
+		local attr = context.format:get_attribute(name) or v3d_internal.contextual_error('Unknown attribute \'' .. name .. '\'')
 
 		context.internal.attribute_names_lookup = context.internal.attribute_names_lookup or {}
 
@@ -702,7 +703,7 @@ do
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function fragment_shader_macros:v3d_read_attribute_values(context, append_line, parameters)
-		local attr = register_attribute(context, v3d.text.unquote(parameters[1]))
+		local attr = register_attribute(context, v3d_text.unquote(parameters[1]))
 		local parts = {}
 
 		for i = 1, attr.components do
@@ -715,9 +716,21 @@ do
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function fragment_shader_macros:v3d_read_attribute(context, append_line, parameters)
 		local i = tonumber(parameters[2] or '1')
-		local attr = register_attribute(context, v3d.text.unquote(parameters[1]))
+		local attr = register_attribute(context, v3d_text.unquote(parameters[1]))
 
 		append_line('{= get_interpolated_attribute_component_name(\'' .. attr.name .. '\', ' .. i .. ') =}')
+	end
+
+	--- @param context v3d.vsl.FragmentShaderMacroContext
+	function fragment_shader_macros:v3d_face_attribute_max_pixel_delta(context, append_line, parameters)
+		-- TODO: make this not necessarily interpolate the attribute
+		local i = tonumber(parameters[2])
+		local attr = register_attribute(context, v3d_text.unquote(parameters[1]))
+
+		-- TODO: make this not double insert
+		table.insert(context.face_attribute_max_pixel_deltas, { name = attr.name, component = i })
+
+		append_line('{= get_face_attribute_max_pixel_delta(\'' .. attr.name .. '\', ' .. i .. ') =}')
 	end
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
@@ -728,7 +741,7 @@ do
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function fragment_shader_macros:v3d_fragment_world_position(context, append_line, parameters)
-		local component = parameters[1] and v3d.text.unquote(parameters[1])
+		local component = parameters[1] and v3d_text.unquote(parameters[1])
 
 		context.is_called_fragment_world_position = true
 
@@ -749,7 +762,7 @@ do
 
 	--- @param context v3d.vsl.FragmentShaderMacroContext
 	function fragment_shader_macros:v3d_face_world_normal(context, append_line, parameters)
-		local component = parameters[1] and v3d.text.unquote(parameters[1])
+		local component = parameters[1] and v3d_text.unquote(parameters[1])
 
 		context.is_called_face_world_normal = true
 
@@ -779,7 +792,7 @@ do
 	--- @param format v3d.Format
 	--- @param fragment_shader_code v3d.vsl.FragmentShaderCode
 	--- @return v3d.vsl.FragmentShaderMacroContext, string
-	function v3d.vsl.process_fragment_shader(layout, format, fragment_shader_code)
+	function v3d_vsl.process_fragment_shader(layout, format, fragment_shader_code)
 		--- @type v3d.vsl.FragmentShaderMacroContext
 		local context = {}
 
@@ -789,7 +802,7 @@ do
 
 		context.internal = {}
 		
-		local code = v3d.vsl.process(fragment_shader_macros, context, fragment_shader_code)
+		local code = v3d_vsl.process(fragment_shader_macros, context, fragment_shader_code)
 
 		table.sort(context.layer_sizes_accessed)
 
@@ -812,7 +825,7 @@ do
 	--- @param layout v3d.Layout
 	--- @param pixel_shader_code v3d.vsl.FragmentShaderCode
 	--- @return v3d.vsl.FragmentShaderMacroContext, string
-	function v3d.vsl.process_pixel_shader(layout, pixel_shader_code)
+	function v3d_vsl.process_pixel_shader(layout, pixel_shader_code)
 		--- @type v3d.vsl.FragmentShaderMacroContext
 		local context = {}
 
@@ -820,7 +833,7 @@ do
 		init_context.framebuffer_bound(context, layout)
 		init_context.pixel_shader(context)
 
-		local code = v3d.vsl.process(pixel_shader_macros, context, pixel_shader_code)
+		local code = v3d_vsl.process(pixel_shader_macros, context, pixel_shader_code)
 
 		table.sort(context.layer_sizes_accessed)
 
@@ -829,3 +842,5 @@ do
 
 	--- @diagnostic enable: invisible
 end
+
+return v3d_vsl

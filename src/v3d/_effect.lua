@@ -1,9 +1,9 @@
 
-local v3d = require 'core'
+local v3d_internal = require '_internal'
+local v3d_text = require 'text'
+local v3d_vsl = require 'vsl'
 
-require 'framebuffer'
-require 'text'
-require 'vsl'
+local v3d_effect = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.EffectOptions ]]-----------------------------------------------------
@@ -42,7 +42,7 @@ do
 	--- Options that the effect is using. Note that this differs to the ones
 	--- it was created with, as these options will have defaults applied etc.
 	--- @field options v3d.EffectOptions
-	v3d.Effect = {}
+	v3d_effect.Effect = {}
 
 	--- We disable diagnostics here since render_geometry is compiled for us
 	--- upon creation. This function here does nothing.
@@ -55,7 +55,7 @@ do
 	--- @param dx integer | nil
 	--- @param dy integer | nil
 	--- @return v3d.EffectStatistics
-	function v3d.Effect:apply(framebuffer, width, height, dx, dy) end
+	function v3d_effect.Effect:apply(framebuffer, width, height, dx, dy) end
 
 	--- @diagnostic enable missing-return, unused-local
 end
@@ -205,7 +205,7 @@ end
 	--- @param label string | nil Optional label for debugging
 	--- @return v3d.Effect
 	--- @nodiscard
-	function v3d.create_effect(options, label)
+	function v3d_effect.create_effect(options, label)
 		local opt_layout = options.layout
 		local opt_pixel_shader = options.pixel_shader
 		local opt_pixel_shader_init = options.pixel_shader_init
@@ -214,10 +214,10 @@ end
 		local opt_template_context = options.template_context or {}
 		local opt_statistics = options.statistics or false
 
-		opt_pixel_shader = opt_pixel_shader and v3d.text.unindent(opt_pixel_shader)
-		opt_pixel_shader_init = opt_pixel_shader_init and v3d.text.unindent(opt_pixel_shader_init)
-		opt_pixel_shader_row_start = opt_pixel_shader_row_start and v3d.text.unindent(opt_pixel_shader_row_start)
-		opt_pixel_shader_row_finish = opt_pixel_shader_row_finish and v3d.text.unindent(opt_pixel_shader_row_finish)
+		opt_pixel_shader = opt_pixel_shader and v3d_text.unindent(opt_pixel_shader)
+		opt_pixel_shader_init = opt_pixel_shader_init and v3d_text.unindent(opt_pixel_shader_init)
+		opt_pixel_shader_row_start = opt_pixel_shader_row_start and v3d_text.unindent(opt_pixel_shader_row_start)
+		opt_pixel_shader_row_finish = opt_pixel_shader_row_finish and v3d_text.unindent(opt_pixel_shader_row_finish)
 
 		local effect = {}
 
@@ -232,29 +232,27 @@ end
 			statistics = opt_statistics,
 		}
 
-		local pixel_shader_context, pixel_shader_code = v3d.vsl.process_pixel_shader(
-			opt_layout, v3d.text.generate_template(opt_pixel_shader, opt_template_context))
+		local pixel_shader_context, pixel_shader_code = v3d_vsl.process_pixel_shader(
+			opt_layout, v3d_text.generate_template(opt_pixel_shader, opt_template_context))
 
 		local _, pixel_shader_init_code, pixel_shader_row_start_code, pixel_shader_row_finish_code = nil, '', '', ''
 		
 		if opt_pixel_shader_init then
-			_, pixel_shader_init_code = v3d.vsl.process_default_shader(
-				v3d.text.generate_template(opt_pixel_shader_init, opt_template_context), pixel_shader_context)
+			_, pixel_shader_init_code = v3d_vsl.process_default_shader(
+				v3d_text.generate_template(opt_pixel_shader_init, opt_template_context), pixel_shader_context)
 		end
 
 		if opt_pixel_shader_row_start then
-			_, pixel_shader_row_start_code = v3d.vsl.process_default_shader(
-				v3d.text.generate_template(opt_pixel_shader_row_start, opt_template_context), pixel_shader_context)
+			_, pixel_shader_row_start_code = v3d_vsl.process_default_shader(
+				v3d_text.generate_template(opt_pixel_shader_row_start, opt_template_context), pixel_shader_context)
 		end
 
 		if opt_pixel_shader_row_finish then
-			_, pixel_shader_row_finish_code = v3d.vsl.process_default_shader(
-				v3d.text.generate_template(opt_pixel_shader_row_finish, opt_template_context), pixel_shader_context)
+			_, pixel_shader_row_finish_code = v3d_vsl.process_default_shader(
+				v3d_text.generate_template(opt_pixel_shader_row_finish, opt_template_context), pixel_shader_context)
 		end
 
 		local template_context = {
-			v3d = v3d,
-
 			opt_layout = opt_layout,
 			opt_statistics = opt_statistics,
 
@@ -291,18 +289,18 @@ end
 			end
 		end
 
-		local effect_source = v3d.text.generate_template(APPLY_SOURCE, template_context)
+		local effect_source = v3d_text.generate_template(APPLY_SOURCE, template_context)
 		local f, err = load(effect_source, 'effect source')
 
 		if not f then -- TODO: aaa bad validation no, but also until v3debug I need this for my sanity
-			f = v3d.internal_error('Failed to compile effect apply function: ' .. err, effect_source)
+			f = v3d_internal.internal_error('Failed to compile effect apply function: ' .. err, effect_source)
 		end
 
-		for k, v in pairs(v3d.vsl.Accelerated) do
+		for k, v in pairs(v3d_vsl.Accelerated) do
 			effect[k] = v
 		end
 
-		for k, v in pairs(v3d.Pipeline) do
+		for k, v in pairs(v3d_effect.Effect) do
 			effect[k] = v
 		end
 
@@ -317,3 +315,5 @@ end
 		return effect
 	end
 end
+
+return v3d_effect

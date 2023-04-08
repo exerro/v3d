@@ -1,7 +1,7 @@
 
-local v3d = require 'core'
+local v3d_internal = require '_internal'
 
-v3d.text = {}
+local v3d_text = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.text.TemplateContext ]]------------------------------------------------
@@ -21,7 +21,7 @@ do
 	--- @param text string
 	--- @return string
 	--- @nodiscard
-	function v3d.text.quote(text)
+	function v3d_text.quote(text)
 		return '\'' .. (text:gsub('[\\\'\n\t]', { ['\\'] = '\\\\', ['\''] = '\\\'', ['\n'] = '\\n', ['\t'] = '\\t' })) .. '\''
 	end
 end
@@ -35,7 +35,7 @@ do
 	--- @param text string
 	--- @return string
 	--- @nodiscard
-	function v3d.text.unquote(text)
+	function v3d_text.unquote(text)
 		-- TODO: should handle escape sequences
 		return (text:gsub('^[\'"]', '', 1):gsub('[\'"]$', '', 1))
 	end
@@ -50,7 +50,7 @@ do
 	--- @param text string
 	--- @return string
 	--- @nodiscard
-	function v3d.text.trim(text)
+	function v3d_text.trim(text)
 		return (text:gsub('^%s+', '', 1):gsub('%s+$', '', 1))
 	end
 end
@@ -64,7 +64,7 @@ do
 	--- @param text string
 	--- @return string
 	--- @nodiscard
-	function v3d.text.unindent(text)
+	function v3d_text.unindent(text)
 		text = text:gsub('%s+$', '')
 
 		local lines = {}
@@ -185,7 +185,7 @@ do
 	--- @param context v3d.text.TemplateContext Variables and functions available in the scope of sections in the template.
 	--- @return string
 	--- @nodiscard
-	function v3d.text.generate_template(template, context)
+	function v3d_text.generate_template(template, context)
 		local env = {}
 
 		env._G = env
@@ -213,7 +213,7 @@ do
 		env.string = string
 		env.table = table
 
-		env.quote = v3d.text.quote
+		env.quote = v3d_text.quote
 
 		for k, v in pairs(context) do
 			env[k] = v
@@ -240,7 +240,7 @@ do
 				end
 
 				if #pre_text > 0 then
-					table.insert(write_content, '_table_insert(_text_segments, ' .. v3d.text.quote(pre_text) .. ')')
+					table.insert(write_content, '_table_insert(_text_segments, ' .. v3d_text.quote(pre_text) .. ')')
 				end
 
 				template = template:sub(close + 2)
@@ -256,25 +256,25 @@ do
 				elseif operator == '!' then
 					local fn, err = load('return ' .. content, content, nil, env)
 					if not fn then fn, err = load(content, content, nil, env) end
-					if not fn then v3d.contextual_error('Invalid {!!} section (syntax): ' .. err .. '\n    ' .. content, content) end
+					if not fn then v3d_internal.contextual_error('Invalid {!!} section (syntax): ' .. err .. '\n    ' .. content, content) end
 					local ok, result = xpcall(fn, _xpcall_handler)
 					if ok and type(result) == 'function' then
 						ok, result = pcall(result)
 					end
-					if not ok then v3d.contextual_error('Invalid {!!} section (runtime):\n' .. result, content) end
+					if not ok then v3d_internal.contextual_error('Invalid {!!} section (runtime):\n' .. result, content) end
 					if type(result) == 'function' then
 						ok, result = pcall(result)
-						if not ok then v3d.contextual_error('Invalid {!!} section (runtime):\n' .. result, content) end
+						if not ok then v3d_internal.contextual_error('Invalid {!!} section (runtime):\n' .. result, content) end
 					end
 					if type(result) ~= 'string' then
-						v3d.contextual_error('Invalid {!!} section (return): not a string (got ' .. type(result) .. ')\n' .. content, content)
+						v3d_internal.contextual_error('Invalid {!!} section (return): not a string (got ' .. type(result) .. ')\n' .. content, content)
 					end
 					template = result:gsub('%${([^}]+)}', '{= %1 =}'):gsub('\n', '\n' .. indent) .. template
 				elseif operator == '#' then
 					-- do nothing, it's a comment
 				end
 			else
-				table.insert(write_content, '_table_insert(_text_segments, ' .. v3d.text.quote(template) .. ')')
+				table.insert(write_content, '_table_insert(_text_segments, ' .. v3d_text.quote(template) .. ')')
 				break
 			end
 		end
@@ -283,10 +283,12 @@ do
 
 		local code = table.concat(write_content, '\n')
 		local f, err = load(code, 'template string', nil, env)
-		if not f then v3d.contextual_error('Invalid template builder (syntax): ' .. err, code) end
+		if not f then v3d_internal.contextual_error('Invalid template builder (syntax): ' .. err, code) end
 		local ok, result = xpcall(f, _xpcall_handler)
-		if not ok then v3d.contextual_error('Invalid template builder section (runtime):\n' .. result, code) end
+		if not ok then v3d_internal.contextual_error('Invalid template builder section (runtime):\n' .. result, code) end
 
 		return result
 	end
 end
+
+return v3d_text

@@ -1,5 +1,5 @@
 
-local v3d = require 'core'
+local v3d_transform = {}
 
 --------------------------------------------------------------------------------
 --[[ v3d.Transform ]]-----------------------------------------------------------
@@ -13,7 +13,7 @@ do
 	--- reasons, but is assumed to equal `[0, 0, 0, 1]` at all times.
 	--- @class v3d.Transform
 	--- @operator mul (v3d.Transform): v3d.Transform
-	v3d.Transform = {}
+	v3d_transform.Transform = {}
 
 	--- Combine this transform with another, returning a transform which first
 	--- applies the 2nd transform, and then this one.
@@ -32,8 +32,8 @@ do
 	--- @param transform v3d.Transform Other transform which will be applied first.
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.Transform:combine(transform)
-		local t = v3d.identity()
+	function v3d_transform.Transform:combine(transform)
+		local t = v3d_transform.identity()
 
 		t[ 1] = self[ 1] * transform[1] + self[ 2] * transform[5] + self[ 3] * transform[ 9]
 		t[ 2] = self[ 1] * transform[2] + self[ 2] * transform[6] + self[ 3] * transform[10]
@@ -60,7 +60,7 @@ do
 	--- @param offset integer | nil Offset within the data to transform the vertex. 0 means no offset. Defaults to 0.
 	--- @return number, number, number
 	--- @nodiscard
-	function v3d.Transform:transform(data, translate, offset)
+	function v3d_transform.Transform:transform(data, translate, offset)
 		offset = offset or 0
 
 		local d1 = data[offset + 1]
@@ -83,7 +83,7 @@ do
 	--- TODO
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.Transform:inverse()
+	function v3d_transform.Transform:inverse()
 		-- TODO: untested!
 		local tr_xx = self[1]
 		local tr_xy = self[2]
@@ -108,7 +108,7 @@ do
 		local inverse_zy = -(tr_xx*tr_zy-tr_zx*tr_xy) * inverse_det
 		local inverse_zz =  (tr_xx*tr_yy-tr_yx*tr_xy) * inverse_det
 
-		return v3d.translate(-self[4], -self[8], -self[12]):combine {
+		return v3d_transform.translate(-self[4], -self[8], -self[12]):combine {
 			inverse_xx, inverse_xy, inverse_xz, 0,
 			inverse_yx, inverse_yy, inverse_yz, 0,
 			inverse_zx, inverse_zy, inverse_zz, 0,
@@ -121,19 +121,19 @@ end
 --------------------------------------------------------------------------------
 
 do
-	v3d.Transform.metatable = { __mul = v3d.Transform.combine }
+	v3d_transform.Transform.metatable = { __mul = v3d_transform.Transform.combine }
 
 	--- Create a [[@v3d.Transform]] which has no effect.
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.identity()
+	function v3d_transform.identity()
 		local t = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0 }
 
-		for k, v in pairs(v3d.Transform) do
+		for k, v in pairs(v3d_transform.Transform) do
 			t[k] = v
 		end
 	
-		return setmetatable(t, v3d.Transform.metatable)
+		return setmetatable(t, v3d_transform.Transform.metatable)
 	end
 
 	--- Create a [[@v3d.Transform]] which translates points by `(dx, dy, dz)` units.
@@ -144,14 +144,14 @@ do
 	--- @param dz number Delta Z.
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.translate(dx, dy, dz)
+	function v3d_transform.translate(dx, dy, dz)
 		local t = { 1, 0, 0, dx, 0, 1, 0, dy, 0, 0, 1, dz }
 
-		for k, v in pairs(v3d.Transform) do
+		for k, v in pairs(v3d_transform.Transform) do
 			t[k] = v
 		end
 	
-		return setmetatable(t, v3d.Transform.metatable)
+		return setmetatable(t, v3d_transform.Transform.metatable)
 	end
 
 	--- Create a [[@v3d.Transform]] which scales (multiplies) points by
@@ -163,14 +163,14 @@ do
 	--- @overload fun(scale: number): v3d.Transform
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.scale(sx, sy, sz)
+	function v3d_transform.scale(sx, sy, sz)
 		local t = { sx, 0, 0, 0, 0, sy or sx, 0, 0, 0, 0, sz or sx, 0 }
 
-		for k, v in pairs(v3d.Transform) do
+		for k, v in pairs(v3d_transform.Transform) do
 			t[k] = v
 		end
 
-		return setmetatable(t, v3d.Transform.metatable)
+		return setmetatable(t, v3d_transform.Transform.metatable)
 	end
 
 	--- Create a [[@v3d.Transform]] which rotates points by `(tx, ty, tz)` radians
@@ -181,7 +181,7 @@ do
 	--- @param tz number Amount to rotate around the Z axis, in radians.
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.rotate(tx, ty, tz)
+	function v3d_transform.rotate(tx, ty, tz)
 		local math_sin = math.sin
 		local math_cos = math.cos
 		local sin_x = math_sin(tx)
@@ -201,11 +201,11 @@ do
 		local fzz = cos_x*cos_y
 		local t = { fxx, fxy, fxz, 0, fyx, fyy, fyz, 0, fzx, fzy, fzz, 0 }
 
-		for k, v in pairs(v3d.Transform) do
+		for k, v in pairs(v3d_transform.Transform) do
 			t[k] = v
 		end
 
-		return setmetatable(t, v3d.Transform.metatable)
+		return setmetatable(t, v3d_transform.Transform.metatable)
 	end
 
 	--- Create a [[@v3d.Transform]] which simulates a camera. The various overloads
@@ -228,7 +228,7 @@ do
 	--- @overload fun(fov: number | nil): v3d.Transform
 	--- @return v3d.Transform
 	--- @nodiscard
-	function v3d.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov)
+	function v3d_transform.camera(x, y, z, x_rotation, y_rotation, z_rotation, fov)
 		if not y then
 			fov = x
 			x = 0
@@ -250,12 +250,14 @@ do
 	
 		local tan_inverse = 1 / math.tan(fov / 2)
 
-		return v3d.Transform.combine(
-			v3d.Transform.combine(
+		return v3d_transform.Transform.combine(
+			v3d_transform.Transform.combine(
 				{ tan_inverse, 0, 0, 0, 0, tan_inverse, 0, 0, 0, 0, 1, 0 },
-				v3d.rotate(-x_rotation, -y_rotation, -z_rotation)
+				v3d_transform.rotate(-x_rotation, -y_rotation, -z_rotation)
 			),
 			{ 1, 0, 0, -x, 0, 1, 0, -y, 0, 0, 1, -z }
 		)
 	end
 end
+
+return v3d_transform

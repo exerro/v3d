@@ -1,10 +1,8 @@
 
-local v3d = require 'core'
+local v3d_framebuffer = require '_framebuffer'
+local v3d_geometry = require '_geometry'
 
-require 'framebuffer'
-require 'geometry'
-
-v3d.support = {}
+local v3d_support = {}
 
 --------------------------------------------------------------------------------
 --[[ Support layouts ]]---------------------------------------------------------
@@ -13,12 +11,12 @@ v3d.support = {}
 do
 	--- Framebuffer layout with just a colour layer.
 	--- @type v3d.Layout
-	v3d.support.COLOUR_LAYOUT = v3d.create_layout()
+	v3d_support.COLOUR_LAYOUT = v3d_framebuffer.create_layout()
 		:add_layer('colour', 'exp-palette-index', 1)
 
 	--- Framebuffer layout with colour and depth layers.
 	--- @type v3d.Layout
-	v3d.support.COLOUR_DEPTH_LAYOUT = v3d.create_layout()
+	v3d_support.COLOUR_DEPTH_LAYOUT = v3d_framebuffer.create_layout()
 		:add_layer('colour', 'exp-palette-index', 1)
 		:add_layer('depth', 'depth-reciprocal', 1)
 end
@@ -30,14 +28,14 @@ end
 do
 	--- A default format containing just position and colour attributes.
 	--- @type v3d.Format
-	v3d.support.DEFAULT_FORMAT = v3d.create_format()
+	v3d_support.DEFAULT_FORMAT = v3d_geometry.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_face_attribute('colour', 1)
 
 	--- A format containing just position and UV attributes, useful for textures or
 	--- other UV based rendering.
 	--- @type v3d.Format
-	v3d.support.UV_FORMAT = v3d.create_format()
+	v3d_support.UV_FORMAT = v3d_geometry.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_vertex_attribute('uv', 2, true)
 
@@ -51,7 +49,7 @@ do
 	--- * `side_index` - face attribute - 1 components
 	--- * `side_name` - face attribute - 1 components
 	--- @type v3d.Format
-	v3d.support.DEBUG_CUBE_FORMAT = v3d.create_format()
+	v3d_support.DEBUG_CUBE_FORMAT = v3d_geometry.create_format()
 		:add_vertex_attribute('position', 3, true)
 		:add_vertex_attribute('uv', 2, true)
 		:add_face_attribute('colour', 1)
@@ -74,14 +72,14 @@ do
 	--- @param size number | nil Distance between opposide faces of the cube.
 	--- @return v3d.GeometryBuilder
 	--- @nodiscard
-	function v3d.create_debug_cube(cx, cy, cz, size)
+	function v3d_support.create_debug_cube(cx, cy, cz, size)
 		local s2 = (size or 1) / 2
 
 		cx = cx or 0
 		cy = cy or 0
 		cz = cz or 0
 
-		return v3d.create_geometry_builder(v3d.support.DEBUG_CUBE_FORMAT)
+		return v3d_geometry.create_geometry_builder(v3d_support.DEBUG_CUBE_FORMAT)
 			:set_data('position', {
 				-s2,  s2,  s2, -s2, -s2,  s2,  s2,  s2,  s2, -- front 1
 				-s2, -s2,  s2,  s2, -s2,  s2,  s2,  s2,  s2, -- front 2
@@ -111,12 +109,12 @@ do
 				0, 1, 1, 1, 1, 0, -- bottom 2
 			})
 			:set_data('colour', {
-				colours.blue, colours.cyan, -- front,
-				colours.brown, colours.yellow, -- back
-				colours.lightBlue, colours.pink, -- left
-				colours.red, colours.orange, -- right
-				colours.green, colours.lime, -- top
-				colours.purple, colours.magenta, -- bottom
+				2048, 512, -- front (blue, cyan)
+				4096, 16, -- back (brown, yellow)
+				8, 64, -- left (lightBlue, pink)
+				16384, 2, -- right (red, orange)
+				8192, 32, -- top (green, lime)
+				1024, 4, -- bottom (purple, magenta)
 			})
 			:set_data('face_normal', {
 					0,  0,  1,  0,  0,  1, -- front
@@ -141,3 +139,5 @@ do
 			end)
 	end
 end
+
+return v3d_support
