@@ -217,22 +217,34 @@ do
 		return layout
 	end
 
-	--- Create an empty [[@v3d.Framebuffer]] of exactly `width` x `height` pixels.
+	--- Create an empty [[@v3d.Framebuffer]] of exactly `width` x `height`
+	--- pixels.
 	---
-	--- Note, for using subpixel rendering (you probably are), use
-	--- `create_framebuffer_subpixel` instead.
+	--- If width_scale or height_scale are specified, the framebuffer size will
+	--- multiplied by the corresponding scale factor. This is useful for
+	--- situations like subpixel rendering, where you want to render to a larger
+	--- framebuffer than the screen size, and then scale it down to the screen
+	--- during the final blit.
 	--- @param layout v3d.Layout Layout of the framebuffer, i.e. what data it contains.
 	--- @param width integer Width of the framebuffer in pixels
 	--- @param height integer Height of the framebuffer in pixels
+	--- @param width_scale integer TODO
+	--- @param height_scale integer TODO
 	--- @param label string | nil Optional label for debugging
+	--- @overload fun(layout: v3d.Layout, width: integer, height: integer, label: string): v3d.Framebuffer
 	--- @return v3d.Framebuffer
 	--- @nodiscard
-	function v3d_framebuffer.create_framebuffer(layout, width, height, label)
+	function v3d_framebuffer.create_framebuffer(layout, width, height, width_scale, height_scale, label)
 		local fb = {}
 
+		if not height_scale then
+			width_scale = 1
+			height_scale = 1
+		end
+
 		fb.layout = layout
-		fb.width = width
-		fb.height = height
+		fb.width = width * width_scale
+		fb.height = height * height_scale
 		fb.layer_data = {}
 
 		for k, v in pairs(v3d_framebuffer.Framebuffer) do
@@ -257,7 +269,7 @@ do
 	--- @return v3d.Framebuffer
 	--- @nodiscard
 	function v3d_framebuffer.create_framebuffer_subpixel(layout, width, height, label)
-		return v3d_framebuffer.create_framebuffer(layout, width * 2, height * 3, label) -- multiply by subpixel dimensions
+		return v3d_framebuffer.create_framebuffer(layout, 2, 3, width, height, label) -- multiply by subpixel dimensions
 	end
 end
 

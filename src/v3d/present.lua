@@ -237,13 +237,31 @@ do
 	--- @param layer v3d.LayerName TODO
 	--- @param dx integer | nil Horizontal integer pixel offset when drawing. 0 (default) means no offset.
 	--- @param dy integer | nil Vertical integer pixel offset when drawing. 0 (default) means no offset.
+	--- @param width integer | nil Width of the area to draw. Defaults to the framebuffer width.
+	--- @param height integer | nil Height of the area to draw. Defaults to the framebuffer height.
+	--- @param x integer | nil Horizontal integer pixel offset within the framebuffer. 0 (default) means no offset.
+	--- @param y integer | nil Vertical integer pixel offset within the framebuffer. 0 (default) means no offset.
+	--- @param sx integer | nil Horizontal integer pixel scale factor. 1 (default) means no scaling.
+	--- @param sy integer | nil Vertical integer pixel scale factor. 1 (default) means no scaling.
 	--- @return nil
-	function v3d_framebuffer.Framebuffer:blit_graphics(term, layer, dx, dy)
+	function v3d_framebuffer.Framebuffer:blit_graphics(term, layer, dx, dy, width, height, x, y, sx, sy)
+		dx = dx or 0
+		dy = dy or 0
+		x = x or 0
+		y = y or 0
+		width = width or self.width
+		height = height or self.height
+		sx = sx or 1
+		sy = sy or 1
+
 		local lines = {}
-		local index = 1
+		local index = 1 + x
+		local lines_index = 1
 		local fb_colour = self:get_buffer(layer)
+		local row_delta = self.width - width
 		local fb_width = self.width
 		local string_char = string.char
+		local string_rep = string.rep
 		local table_concat = table.concat
 		local math_floor = math.floor
 		local math_log = math.log
@@ -253,19 +271,24 @@ do
 			convert_pixel = function(n) return n end
 		end
 
-		dx = dx or 0
-		dy = dy or 0
-
-		for y = 1, self.height do
+		for _ = 1, height do
 			local line = {}
+			local line_index = 1
 
-			for x = 1, fb_width do
-				if not pcall(string_char, convert_pixel(fb_colour[index])) then error(fb_colour[index]) end
-				line[x] = string_char(convert_pixel(fb_colour[index]))
+			for _ = 1, width do
+				line[line_index] = string_rep(string_char(convert_pixel(fb_colour[index])), sx)
+				line_index = line_index + 1
 				index = index + 1
 			end
 
-			lines[y] = table_concat(line)
+			index = index + row_delta
+
+			local line_string = table_concat(line)
+
+			for _ = 1, sy do
+				lines[lines_index] = line_string
+				lines_index = lines_index + 1
+			end
 		end
 
 		term.drawPixels(dx, dy, lines)
