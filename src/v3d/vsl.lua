@@ -18,6 +18,96 @@ do
 end
 
 --------------------------------------------------------------------------------
+--[[ v3d.vsl.ProcessedChunk ]]--------------------------------------------------
+--------------------------------------------------------------------------------
+
+do
+	--- @class v3d.vsl.ProcessedChunk
+	--- @field private template_text string
+	--- @field private v3d_fn_calls { fn: string, params: string[] }[]
+	v3d_vsl.ProcessedChunk = {}
+
+	function v3d_vsl.ProcessedChunk:get_template()
+		return self.template_text
+	end
+
+	--- @param fn string
+	--- @param ... string
+	--- @return boolean
+	--- @nodiscard
+	function v3d_vsl.ProcessedChunk:was_called(fn, ...)
+		local params = { ... }
+		for i = 1, #self.v3d_fn_calls do
+			local call = self.v3d_fn_calls[i]
+			if call.fn == fn and #call.params == #params then
+				local match = true
+				for j = 1, #params do
+					if call.params[j] ~= params[j] then
+						match = false
+						break
+					end
+				end
+				if match then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	--- @param fn string Name of the function, e.g. `"v3d_read_uniform"`.
+	--- @param n integer Which parameter to get.
+	--- @param map (fun(param: string): string) | nil Optional function to map the parameter.
+	--- @return string[]
+	function v3d_vsl.ProcessedChunk:get_parameters(fn, n, map)
+		local results = {}
+		local results_lookup = {}
+
+		for i = 1, #self.v3d_fn_calls do
+			local call = self.v3d_fn_calls[i]
+			if call.fn == fn then
+				local param = call.params[n]
+				if not results_lookup[param] then
+					results_lookup[param] = true
+					if map then
+						table.insert(results, map(param))
+					else
+						table.insert(results, param)
+					end
+				end
+			end
+		end
+
+		return results
+	end
+
+	--- @param fn string Name of the function, e.g. `"v3d_read_uniform"`.
+	--- @param ... integer Which parameters to get.
+	--- @return string[][]
+	function v3d_vsl.ProcessedChunk:get_many_parameters(fn, ...)
+		local results = {}
+		local results_lookup = {}
+
+		for i = 1, #self.v3d_fn_calls do
+			local call = self.v3d_fn_calls[i]
+			if call.fn == fn then
+				local params = {}
+				for j = 1, select('#', ...) do
+					table.insert(params, call.params[select(j, ...)])
+				end
+				local key = table.concat(params, '\0')
+				if not results_lookup[key] then
+					results_lookup[key] = true
+					table.insert(results, params)
+				end
+			end
+		end
+
+		return results
+	end
+end
+
+--------------------------------------------------------------------------------
 --[[ v3d.vsl.Code ]]------------------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -584,6 +674,66 @@ do
 		local changed
 		local table_insert = table.insert
 		local local_contexts = {}
+
+		repeat
+			changed = false
+			code = ('\n' .. code):gsub('(\n[ \t]*)([^\n]-)([%w_]*v3d_[%w_]+)(%b())', function(w, c, f, p)
+				local params = _parse_parameters(p:sub(2, -2))
+				local result = {}
+
+				if f:sub(1, 4) ~= 'v3d_' then
+					return w .. c .. f .. p
+				end
+
+				if c:find '%-%-' then
+					return w .. c .. f .. p
+				end
+
+				local replace = macros[f]
+
+				if not replace then
+					return w .. c .. f .. p
+				end
+
+				if not c:find "[^ \t]" then
+					w = w .. c
+					c = ''
+				end
+
+				if type(replace) == 'function' then
+					local local_context = local_contexts[f]
+					if not local_context then
+						local_context = {}
+						local_contexts[f] = local_context
+					end
+
+					replace(local_context, context, function(line) table_insert(result, line) end, params)
+				elseif #params == 0 then
+					result[1] = replace
+				else
+					v3d_internal.contextual_error('Tried to pass parameters to a string replacement')
+				end
+
+				changed = true
+
+				return w .. c .. table.concat(result, w)
+			end):sub(2)
+		until not changed
+
+		return code
+	end
+
+	-- TODO: idea is to not have to pass in the context, but instead have the
+	--       macro functions have their call registered and be replaced by a
+	--       static string template for that function.
+	--- TODO
+	--- @param code v3d.vsl.Code
+	--- @return v3d.vsl.ProcessedChunk
+	--- @nodiscard
+	function v3d_vsl.process2(code)
+		local changed
+		local table_insert = table.insert
+		local calls = {}
 
 		repeat
 			changed = false
