@@ -1,48 +1,67 @@
-# V3D
 
-3D rasterization library for ComputerCraft!
+# Under maintainance!
 
-V3D lets you draw triangles in 3D with very good performance. The library
-supports more advanced features like per-pixel depth testing, face culling,
-fragment shaders, and perspective correct UV interpolation (that lets you use
-textures).
+V3D is undergoing a major rewrite.
 
-![Screenshot of mountains being drawn using this library](img/mountains.png)
+I'm rebuilding the library's build system and code structure and reinventing
+some of the APIs. You can think of it as v3d 2.0...
 
-The library is low-level and minimal, aimed at developers wanting to write high
-performance 3D applications, or wanting to write a more general purpose and
-capable 3D engine on top of a high performance 3D rasterization library.
+My large scale plans are:
+* LLM powered documentation chatbot: ChatGPT for V3D using the generated documentation to answer questions
+* Automated documentation generation
+  * improved code parser will generate more detailed docs
+  * improved validation specification will allow the documentation to include these details
+* Debugger overhaul
+  * rename v3dd -> v3debug
+  * make it more efficient so you don't get 0.3fps when using it
+  * improve validations (better parameter checking)
+  * support debug regions (group commands into logical regions e.g. 'draw player', 'draw map' etc)
+  * better keyboard controls
 
-## [Guides](https://github.com/exerro/v3d/wiki/Guides)
+Planned API changes:
+* all functions are available as v3d.X(instance, ...) or V3DInstance:X(...)
+* can add custom methods to V3D types
+* introduce V3DImage (1D/2D/3D image type with arbitrary contents)
+* replace framebuffers with collections of V3DImages
+* unify the type system for geometry and images
+* use a consistent, general 'pipeline' approach for dynamically generated optimised code
+* old v3d pipelines will become V3DRenderPipeline
+* old framebuffer pixel shaders will become V3DImageMapPipeline
+* image map pipeline will support advanced copying operations
 
-There are [guides](https://github.com/exerro/v3d/wiki/Guides) covering
-everything from the basics to advanced features and concepts.
+--------------------------------------------------------------------------------
 
-Here are a few you may be interested in.
+## v3doc
 
-* [Installation](https://github.com/exerro/v3d/wiki/Installation)
-* [Quick Start](https://github.com/exerro/v3d/wiki/Quick-Start)
-* [Hello Triangle](https://github.com/exerro/v3d/wiki/Hello-Triangle)
+### Starting development
 
-## [API reference](https://github.com/exerro/v3d/wiki/API-Reference)
+```sh
+cd src/v3doc/
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-## Benchmarking
+Create a `.env` file and enter your OpenAI API key:
 
-I've included a pretty capable suite of benchmarking tools. Use
-`v3d/benchmarking/run --help` for information.
+```
+OPENAI_API_KEY=<sk-...>
+```
 
-The benchmarks offer comparison to another rendering library, Pine3D. I'm
-planning on including C3D at some point too.
+### `injest.py`
 
-Here's some sample output.
+```sh
+injest.py <path-to-injest> --speculative
+```
 
-![Sample benchmark result table](img/benchmarks.png)
+Import documents to be used to answer queries. Documents will have embeddings
+generated.
 
-## Rasterisation visualisation
+### Observations
 
-The library uses a custom rasterization algorithm. You can interactively play
-with the rasterizer using a Kotlin application.
+* Using a non-zero frequency penalty discourages it from asking about N-D
+  variations of a type e.g. V3DSampler1D, V3DSampler2D, etc.
+  There seems to be little improvement in quality with the v9 system message
+  when left as zero.
 
-Check out the [`raster_visuals`](./raster_visuals) folder for details!
-
-![Screenshot produced by rasterisation visualisation program](raster_visuals/img/visualisation.png)

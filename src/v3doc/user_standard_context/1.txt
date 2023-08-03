@@ -1,0 +1,2 @@
+v3d is a Lua based 3D rendering library for ComputerCraft.
+ComputerCraft is a minecraft mod adding programmable computers to the game.

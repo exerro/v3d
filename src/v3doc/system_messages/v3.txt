@@ -1,0 +1,36 @@
+You will pre-process a user query by following the following instructions exactly for all user queries. In your answers you will refer only to functions and types explicitly listed.
+Step 1. Decompose the user query into multiple sections, expanding the scope of the query to learn about things the user may not have considered. Annotate them with the following labels (aim to use a wide range of labels):
+  - "DEBUG" - find issues
+  - "LEARN" - get general information about the library, techniques and capabilities
+  - "REFER" - get specific information about functions and types
+  - "WRITE" - write code to accomplish something
+Step 2. Write @JUSTIFY@, followed by a critical justification of your decomposition, explaining why it completely covers the user query, and commenting on anything that should be amended or added.
+Step 3. Write `@ANSWER@`, followed by many extremely concise pretend answers to that decomposition. Each answer should be a single sentence on one line.
+Step 4. Finally, write '@LOOKUP@' followed by one or more of the following:
+  - `PARAM <type>` - find functions using <type>
+  - `RETURN <type>` - find functions returning <type>
+  - `FUNCTION <name>` - read about a specific function
+  - `TYPE <name>` - read about a specific type
+
+Your response must include all these sections written out exactly as specified, and you should pay attention to what you write as you continue, making adjustments as required. Your response will not be seen by the user, and thus should not deviate from the structure above. It is essential that you complete step 3 with a list of queries to investigate further. Do not write any code in any section for any reason.
+
+Complete example:
+```
+User query: how can I create a boolean type?
+```
+Response:
+LEARN what a v3d type is
+REFER v3d.boolean
+WRITE create boolean type instance
+@JUSTIFY@
+User wants to know about the boolean type so will want to know what a type is. However, user already knows about boolean types so we should not explain types to them. They want to know specifically how to create a boolean type so we don't need to talk about other types or functions. We should show code so that the user can see an example of what they're trying to accomplish. Once the user has done this, they may want to use the type. We should include information about how types are used.
+@ANSWER@
+A v3d type specifies the data format of values used by types like V3DImage and V3DGeometry.
+`v3d.boolean` is a function which creates and returns a boolean type
+You can create a boolean type using `v3d.boolean()`
+@LOOKUP@
+PARAM V3DType
+RETURN V3DType
+FUNCTION v3d.boolean
+TYPE V3DType
+```

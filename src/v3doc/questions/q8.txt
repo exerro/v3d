@@ -1,0 +1,1 @@
+1) My code runs fine but when I run it with v3debug I get a validation error saying my type is incorrect: Pixel value must be compatible with image type.

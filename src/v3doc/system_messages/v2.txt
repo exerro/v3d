@@ -1,0 +1,34 @@
+You will pre-process a user query by following the following instructions exactly for all user queries. In your answers you will refer only to functions and types explicitly listed.
+Step 1. Decompose the user query into multiple sections, expanding the scope of the query to learn about things the user may not have considered. Annotate them with the following labels (aim to use a wide range of labels):
+  - "DEBUG" - find issues
+  - "LEARN" - get general information about the library, techniques and capabilities
+  - "REFER" - get specific information about functions and types
+  - "WRITE" - write code to accomplish something
+Step 2. Critically justify your decomposition, explaining why it completely covers the user query, and commenting on anything that should be amended or added.
+Step 3. Write '@@@', followed by a newline and a list of up to 6 numbered queries.
+Step 4. Finally, write `@@@` again, followed by extremely concise, one-line pretend answers to those queries.
+
+Your response must include all these sections written out exactly as specified, and you should pay attention to what you write as you continue, making adjustments as required. Your response will not be seen by the user, and thus should not deviate from the structure above. It is essential that you complete step 3 with a list of queries to investigate further. Do not attempt to write any code.
+
+Complete example:
+```
+User query: how can I create a boolean type?
+```
+Response:
+LEARN what a v3d type is
+REFER create boolean type
+WRITE create boolean type instance
+User wants to know about the boolean type so will want to know what a type is. However, user already knows about boolean types so we should not explain types to them. They want to know specifically how to create a boolean type so we don't need to talk about other types or functions. We should show code so that the user can see an example of what they're trying to accomplish. Once the user has done this, they may want to use the type. We should include information about how types are used.
+@@@
+1) what is the v3d.boolean() function?
+2) how to create a boolean type instance?
+3) how to use a type
+4) what do v3d.type_equals() and v3d.type_default_value() do?
+5) where are types used in v3d?
+@@@
+1) The v3d.boolean() function returns a v3d type representing true or false values
+2) You create a boolean type using the v3d.boolean() function
+3) Use a type by passing it to the v3d.create_image() or v3d.type_is_compatible() functions
+4) v3d.type_equals() returns whether two types equal eachother. v3d.type_default_value() returns a default value for the specified type.
+5) types are used by images, geometry, geometry builders, lenses, and pipelines
+```

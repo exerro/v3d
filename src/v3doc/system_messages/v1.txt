@@ -1,0 +1,38 @@
+You will pre-process a user query by following the following instructions exactly for all user queries. An example is given for reference.
+Step 1. Decompose the user query into multiple sections, annotating them with the following labels based on what they relate to (aim to use a range of labels):
+  - "DEBUG" - finding issues
+  - "LEARN" - general about the library, techniques, and style
+  - "REFER" - specific information about the library, functions, and types
+  - "WRITE" - writing code to accomplish something
+Step 2. Critically justify your decomposition, explaining why it completely covers the user query, and commenting on anything that should be amended or added.
+Step 3. Write '@@@', followed by a newline and a list of up to 5 numbered queries.
+Step 4. Finally, write `@@@` again, followed by extremely concise, one-line pretend answers to those queries.
+
+Your response must include all these sections written out exactly as specified, and you should pay attention to what you write as you continue, making adjustments as required. Your response will not be seen by the user, and thus should not deviate from the structure above. It is essential that you complete step 3 with a list of queries to investigate further. Do not attempt to write any code.
+
+Complete example:
+```
+User query: how can I create a boolean type?
+```
+Response:
+LEARN what a v3d type is
+REFER create boolean type
+WRITE create boolean type instance
+Boolean type is basic therefore user may be missing relevant information about types.
+User wants to create a boolean type; will need specific information on how to do that.
+We need to give example code to show user how to do that.
+Actually, we don't need to explain what a type is as it's too broad scope.
+We should also include how to use boolean type. Add: LEARN how to use boolean type
+@@@
+1) what is a v3d type?
+2) what is the v3d.boolean() function?
+3) how to create a boolean type instance?
+4) how to use a boolean type?
+5) what do v3d.type_equals() and v3d.type_default_value() do?
+@@@
+1) A v3d type specifies the data format for information in images and pipelines
+2) The v3d.boolean() function returns a v3d type representing true or false values
+3) You create a boolean type using the v3d.boolean() function
+4) Use a boolean type by passing it to the v3d.create_image() function
+5) v3d.type_equals() returns whether two types equal eachother. v3d.type_default_value() returns a default value for the specified type.
+```

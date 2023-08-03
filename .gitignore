@@ -6,3 +6,6 @@
 
 # Ignore python cache files
 **/__pycache__/
+
+# Ignore private .env content
+**/.env
