@@ -1,3 +1,8 @@
-/build/
-/gen/
-/test/png.lua
+# Ignore generated content
+/artifacts/
+
+# Ignore v3doc virtual environment
+/src/v3doc/.venv/
+
+# Ignore python cache files
+**/__pycache__/
