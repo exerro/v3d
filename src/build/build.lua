@@ -1,6 +1,5 @@
 
--- TODO: how do I do custom visualisation?
--- TODO: use Windows path & emulator instead!
+-- TODO: how do I do custom visualisation in v3debug?
 
 local quick_build = ...
 
@@ -14,6 +13,7 @@ local v3d_base_dir = shell
 	and shell.getRunningProgram():gsub('src/build/build.lua$', '')
 	or '../../../'
 
+--- @param filename string
 local function read_file(filename)
 	local h = assert(io.open(v3d_base_dir .. filename, 'r'))
 	local content = h:read '*a'
@@ -21,66 +21,17 @@ local function read_file(filename)
 	return content
 end
 
+--- @param filename string
+--- @param content string
 local function write_file(filename, content)
 	local h = assert(io.open(v3d_base_dir .. filename, 'w'))
 	h:write(content)
 	h:close()
 end
 
-local h = assert(io.open(v3d_base_dir .. 'src/v3d/v3d.lua'))
-local v3d_content = h:read '*a'
-h:close()
-
-local h = assert(io.open(v3d_base_dir .. 'src/v3debug/v3debug.lua'))
-local v3debug_content = h:read '*a'
-h:close()
-
+local v3d_content = read_file('src/v3d/v3d.lua')
+local v3debug_content = read_file('src/v3debug/v3debug.lua')
 local v3d_docstring, v3d_warnings = docstring.parse(v3d_content)
-
-local v3d_alias_lookup = v3d_docstring.aliases
-local v3d_class_lookup = v3d_docstring.classes
-local v3d_subclass_lookup = {}
-do -- generate lookup tables
-	for i = 1, #v3d_docstring.classes do
-		local this_class = v3d_docstring.classes[i]
-		local super = this_class.extends
-		while super do
-			local super_class = assert(v3d_class_lookup[super], super)
-			v3d_subclass_lookup[super_class] = v3d_subclass_lookup[super_class] or {}
-			table.insert(v3d_subclass_lookup[super_class], this_class)
-			super = super_class.extends
-		end
-	end
-end
-
---- @type { [string]: { [string]: DocstringFunction } }
-local v3d_docstring_methods = {}
-do -- generate methods
-	--- @param typename string
-	--- @param class DocstringClass
-	--- @return string | nil
-	local function is_instance_inherited(typename, class)
-		if class.name == typename then
-			return class.name
-		end
-		if class.extends == typename then
-			return class.extends
-		end
-		return nil
-	end
-
-	for _, class in ipairs(v3d_docstring.classes) do
-		for _, fn in ipairs(v3d_docstring.functions) do
-			if fn.method_name ~= nil then
-				local target_class_name = is_instance_inherited(fn.parameters[1].type, class)
-				if target_class_name then
-					v3d_docstring_methods[class.name] = v3d_docstring_methods[class.name] or {}
-					v3d_docstring_methods[class.name][fn.method_name] = fn
-				end
-			end
-		end
-	end
-end
 
 do -- replace `-- #gen-type-methods`
 	--- @param class DocstringClass
@@ -92,16 +43,16 @@ do -- replace `-- #gen-type-methods`
 		local method_annotation_snippets = {}
 		local method_snippets = {}
 
-		if not v3d_docstring_methods[typename] then
+		if #class.methods == 0 then
 			return ''
 		end
 
-		for method_name, fn in pairs(v3d_docstring_methods[typename]) do
+		for _, fn in ipairs(class.methods) do
 			local param_names = {}
 			local param_types = {}
 			local s = {}
 
-			table.insert(method_snippets, '__type_methods.' .. typename .. '[\'' .. method_name .. '\'] = ' .. fn.name)
+			table.insert(method_snippets, '__type_methods.' .. typename .. '[\'' .. fn.method_name .. '\'] = ' .. fn.name)
 
 			table.insert(s, '--- ' .. fn.docstring:gsub('\n', '\n--- '))
 
@@ -113,7 +64,7 @@ do -- replace `-- #gen-type-methods`
 
 			if fn.parameters[1].type == typename then
 				table.insert(s, '--- @return ' .. fn.return_type)
-				table.insert(s, 'function __' .. typename .. '_extension:' .. method_name .. '(' .. table.concat(param_names, ',') .. ')end')
+				table.insert(s, 'function __' .. typename .. '_extension:' .. fn.method_name .. '(' .. table.concat(param_names, ',') .. ')end')
 				table.insert(method_annotation_snippets, table.concat(s, '\n'))
 			end
 
@@ -205,8 +156,8 @@ do -- replace `-- #gen-generated-functions`
 		local lines = {}
 		local has_generated = {}
 
-		for _, methods in pairs(v3d_docstring_methods) do
-			for method_name, fn in pairs(methods) do
+		for i = 1, #v3d_docstring.classes do
+			for _, fn in ipairs(v3d_docstring.classes[i].methods) do
 				if not has_generated[fn.name] and fn.is_generated then
 					-- we use this weird write_name to confuse the LS so it
 					-- doesn't complain about us overwriting a field
@@ -216,7 +167,7 @@ do -- replace `-- #gen-generated-functions`
 						end)
 					has_generated[fn.name] = true
 					table.insert(lines, write_name .. ' = function(instance, ...)')
-					table.insert(lines, '\treturn instance:' .. method_name .. '(...)')
+					table.insert(lines, '\treturn instance:' .. fn.method_name .. '(...)')
 					table.insert(lines, 'end')
 				end
 			end
@@ -411,7 +362,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 					table.insert(fields_to_validate, { field = field, validator = field_validator })
 				end
 			end
-			class_to_check = v3d_class_lookup[class_to_check.extends]
+			class_to_check = v3d_docstring.classes[class_to_check.extends]
 		end
 
 		table.insert(type_validator_lines, 'local function ' .. validator_name .. '(errors, attribute, value)')
@@ -438,6 +389,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		return validator_name
 	end
 
+	--- @param class DocstringClass
 	local function get_v3d_non_structural_type_validator(class)
 		if generated_v3d_type_validators[class.name] then
 			return generated_v3d_type_validators[class.name]
@@ -447,7 +399,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		generated_v3d_type_validators[class.name] = validator_name
 
 		local valid_typenames = { class.name }
-		for _, subclass in ipairs(v3d_subclass_lookup[class] or {}) do
+		for _, subclass in ipairs(class.subclasses) do
 			table.insert(valid_typenames, subclass.name)
 		end
 
@@ -496,8 +448,8 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		elseif type.kind == 'constant' then
 			return get_constant_type_validator(type.value)
 		elseif type.kind == 'ref' then
-			local v3d_alias_type = v3d_alias_lookup[type.name]
-			local v3d_class_type = v3d_class_lookup[type.name]
+			local v3d_alias_type = v3d_docstring.aliases[type.name]
+			local v3d_class_type = v3d_docstring.classes[type.name]
 			assert(v3d_alias_type or v3d_class_type, type.name)
 
 			if v3d_alias_type then
@@ -558,7 +510,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		table.insert(lines, '\t\terror(V3D_VALIDATION_ERROR, 2)')
 		table.insert(lines, '\tend')
 
-		if fn.calls_logged then
+		if fn.is_v3debug_logged then
 			table.insert(lines, '\tlocal _call = { name = \'' .. fn.name .. '\', parameters = { ' .. table.concat(param_names, ', ') .. ' } }')
 			table.insert(lines, '\t_table_insert(v3d_this_frame_calls, _call)')
 			table.insert(lines, '\tlocal result = ' .. reference_name .. '(' .. table.concat(param_names, ', ') .. ')')
@@ -576,7 +528,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		lines[1] = 'local _table_insert = table.insert'
 
 		for _, fn in ipairs(v3d_docstring.functions) do
-			if not fn_blacklist[fn.name] and (fn.calls_logged or #fn.parameters > 0) and not fn.is_generated then
+			if not fn_blacklist[fn.name] and (fn.is_v3debug_logged or #fn.parameters > 0) and not fn.is_generated then
 				local revised_name = fn.name:gsub('v3d%.', 'v3d_modified_library%.')
 				gen_function_wrapper(lines, revised_name, fn)
 			end
@@ -588,15 +540,15 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 	local function gen_generated_function_wrappers(indent)
 		local lines = {}
 
-		for class_name, methods in pairs(v3d_docstring_methods) do
+		for _, class in ipairs(v3d_docstring.classes) do
 			local methods_to_generate_for = {}
-			for method_name, fn in pairs(methods) do
-				if not fn_blacklist[fn.name] and (fn.calls_logged or #fn.parameters > 0) and fn.is_generated then
-					methods_to_generate_for[method_name] = fn
+			for _, fn in ipairs(class.methods) do
+				if not fn_blacklist[fn.name] and (fn.is_v3debug_logged or #fn.parameters > 0) and fn.is_generated then
+					methods_to_generate_for[fn.method_name] = fn
 				end
 			end
 			if next(methods_to_generate_for) then
-				table.insert(lines, string.format('_original_v3d_set_create_hook(%q, function(instance)', class_name))
+				table.insert(lines, string.format('_original_v3d_set_create_hook(%q, function(instance)', class.name))
 				local l = {}
 				for method_name, fn in pairs(methods_to_generate_for) do
 					gen_function_wrapper(l, 'instance.' .. method_name, fn)
@@ -622,13 +574,13 @@ do -- replace `-- #gen-method-wrappers`
 	local function gen_method_wrappers(indent)
 		local s = {}
 		for _, class in ipairs(v3d_docstring.classes) do
-			if not class.is_abstract and v3d_docstring_methods[class.name] then
-				for method_name, fn in pairs(v3d_docstring_methods[class.name]) do
+			if not class.is_abstract and #class.methods > 0 then
+				for _, fn in ipairs(class.methods) do
 					if not fn.is_generated then
 						table.insert(s, string.format(
 							'_original_v3d_set_method(%q, %q, %s)',
 							class.name,
-							method_name,
+							fn.method_name,
 							fn.name:gsub('v3d%.', 'v3d_modified_library%.')
 						))
 					end
@@ -645,8 +597,8 @@ do -- replace `-- #gen-metamethod-wrappers`
 	local function gen_metamethod_wrappers(indent)
 		local s = {}
 		for _, class in ipairs(v3d_docstring.classes) do
-			if not class.is_abstract and v3d_docstring_methods[class.name] then
-				for _, fn in pairs(v3d_docstring_methods[class.name]) do
+			if not class.is_abstract and #class.methods > 0 then
+				for _, fn in pairs(class.methods) do
 					for _, metamethod in ipairs(fn.metamethods) do
 						table.insert(s, string.format(
 							'_original_v3d_set_metamethod(%q, %q, %s)',
@@ -665,9 +617,9 @@ do -- replace `-- #gen-metamethod-wrappers`
 end
 
 write_file('artifacts/v3d.lua', v3d_content)
-assert(load(v3d_content, 'v3d.lua'))
-
 write_file('artifacts/v3debug.lua', v3debug_content)
+assert(load(v3d_content, 'v3d.lua'))
+assert(load(v3debug_content, 'v3debug.lua'))
 
 do -- write warnings to warnings.txt:
 	local h = assert(io.open(v3d_base_dir .. 'artifacts/warnings.txt', 'w'))
@@ -715,7 +667,7 @@ do -- generate a function and type list
 			table.insert(parameters, fn.parameters[i].name .. ': ' .. fn.parameters[i].type)
 		end
 
-		local to_insert = fn.name:gsub('^v3d%.', '')
+		local to_insert = fn.name:gsub('^v3d%.', '%* ')
 		local type_to_insert = to_insert .. '(' .. table.concat(parameters, ', ') .. ')'
 
 		if fn.is_advanced then
@@ -737,79 +689,72 @@ do -- generate a function and type list
 	table.sort(function_lines)
 	table.sort(type_lines)
 
-	write_file('artifacts/advanced-function-list.txt', table.concat(advanced_function_lines, '\n'))
-	write_file('artifacts/function-list.txt', table.concat(function_lines, '\n'))
-	write_file('artifacts/advanced-function-type-list.txt', table.concat(advanced_function_type_lines, '\n'))
-	write_file('artifacts/function-type-list.txt', table.concat(function_type_lines, '\n'))
-	write_file('artifacts/type-list.txt', table.concat(type_lines, '\n'))
+	write_file('artifacts/v3doc/advanced-function-list.txt', table.concat(advanced_function_lines, '\n'))
+	write_file('artifacts/v3doc/function-list.txt', table.concat(function_lines, '\n'))
+	write_file('artifacts/v3doc/advanced-function-type-list.txt', table.concat(advanced_function_type_lines, '\n'))
+	write_file('artifacts/v3doc/function-type-list.txt', table.concat(function_type_lines, '\n'))
+	write_file('artifacts/v3doc/type-list.txt', table.concat(type_lines, '\n'))
 end
 
-do -- generate embedding documents
+do -- generate v3doc source_documents for embedding
+	local document_sources = 'artifacts/v3doc/document_sources/'
+
 	for i = 1, #v3d_docstring.aliases do
-		local content = embedgen.generate_alias_embedded_documentation(v3d_docstring.aliases[i])
-		write_file('artifacts/doc/generated/embedding/alias/' .. v3d_docstring.aliases[i].name .. '.md', content)
+		write_file(
+			document_sources .. 'alias/' .. v3d_docstring.aliases[i].name .. '.md',
+			embedgen.generate_alias_embedded_documentation(v3d_docstring.aliases[i]))
 	end
 
 	for i = 1, #v3d_docstring.classes do
+		local methods = v3d_docstring.classes[i].methods
 		local class_name = v3d_docstring.classes[i].name
 		local main_content = embedgen.generate_class_embedded_documentation(v3d_docstring.classes[i], v3d_docstring.classes)
 		local constructors_content = embedgen.generate_class_constructor_embedded_documentation(v3d_docstring.classes[i], v3d_docstring.functions)
-		write_file('artifacts/doc/generated/embedding/class/type/' .. class_name .. '.md', main_content)
-		write_file('artifacts/doc/generated/embedding/class/constructor/' .. class_name .. '.md', constructors_content)
+		write_file(document_sources .. 'class/type/' .. class_name .. '.md', main_content)
+		write_file(document_sources .. 'class/constructor/' .. class_name .. '.md', constructors_content)
 
-		if next(v3d_docstring_methods[class_name] or {}) then
-			local methods_content = embedgen.generate_class_method_embedded_documentation(v3d_docstring.classes[i], v3d_docstring_methods[class_name])
-			write_file('artifacts/doc/generated/embedding/class/method/' .. class_name .. '.md', methods_content)
+		if #methods > 0 then
+			write_file(
+				document_sources .. 'class/method/' .. class_name .. '.md',
+				embedgen.generate_class_method_embedded_documentation(v3d_docstring.classes[i]))
 		end
 	end
 
 	for i = 1, #v3d_docstring.functions do
-		local content = embedgen.generate_function_embedded_documentation(v3d_docstring.functions[i])
-		write_file('artifacts/doc/generated/embedding/function/' .. v3d_docstring.functions[i].name .. '.md', content)
+		write_file(
+			document_sources .. 'function/' .. v3d_docstring.functions[i].name .. '.md',
+				embedgen.generate_function_embedded_documentation(v3d_docstring.functions[i]))
+	end
+
+	local snippet_files = fs.list(v3d_base_dir .. 'src/v3d/doc')
+	for i = 1, #snippet_files do
+		local snippet_content = read_file('src/v3d/doc/' .. snippet_files[i])
+		write_file(
+			document_sources .. 'snippet/' .. snippet_files[i],
+			embedgen.annotate_snippet(snippet_files[i]:gsub('%.md$', ''), snippet_content))
 	end
 end
 
-do -- generate v3d/doc embedding documents
-	local files = fs.list(v3d_base_dir .. 'src/v3d/doc')
-
-	for i = 1, #files do
-		local content = read_file('src/v3d/doc/' .. files[i])
-		content = embedgen.annotate_snippet(files[i]:gsub('%.md$', ''), content)
-		write_file('artifacts/doc/generated/embedding/snippet/' .. files[i], content)
-	end
-end
-
-do -- generate function docstrings
+do -- generate human-facing docstrings
+	-- generate function docstrings
 	for i = 1, #v3d_docstring.functions do
-		local content = docgen.generate_function_documentation(v3d_docstring.functions[i], false)
-
-		local h = assert(io.open(v3d_base_dir .. 'artifacts/doc/generated/function/' .. v3d_docstring.functions[i].name .. '.md', 'w'))
-		h:write(content)
-		h:close()
+		write_file(
+			'artifacts/v3doc/user/function/' .. v3d_docstring.functions[i].name .. '.md',
+			docgen.generate_function_documentation(v3d_docstring.functions[i], false))
 	end
-end
 
-do -- generate alias docstrings
+	-- generate alias docstrings
 	for i = 1, #v3d_docstring.aliases do
-		local content = docgen.generate_alias_documentation(v3d_docstring.aliases[i])
-
-		local h = assert(io.open(v3d_base_dir .. 'artifacts/doc/generated/alias/' .. v3d_docstring.aliases[i].name .. '.md', 'w'))
-		h:write(content)
-		h:close()
+		write_file(
+			'artifacts/v3doc/user/alias/' .. v3d_docstring.aliases[i].name .. '.md',
+			docgen.generate_alias_documentation(v3d_docstring.aliases[i]))
 	end
-end
 
-do -- generate class docstrings
+	-- generate class docstrings
 	for i = 1, #v3d_docstring.classes do
-		local content = docgen.generate_class_documentation(
-			v3d_docstring.classes[i],
-			v3d_docstring_methods[v3d_docstring.classes[i].name] or {},
-			v3d_docstring,
-			false)
-
-		local h = assert(io.open(v3d_base_dir .. 'artifacts/doc/generated/class/' .. v3d_docstring.classes[i].name .. '.md', 'w'))
-		h:write(content)
-		h:close()
+		write_file(
+			'artifacts/v3doc/user/class/' .. v3d_docstring.classes[i].name .. '.md',
+			docgen.generate_class_documentation(v3d_docstring.classes[i], v3d_docstring, false))
 	end
 end
 
@@ -835,7 +780,7 @@ do -- run tests:
 	test_f()
 end
 
-do -- run examples:
+do -- test examples:
 	local w, h = term.getSize()
 	local window = _ENV.window.create(term.current(), 1, 1, w, h, false)
 

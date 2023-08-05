@@ -4,7 +4,7 @@ local gen = require 'gen'
 
 --- @param docstring string
 local function short_docstring(docstring)
-	return docstring:match('^%s*(.-)[\n%.]')
+	return docstring:match('^%s*(.-)[%.]'):gsub('\n\n.*$', '')
 end
 
 local function function_sorter(a, b)
@@ -133,6 +133,9 @@ function embedgen.generate_class_embedded_documentation(class, classes)
 
 	generator:writeLine(class.docstring)
 	generator:writeLine('Instances are %stracked in v3debug.', class.instances_tracked and '' or 'not ')
+	generator:writeLine('Instances are %s.',
+		class.is_structural and 'Lua tables containing all the fields below'
+	                         or 'created with constructor functions within the library')
 
 	if #class.subclasses > 0 then
 		generator:writeLine()
@@ -216,6 +219,7 @@ function embedgen.generate_class_constructor_embedded_documentation(class, all_f
 		generator:writeLine()
 	end
 
+	--- @type DocstringFunction[]
 	local constructors = {}
 	for i = 1, #all_functions do
 		local fn = all_functions[i]
@@ -236,15 +240,21 @@ function embedgen.generate_class_constructor_embedded_documentation(class, all_f
 		generator:writeLine()
 		generator:writeLine(short_docstring(constructors[i].docstring))
 		generator:writeLine()
+
+		if #constructors[i].metamethods > 0 then
+			for j = 1, #constructors[i].metamethods do
+				generator:writeLine('* As metamethod: %s', constructors[i].metamethods[j])
+			end
+			generator:writeLine()
+		end
 	end
 
 	return generator:build()
 end
 
 --- @param class DocstringClass
---- @param methods { [string]: DocstringFunction }
 --- @return string
-function embedgen.generate_class_method_embedded_documentation(class, methods)
+function embedgen.generate_class_method_embedded_documentation(class)
 	local generator = gen.generator()
 
 	generator:writeLine('---')
@@ -256,7 +266,7 @@ function embedgen.generate_class_method_embedded_documentation(class, methods)
 	generator:writeLine()
 
 	local queued_methods = {}
-	for _, fn in pairs(methods) do
+	for _, fn in ipairs(class.methods) do
 		table.insert(queued_methods, fn)
 	end
 
@@ -275,6 +285,13 @@ function embedgen.generate_class_method_embedded_documentation(class, methods)
 		generator:writeLine()
 		generator:writeLine(short_docstring(queued_methods[i].docstring))
 		generator:writeLine()
+
+		if #queued_methods[i].metamethods > 0 then
+			for j = 1, #queued_methods[i].metamethods do
+				generator:writeLine('* As metamethod: %s', queued_methods[i].metamethods[j])
+			end
+			generator:writeLine()
+		end
 	end
 
 	return generator:build()
@@ -310,7 +327,7 @@ function embedgen.generate_function_embedded_documentation(fn)
 	generator:writeLine()
 	generator:writeLine(fn.docstring)
 	generator:writeLine()
-	generator:writeLine('Returns: %s%s', fn.return_type, fn.chainable and ' (' .. fn.parameters[1].name .. ')' or '')
+	generator:writeLine('Returns: %s%s', fn.return_type, fn.is_chainable and ' (' .. fn.parameters[1].name .. ')' or '')
 
 	if #fn.parameters > 0 then
 		generator:writeLine('Parameters:')
@@ -333,7 +350,7 @@ function embedgen.generate_function_embedded_documentation(fn)
 
 	generator:writeLine()
 	generator:writeLine('Properties:')
-	generator:writeLine('* Calls seen in v3debug: %s', fn.calls_logged and 'yes' or 'no')
+	generator:writeLine('* Calls seen in v3debug: %s', fn.is_v3debug_logged and 'yes' or 'no')
 	generator:writeLine('* Advanced usage: %s', fn.is_advanced and 'yes' or 'no')
 
 	if #fn.example_usages > 0 then

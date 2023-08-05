@@ -1,0 +1,1 @@
+give me a format to store rgb values in an image

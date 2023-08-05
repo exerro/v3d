@@ -8,9 +8,9 @@ import re
 from rich.console import Console
 from rich.table import Table
 
-from conf import get_v3d_path
-from conf import get_v3doc_documents_path
-from llm import get_tokens
+from ..lib.conf import get_v3d_path
+from ..lib.conf import get_v3doc_documents_path
+from ..lib.llm import get_tokens
 
 console = Console()
 

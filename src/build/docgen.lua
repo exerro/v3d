@@ -109,9 +109,9 @@ local function generate_function_docstring_body(generator, fn, method_name, comp
 	generator:writeLine(
 		'* Calls to this %s are%s visible in v3debug',
 		method_name and 'method' or 'function',
-		fn.calls_logged and '' or ' not')
+		fn.is_v3debug_logged and '' or ' not')
 
-	if fn.chainable then
+	if fn.is_chainable then
 		generator:writeLine(
 			'* This %s returns `%s`',
 			method_name and 'method' or 'function',
@@ -167,11 +167,10 @@ function docgen.generate_alias_documentation(alias)
 end
 
 --- @param class DocstringClass
---- @param methods { [string]: DocstringFunction }
 --- @param v3d_docstring Docstring
 --- @param compact boolean
 --- @return string
-function docgen.generate_class_documentation(class, methods, v3d_docstring, compact)
+function docgen.generate_class_documentation(class, v3d_docstring, compact)
 	local generator = gen.generator()
 	local class_type = class.is_structural and 'structure' or 'class'
 
@@ -286,12 +285,12 @@ function docgen.generate_class_documentation(class, methods, v3d_docstring, comp
 	end
 
 	local has_metamethod = false
-	if next(methods) then
+	if #class.methods > 0 then
 		generator:writeLine('## Methods')
 		generator:writeLine()
 
 		local queued_methods = {}
-		for _, fn in pairs(methods) do
+		for _, fn in ipairs(class.methods) do
 			table.insert(queued_methods, fn)
 		end
 		table.sort(queued_methods, method_sorter)
@@ -319,10 +318,10 @@ function docgen.generate_class_documentation(class, methods, v3d_docstring, comp
 		generator:writeLine('## Operators')
 		generator:writeLine()
 
-		for method_name, fn in pairs(methods) do
+		for _, fn in ipairs(class.methods) do
 			if #fn.metamethods > 0 then
 				for i = 1, #fn.metamethods do
-					generator:writeLine('* `__%s` calls `%s`', fn.metamethods[i], method_name)
+					generator:writeLine('* `__%s` calls `%s`', fn.metamethods[i], fn.method_name)
 				end
 			end
 		end

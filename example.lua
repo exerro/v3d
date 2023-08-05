@@ -1,6 +1,21 @@
 
 local v3d = require 'v3d'
 
+local pineapple_image = v3d.create_image(v3d.uinteger(), 16, 15, 1)
+
+-- Set the color of each pixel to represent the pineapple
+for x = 0, 15 do
+    for y = 0, 15 do
+        if (x >= 6 and x <= 9) and (y >= 6 and y <= 9) then
+            v3d.image_set_pixel(pineapple_image, x, y, 0, colours.yellow)
+        else
+            v3d.image_set_pixel(pineapple_image, x, y, 0, colours.green)
+        end
+    end
+end
+
+v3d.image_present_term_subpixel(pineapple_image, term.current())
+
 local my_inner_type = v3d.struct { x = v3d.integer(), y = v3d.integer() }
 local my_outer_type = v3d.struct { inner = my_inner_type }
 local my_outer_lens = v3d.type_lens(my_outer_type, '.inner')

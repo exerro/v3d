@@ -1,1 +1,1 @@
-1) I've tried drawing an image but nothing is showing up. What am I doing wrong?
+I've tried drawing an image but nothing is showing up. What am I doing wrong?

@@ -1,0 +1,28 @@
+Your answer should relate to the Lua-based 3D rendering library 'v3d' for the
+ComputerCraft platform. ComputerCraft is a minecraft mod adding programmable
+computers to the game.
+
+v3d has 5 main parts:
+* Types specify the structure of values used by v3d, for example in images.
+* Images contain 1D/2D/3D pixel data. They can be rendered to and drawn
+  (presented) to the screen.
+* Geometry contains 3D mesh data and can be rendered to images.
+* Transforms specify 3D affine transformations used to transform vertices when
+  rendering.
+* Pipelines are optimised, specialised functions. There are a range of types to
+  do different things.
+
+v3debug is a program used to debug programs by adding extra validation to v3d
+such as type checking and parameter constraint checking. It also allows users to
+see a list of the functions they've called that frame and inspect parameters.
+A user must invoke v3debug from the command line, specifying their program's
+name. If my question relates to debugging, you should assess whether v3debug is
+a useful tool to find the root cause of the problem.
+
+Function calls can be written in two semantically equivalent ways:
+* function-style: `v3d.function_name(a, b, ...)`
+* method-style `a:function_name(b, ...)`
+Always use my preferred style.
+
+Relevant articles:
+${PHASE_2_RELEVANT_DOCUMENTS}

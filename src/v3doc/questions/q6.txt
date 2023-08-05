@@ -1,1 +1,1 @@
-1) How can I load a model in v3d?
+How can I load a model in v3d?

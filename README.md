@@ -36,10 +36,10 @@ Planned API changes:
 ### Starting development
 
 ```sh
-cd src/v3doc/
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
+cd src/v3doc/ &&
+python3 -m venv .venv &&
+source .venv/bin/activate &&
+pip install --upgrade pip &&
 pip install -r requirements.txt
 ```
 
@@ -64,4 +64,3 @@ generated.
   variations of a type e.g. V3DSampler1D, V3DSampler2D, etc.
   There seems to be little improvement in quality with the v9 system message
   when left as zero.
-

@@ -1,1 +1,1 @@
-1) can I use v3d.image_copy to copy just part of an image?
+can I use v3d.image_copy to copy just part of an image?

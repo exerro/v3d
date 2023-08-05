@@ -1,1 +1,1 @@
-1) Why does `image:copy_into()` error with attempt to index a nil value?
+Why does `image:copy_into()` error with attempt to index a nil value?

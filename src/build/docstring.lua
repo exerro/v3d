@@ -14,26 +14,12 @@ local docstring = {}
 --- @field extends string | nil
 --- @field fields DocstringClassField[]
 --- @field subclasses DocstringClass[]
+--- @field methods DocstringFunction[]
 --- @field docstring DocstringMarkup
 --- @field instances_tracked boolean
 --- @field is_abstract boolean
 --- @field is_structural boolean
 --- @field validations { message: string | nil, check_code: string }[]
-
---- @class DocstringClassField
---- @field name string
---- @field type string
---- @field is_private boolean
---- @field docstring DocstringMarkup
-
--- TODO: Consider having the example usages more like this:
---- Line 1
---- Line 2
---- Line 3
---- @v3d-example 2:2
--- Then store the text and the line range. Generated markdown can just
--- include the specified range, but we can verify the examples to make
--- sure they don't crash.
 
 --- @class DocstringFunction
 --- @field line_defined integer
@@ -46,10 +32,18 @@ local docstring = {}
 --- @field is_advanced boolean
 --- @field is_constructor boolean
 --- @field is_generated boolean
---- @field calls_logged boolean
---- @field chainable boolean
+--- @field is_v3debug_logged boolean
+--- @field is_chainable boolean
 --- @field example_usages DocstringFunctionExampleUsage[]
 --- @field validations { message: string | nil, check_code: string }[]
+
+----------------------------------------------------------------
+
+--- @class DocstringClassField
+--- @field name string
+--- @field type string
+--- @field is_private boolean
+--- @field docstring DocstringMarkup
 
 --- @class DocstringFunctionParameter
 --- @field name string
@@ -60,10 +54,14 @@ local docstring = {}
 --- @field start_line integer
 --- @field end_line integer
 
+----------------------------------------------------------------
+
 --- @class Docstring
 --- @field aliases { [string]: DocstringAlias, [integer]: DocstringAlias }
 --- @field classes { [string]: DocstringClass, [integer]: DocstringClass }
 --- @field functions { [string]: DocstringFunction, [integer]: DocstringFunction }
+
+----------------------------------------------------------------
 
 local lua_types = {
 	['string'] = true,
@@ -79,6 +77,55 @@ local lua_constants = {
 	['true'] = true,
 	['false'] = true,
 }
+
+local handled_alias_annotations = {
+	['alias'] = true,
+	['v3d-validate'] = true,
+}
+
+local handled_class_annotations = {
+	['class'] = true,
+	['field'] = true,
+	['v3d-abstract'] = true,
+	['v3d-untracked'] = true,
+	['v3d-structural'] = true,
+	['v3d-validate'] = true,
+}
+
+local handled_function_annotations = {
+	['generic'] = true,
+	['param'] = true,
+	['return'] = true,
+	['v3d-generated'] = true,
+	['v3d-nolog'] = true,
+	['v3d-mt'] = true,
+	['v3d-nomethod'] = true,
+	['v3d-chainable'] = true,
+	['v3d-validate'] = true,
+	['v3d-constructor'] = true,
+	['v3d-example'] = true,
+	['v3d-advanced'] = true,
+}
+
+----------------------------------------------------------------
+
+--- @class DocstringWarning
+--- @field type 'trailing-annotation-context'
+---           | 'unexpected-annotation-context'
+---           | 'unknown-entity-type'
+---           | 'duplicate-annotation'
+---           | 'trailing-suffix'
+---           | 'missing-docstring'
+---           | 'missing-return-type'
+---           | 'unused-annotation'
+---           | 'unexpected-validations'
+---           | 'missing-constructor-annotation'
+---           | 'missing-example-usage'
+---           | 'missing-validation-message' ...
+--- @field line number
+--- @field message string
+
+--------------------------------------------------------------------------------
 
 --- @alias DocstringType
 ---      | { kind: 'union', types: DocstringType[] }
@@ -137,39 +184,25 @@ function docstring.parse_type(type_str)
 	end
 end
 
---- @class DocstringWarning
---- @field type 'trailing-annotation-context'
----           | 'unexpected-annotation-context'
----           | 'unknown-entity-type'
----           | 'duplicate-annotation'
----           | 'trailing-suffix'
----           | 'missing-docstring'
----           | 'missing-return-type'
----           | 'unused-annotation'
----           | 'unexpected-validations'
----           | 'missing-constructor-annotation'
----           | 'missing-example-usage'
----           | 'missing-validation-message' ...
---- @field line number
---- @field message string
+--------------------------------------------------------------------------------
 
---- @class Annotation
+--- @class _Annotation
 --- @field starting_line number
 --- @field annotation string
 --- @field payload string
 --- @field context string[]
 
---- @class AnnotatedEntity
+--- @class _AnnotatedEntity
 --- @field starting_line number
 --- @field suffix_line number
 --- @field suffix string
---- @field annotations Annotation[]
+--- @field annotations _Annotation[]
 --- @field trailing_context string[]
-local AnnotatedEntity = {}
+local _AnnotatedEntity = {}
 
 --- @param annotation string
---- @return Annotation[]
-function AnnotatedEntity:find_annotations(annotation)
+--- @return _Annotation[]
+function _AnnotatedEntity:find_annotations(annotation)
 	local annotations = {}
 
 	for i = 1, #self.annotations do
@@ -182,14 +215,14 @@ function AnnotatedEntity:find_annotations(annotation)
 end
 
 --- @param annotation string
---- @return Annotation
-function AnnotatedEntity:find_annotation(annotation)
+--- @return _Annotation
+function _AnnotatedEntity:find_annotation(annotation)
 	return self:find_annotations(annotation)[1]
 end
 
 --- @param annotation string
 --- @return boolean
-function AnnotatedEntity:has_annotation(annotation)
+function _AnnotatedEntity:has_annotation(annotation)
 	for i = 1, #self.annotations do
 		if self.annotations[i].annotation == annotation then
 			return true
@@ -198,6 +231,8 @@ function AnnotatedEntity:has_annotation(annotation)
 
 	return false
 end
+
+--------------------------------------------------------------------------------
 
 --- @param content string
 --- @return string[]
@@ -278,64 +313,11 @@ local function filter_groups(groups)
 	end
 end
 
---- @param annotation Annotation | nil
---- @param warnings DocstringWarning[]
-local function warn_unexpected_context(annotation, warnings)
-	if not annotation then
-		return
-	end
-
-	if #annotation.context > 0 then
-		table.insert(warnings, {
-			type = 'unexpected-annotation-context',
-			line = annotation.starting_line,
-			message = 'A \'@' .. annotation.annotation .. '\' annotation was found with unexpected context.',
-		})
-	end
-end
-
---- @param entity AnnotatedEntity
-local function find_validations(entity, warnings)
-	local annotations = entity:find_annotations 'v3d-validate'
-	local validations = {}
-
-	for i = 1, #annotations do
-		local annotation = annotations[i]
-
-		if #annotation.context == 0 then
-			table.insert(warnings, {
-				type = 'missing-validation-message',
-				line = annotation.starting_line,
-				message = 'A validation was found without a message.',
-			})
-		end
-
-		table.insert(validations, {
-			message = #annotation.context > 0 and table.concat(annotation.context, '\n') or annotation.payload,
-			check_code = annotation.payload,
-		})
-	end
-
-	return validations
-end
-
---- @param entity AnnotatedEntity
---- @param warnings DocstringWarning[]
-local function warn_no_trailing_context(entity, warnings)
-	if #entity.trailing_context > 0 then
-		table.insert(warnings, {
-			type = 'trailing-annotation-context',
-			line = entity.starting_line + #entity,
-			message = 'Entity has trailing annotation context.',
-		})
-	end
-end
-
 local blacklisted_annotations = {
 	['see'] = true,
 }
 --- @param groups { [integer]: string, starting_line: integer, suffix: string | nil }[]
---- @return AnnotatedEntity[]
+--- @return _AnnotatedEntity[]
 local function parse_groups(groups)
 	local entities = {}
 
@@ -349,7 +331,7 @@ local function parse_groups(groups)
 			trailing_context = {},
 		}
 
-		for k, v in pairs(AnnotatedEntity) do
+		for k, v in pairs(_AnnotatedEntity) do
 			entity[k] = v
 		end
 
@@ -376,12 +358,64 @@ local function parse_groups(groups)
 	return entities
 end
 
-local handled_alias_annotations = {
-	alias = true,
-	['v3d-validate'] = true,
-}
+----------------------------------------------------------------
 
---- @param entity AnnotatedEntity
+--- @param annotation _Annotation | nil
+--- @param warnings DocstringWarning[]
+local function warn_unexpected_context(annotation, warnings)
+	if not annotation then
+		return
+	end
+
+	if #annotation.context > 0 then
+		table.insert(warnings, {
+			type = 'unexpected-annotation-context',
+			line = annotation.starting_line,
+			message = 'A \'@' .. annotation.annotation .. '\' annotation was found with unexpected context.',
+		})
+	end
+end
+
+--- @param entity _AnnotatedEntity
+local function find_validations(entity, warnings)
+	local annotations = entity:find_annotations 'v3d-validate'
+	local validations = {}
+
+	for i = 1, #annotations do
+		local annotation = annotations[i]
+
+		if #annotation.context == 0 then
+			table.insert(warnings, {
+				type = 'missing-validation-message',
+				line = annotation.starting_line,
+				message = 'A validation was found without a message.',
+			})
+		end
+
+		table.insert(validations, {
+			message = #annotation.context > 0 and table.concat(annotation.context, '\n') or annotation.payload,
+			check_code = annotation.payload,
+		})
+	end
+
+	return validations
+end
+
+--- @param entity _AnnotatedEntity
+--- @param warnings DocstringWarning[]
+local function warn_no_trailing_context(entity, warnings)
+	if #entity.trailing_context > 0 then
+		table.insert(warnings, {
+			type = 'trailing-annotation-context',
+			line = entity.starting_line + #entity,
+			message = 'Entity has trailing annotation context.',
+		})
+	end
+end
+
+----------------------------------------------------------------
+
+--- @param entity _AnnotatedEntity
 --- @param warnings DocstringWarning[]
 --- @return DocstringAlias | nil
 local function parse_alias(entity, warnings)
@@ -428,16 +462,7 @@ local function parse_alias(entity, warnings)
 	return alias
 end
 
-local handled_class_annotations = {
-	class = true,
-	field = true,
-	['v3d-abstract'] = true,
-	['v3d-untracked'] = true,
-	['v3d-structural'] = true,
-	['v3d-validate'] = true,
-}
-
---- @param entity AnnotatedEntity
+--- @param entity _AnnotatedEntity
 --- @param warnings DocstringWarning[]
 --- @return DocstringClass | nil
 local function parse_class(entity, warnings)
@@ -458,6 +483,7 @@ local function parse_class(entity, warnings)
 		extends = extends,
 		fields = {},
 		subclasses = {},
+		methods = {},
 		docstring = table.concat(class_annotation.context, '\n'),
 		instances_tracked = not entity:has_annotation 'v3d-untracked'
 		                and not entity:has_annotation 'v3d-structural'
@@ -531,22 +557,7 @@ local function parse_class(entity, warnings)
 	return class
 end
 
-local handled_function_annotations = {
-	generic = true,
-	param = true,
-	['return'] = true,
-	['v3d-generated'] = true,
-	['v3d-nolog'] = true,
-	['v3d-mt'] = true,
-	['v3d-nomethod'] = true,
-	['v3d-chainable'] = true,
-	['v3d-validate'] = true,
-	['v3d-constructor'] = true,
-	['v3d-example'] = true,
-	['v3d-advanced'] = true,
-}
-
---- @param entity AnnotatedEntity
+--- @param entity _AnnotatedEntity
 --- @param warnings DocstringWarning[]
 --- @return DocstringFunction
 local function parse_function(entity, warnings)
@@ -569,8 +580,8 @@ local function parse_function(entity, warnings)
 		is_advanced = entity:has_annotation 'v3d-advanced',
 		is_constructor = entity:has_annotation 'v3d-constructor',
 		is_generated = entity:has_annotation 'v3d-generated',
-		calls_logged = not entity:has_annotation 'v3d-nolog',
-		chainable = entity:has_annotation 'v3d-chainable',
+		is_v3debug_logged = not entity:has_annotation 'v3d-nolog',
+		is_chainable = entity:has_annotation 'v3d-chainable',
 		validations = find_validations(entity, warnings),
 		example_usages = {},
 	}
@@ -670,6 +681,82 @@ local function parse_function(entity, warnings)
 	return fn
 end
 
+----------------------------------------------------------------
+
+--- @param parameter_type string
+--- @return string | nil
+local function type_to_method_impl_type(parameter_type)
+	local parsed = docstring.parse_type(parameter_type)
+	if parsed.kind == 'ref' then
+		return parsed.name
+	elseif parsed.kind == 'union' then
+		for _, type in ipairs(parsed.types) do
+			if type.kind == 'ref' then
+				return type.name
+			end
+		end
+	end
+	return nil
+end
+
+--- @param docstring Docstring
+--- @param warnings DocstringWarning[]
+local function complete_classes(docstring, warnings)
+	for i = 1, #docstring.classes do
+		local this_class = docstring.classes[i]
+		local class = this_class
+		while class.extends do
+			table.insert(docstring.classes[class.extends].subclasses, this_class)
+			class = docstring.classes[class.extends]
+		end
+	end
+
+	for _, class in ipairs(docstring.classes) do
+		for _, fn in ipairs(docstring.functions) do
+			--- @cast fn DocstringFunction
+			if fn.return_type == class.name and not fn.is_constructor then
+				if #fn.parameters == 0 or fn.parameters[1].type ~= class.name then
+					table.insert(warnings, {
+						type = 'missing-constructor-annotation',
+						line = fn.line_defined,
+						message = 'A function \'' .. fn.name .. '\' seems like a constructor but isn\'t annotated as such.',
+					})
+				end
+			end
+		end
+	end
+
+	for _, class in ipairs(docstring.classes) do
+		for _, fn in ipairs(docstring.functions) do
+			local fn_method_type = fn.parameters[1] and type_to_method_impl_type(fn.parameters[1].type)
+			if fn.method_name ~= nil and fn_method_type then
+				local c = class
+				while c do
+					if c.name == fn_method_type then
+						table.insert(class.methods, fn)
+						break
+					end
+					c = docstring.classes[c.extends]
+				end
+			end
+		end
+	end
+end
+
+--- @param docstring Docstring
+--- @param warnings DocstringWarning[]
+local function complete_functions(docstring, warnings)
+	for i = 1, #docstring.functions do
+		if #docstring.functions[i].example_usages == 0 then
+			table.insert(warnings, {
+				type = 'missing-example-usage',
+				line = docstring.functions[i].line_defined,
+				message = 'A function \'' .. docstring.functions[i].name .. '\' was found without an example usage.',
+			})
+		end
+	end
+end
+
 --- @param content string
 --- @return Docstring, DocstringWarning[]
 function docstring.parse(content)
@@ -744,39 +831,8 @@ function docstring.parse(content)
 		docstring.functions[docstring.functions[i].name] = docstring.functions[i]
 	end
 
-	for i = 1, #docstring.functions do
-		if #docstring.functions[i].example_usages == 0 then
-			table.insert(warnings, {
-				type = 'missing-example-usage',
-				line = docstring.functions[i].line_defined,
-				message = 'A function \'' .. docstring.functions[i].name .. '\' was found without an example usage.',
-			})
-		end
-	end
-
-	for i = 1, #docstring.classes do
-		local this_class = docstring.classes[i]
-		local class = this_class
-		while class.extends do
-			table.insert(docstring.classes[class.extends].subclasses, this_class)
-			class = docstring.classes[class.extends]
-		end
-	end
-
-	for _, class in ipairs(docstring.classes) do
-		for _, fn in ipairs(docstring.functions) do
-			--- @cast fn DocstringFunction
-			if fn.return_type == class.name and not fn.is_constructor then
-				if #fn.parameters == 0 or fn.parameters[1].type ~= class.name then
-					table.insert(warnings, {
-						type = 'missing-constructor-annotation',
-						line = fn.line_defined,
-						message = 'A function \'' .. fn.name .. '\' seems like a constructor but isn\'t annotated as such.',
-					})
-				end
-			end
-		end
-	end
+	complete_classes(docstring, warnings)
+	complete_functions(docstring, warnings)
 
 	return docstring, warnings
 end
