@@ -259,7 +259,7 @@ local function _v3d_apply_template(source, environment)
 	table.insert(write_content, 'return table.concat(_text_segments)')
 
 	local code = table.concat(write_content, '\n')
-	local f, err = load(code, 'template string', nil, env)
+	local f, err = load(code, '=template string', nil, env)
 	if not f then _v3d_contextual_error('Invalid template builder (syntax): ' .. err, code) end
 	local ok, result = xpcall(f, _xpcall_handler)
 	if not ok then _v3d_contextual_error('Invalid template builder section (runtime):\n' .. result, code) end
@@ -1087,6 +1087,9 @@ do -----------------------------------------------------------------------------
 --- - `.` followed by a numeric index, e.g. `.1`
 --- - `[` followed by a field name and a closing ']', e.g. `[field]`
 --- - `[` followed by a quoted string index and a closing ']', e.g. `['my field']`
+---
+--- Numeric indices are 1-based, so the first element of a tuple or struct is
+--- index 1.
 --- @param format V3DFormat
 --- @param indices string | nil
 --- @return V3DLens
@@ -1469,6 +1472,32 @@ function v3d.create_image(format, width, height, depth, pixel_value, label)
 	end
 
 	return _finalise_instance(image)
+end
+
+----------------------------------------------------------------
+
+--- Return a region containing the entire image.
+--- @param image V3DImage
+--- @return V3DImageRegion
+--- @v3d-nolog
+--- local my_image = v3d.create_image(v3d.number(), 1, 2, 3)
+--- local my_region = v3d.image_full_region(my_image)
+--- assert(my_region.x == 0)
+--- assert(my_region.y == 0)
+--- assert(my_region.z == 0)
+--- assert(my_region.width == 1)
+--- assert(my_region.height == 2)
+--- assert(my_region.depth == 3)
+--- @v3d-example 2:8
+function v3d.image_full_region(image)
+	return {
+		x = 0,
+		y = 0,
+		z = 0,
+		width = image.width,
+		height = image.height,
+		depth = image.depth,
+	}
 end
 
 ----------------------------------------------------------------
@@ -1964,6 +1993,136 @@ function v3d.image_copy_into(source, destination, source_region, destination_reg
 	local buffer = v3d.image_buffer(source, nil, nil, source_region)
 	v3d.image_unbuffer(destination, buffer, nil, destination_region)
 	return source
+end
+
+end ----------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Framebuffers ----------------------------------------------------------------
+do -----------------------------------------------------------------------------
+
+--- A framebuffer is a collection of images known as layers. Layers are named
+--- and may be any format, but must all have the same dimensions.
+--- @class V3DFramebuffer
+--- Format of the framebuffer. Will always be a struct mapping layer names to
+--- layer formats.
+--- @field format V3DFormat
+--- Width of the framebuffer. All layers must have the same width.
+--- @field width integer
+--- Height of the framebuffer. All layers must have the same height.
+--- @field height integer
+--- Depth of the framebuffer. All layers must have the same depth.
+--- @field depth integer
+--- @field private n_layers integer
+--- @field private layer_formats V3DFormat[]
+
+--- String name of a layer within a framebuffer.
+--- @alias V3DLayerName string
+--- Layer names must be valid Lua identifiers
+--- @v3d-validate self:match '^[%a_][%w_]*$'
+
+--- Create a new framebuffer with the specified format and dimensions.
+--- @param width integer
+--- @param height integer
+--- @param depth integer
+--- @param layers { [V3DLayerName]: V3DFormat }
+--- @param label string | nil
+--- @return V3DFramebuffer
+--- @v3d-constructor
+--- @v3d-nomethod
+--- Width must not be negative
+--- @v3d-validate width >= 0
+--- Height must not be negative
+--- @v3d-validate height >= 0
+--- Depth must not be negative
+--- @v3d-validate depth >= 0
+--- At least one layer must be specified
+--- @v3d-validate next(layers) ~= nil
+--- -- Create a blank 16x16x16 3D framebuffer.
+--- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
+--- @v3d-example 2
+function v3d.create_framebuffer(width, height, depth, layers, label)
+	local framebuffer = _create_instance('V3DFramebuffer', label)
+
+	framebuffer.format = v3d.struct(layers)
+	framebuffer.width = width
+	framebuffer.height = height
+	framebuffer.depth = depth
+	
+	--- @diagnostic disable: invisible
+	framebuffer.n_layers = #framebuffer.format.fields
+	framebuffer.layer_formats = {}
+
+	for i, struct_field in ipairs(framebuffer.format.fields) do
+		framebuffer.layer_formats[i] = struct_field.format
+	end
+	--- @diagnostic enable: invisible
+
+	for i, struct_field in ipairs(framebuffer.format.fields) do
+		framebuffer[i] = v3d.create_image(struct_field.format, width, height, depth)
+	end
+
+	return framebuffer
+end
+
+--- Return whether a framebuffer has a layer with the specified name.
+--- @param framebuffer V3DFramebuffer
+--- @param layer_name V3DLayerName
+--- @return boolean
+--- @v3d-nolog
+--- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
+--- assert(v3d.framebuffer_has_layer(my_framebuffer, 'colour'))
+--- @v3d-example 2
+function v3d.framebuffer_has_layer(framebuffer, layer_name)
+	for _, struct_field in ipairs(framebuffer.format.fields) do
+		if struct_field.name == layer_name then
+			return true
+		end
+	end
+	return false
+end
+
+--- Get the underlying V3DImage for a layer within a framebuffer. If the layer
+--- does not exist, nil will be returned.
+--- @param framebuffer V3DFramebuffer
+--- @param layer_name V3DLayerName
+--- @return V3DImage | nil
+--- @v3d-nolog
+--- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
+--- local my_layer = v3d.framebuffer_layer(my_framebuffer, 'colour')
+--- @v3d-example 2
+function v3d.framebuffer_layer(framebuffer, layer_name)
+	for i, struct_field in ipairs(framebuffer.format.fields) do
+		if struct_field.name == layer_name then
+			return framebuffer[i]
+		end
+	end
+	return nil
+end
+
+--- Fill the layers of a framebuffer using the specified values. `values` should
+--- be a table mapping layer names to the value to fill that layer with.
+--- If a region is specified, only the specified region of each layer will be
+--- filled.
+--- @param framebuffer V3DFramebuffer
+--- @param values { [V3DLayerName]: any }
+--- @param region V3DImageRegion | nil
+--- @return V3DFramebuffer
+--- @v3d-chainable
+--- Values provided should match the format of the framebuffer.
+--- @v3d-validate v3d.format_is_instance(framebuffer.format, values)
+--- Region should be contained within the framebuffer.
+--- @v3d-validate region == nil or v3d.image_contains_region(framebuffer[1], region)
+--- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
+--- v3d.framebuffer_fill(my_framebuffer, { colour = 42 })
+--- local colour_layer = v3d.framebuffer_layer(my_framebuffer, 'colour')
+--- assert(v3d.image_get_pixel(colour_layer, 0, 0, 0) == 42)
+--- @v3d-example 1:2
+function v3d.framebuffer_fill(framebuffer, values, region)
+	for i, struct_field in ipairs(framebuffer.format.fields) do
+		v3d.image_fill(framebuffer[i], values[struct_field.name], region)
+	end
+	return framebuffer
 end
 
 end ----------------------------------------------------------------------------
@@ -3157,6 +3316,11 @@ function v3d.create_geometry_builder(vertex_format, face_format)
 	b.vertex_format = vertex_format
 	b.face_format = face_format
 
+	--- @diagnostic disable: invisible
+	b.vertices = {}
+	b.faces = {}
+	--- @diagnostic enable: invisible
+
 	return _finalise_instance(b)
 end
 
@@ -3408,10 +3572,8 @@ end
 
 end ----------------------------------------------------------------------------
 
--- framebuffers?
--- palette/rgb
--- util/support
-
+local MACRO_EXPAND_LATER = {}
+local _process_pipeline_source_macro_calls
 --------------------------------------------------------------------------------
 -- Pipelines -------------------------------------------------------------------
 do -----------------------------------------------------------------------------
@@ -3420,6 +3582,8 @@ do -----------------------------------------------------------------------------
 --- @alias V3DUniformName string
 --- Uniform names must be valid Lua identifiers
 --- @v3d-validate self:match '^[%a_][%w_]*$'
+
+----------------------------------------------------------------
 
 --- A pipeline is a compiled, optimised function inspired by OpenGL shaders.
 --- There are many types of pipeline, each specialised for a specific purpose.
@@ -3444,6 +3608,8 @@ do -----------------------------------------------------------------------------
 --- @field private uniforms table
 --- @v3d-abstract
 
+----------------------------------------------------------------
+
 --- Options common to all pipelines used when creating the pipeline.
 --- @class V3DPipelineOptions
 --- Sources to compile the pipeline from. This field contains a map of source
@@ -3454,7 +3620,7 @@ do -----------------------------------------------------------------------------
 --- 	fragment = '...',
 --- }
 --- ```
---- @field sources { [string]: string } | nil
+--- @field sources { [string]: string }
 --- Label to assign to the pipeline.
 --- @field label string | nil
 --- @v3d-untracked
@@ -3469,8 +3635,9 @@ do -----------------------------------------------------------------------------
 --- @param value any
 --- @return V3DPipeline
 --- @v3d-chainable
---- -- TODO: v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
---- @v3d-example
+--- local my_pipeline = TODO()
+--- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
+--- @v3d-example 2
 function v3d.pipeline_write_uniform(pipeline, name, value)
 	--- @diagnostic disable-next-line: invisible
 	pipeline.uniforms[name] = value
@@ -3482,8 +3649,11 @@ end
 --- @param name V3DUniformName
 --- @return any
 --- @v3d-nolog
---- -- TODO: local my_uniform_value = v3d.pipeline_read_uniform(my_pipeline, 'my_uniform')
---- @v3d-example
+--- local my_pipeline = TODO()
+--- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
+--- local my_uniform_value = v3d.pipeline_read_uniform(my_pipeline, 'my_uniform')
+--- assert(my_uniform_value == 42)
+--- @v3d-example 2:4
 function v3d.pipeline_read_uniform(pipeline, name)
 	--- @diagnostic disable-next-line: invisible
 	return pipeline.uniforms[name]
@@ -3492,21 +3662,6 @@ end
 ----------------------------------------------------------------
 
 --- @alias _V3DPipelineMacroCalls { macro_name: string, parameters: string[] }[]
-
--- TODO: v3d_read_uniform(name)
--- TODO: v3d_count_event(name)
--- TODO: v3d_begin_timer(name)
--- TODO: v3d_end_timer(name)
-
-local function _v3d_macro_aliases(t)
-	assert(type(t) == 'table')
-
-	function t.v3d_compare_depth(params)
-		return params[1] .. ' > ' .. params[2]
-	end
-
-	return t
-end
 
 local function _parse_parameters(s)
 	local params = {}
@@ -3544,41 +3699,51 @@ local function _parse_parameters(s)
 	end
 
 	for i = 1, #params do
-		params[i] = params[i]:gsub('^%s+', ''):gsub('%s+$', '')
+		params[i] = params[i]
+			:gsub('^%s+', ''):gsub('%s+$', '')
+			:gsub('^["\'](.*)["\']$', function(content)
+				return content:gsub('\\.', '%1')
+			end)
 	end
 
 	return params
 end
 
 --- @param source string
---- @param aliases { [string]: fun(params: string[]): string }
+--- @param aliases { [string]: fun(...: string): string }
 --- @return string, _V3DPipelineMacroCalls
-local function _process_pipeline_source_macro_calls(source, aliases)
+function _process_pipeline_source_macro_calls(source, aliases)
 	local calls = {}
 	local i = 1
 
 	source = '\n' .. source
 
 	repeat
-		local prefix, macro_name, params_str = source:match('(\n[^\n]-)([%w_]*v3d_[%w_]+)(%b())', i)
+		local prefix, macro_name, params_str = source:match('(.-)([%w_]*v3d_[%w_]+)(%b())', i)
 		if not prefix then
 			break
 		end
 
 		if macro_name:sub(1, 4) == 'v3d_' then
 			local params = _parse_parameters(params_str:sub(2, -2))
+			local expand_macro_later = true
 
 			if aliases[macro_name] then
-				local ok, aliased_content = pcall(aliases[macro_name], params)
+				local ok, aliased_content = pcall(aliases[macro_name], table.unpack(params))
 
 				if not ok then
 					error('error while processing macro ' .. macro_name .. params_str .. ': ' .. aliased_content, 0)
 				end
 
-				source = source:sub(1, i - 1 + #prefix)
-				      .. aliased_content
-				      .. source:sub(i + #prefix + #macro_name + #params_str)
-			else
+				if aliased_content ~= MACRO_EXPAND_LATER then
+					source = source:sub(1, i + #prefix - 1)
+					      .. aliased_content
+					      .. source:sub(i + #prefix + #macro_name + #params_str)
+					expand_macro_later = false
+				end
+			end
+
+			if expand_macro_later then
 				table.insert(calls, { macro_name = macro_name, parameters = params })
 				source = source:sub(1, i - 1 + #prefix)
 				      .. '{! ' .. macro_name .. params_str .. ' !}'
@@ -3593,18 +3758,167 @@ local function _process_pipeline_source_macro_calls(source, aliases)
 	return source, calls
 end
 
+end ----------------------------------------------------------------------------
+
+local _macro_environments = {}
+local _combine_macro_environments
+--------------------------------------------------------------------------------
+-- Macro environments ----------------------------------------------------------
+do -----------------------------------------------------------------------------
+
+
+function _combine_macro_environments(...)
+	local e = {}
+
+	for _, env in ipairs { ... } do
+		for k, v in pairs(env) do
+			e[k] = v
+		end
+	end
+
+	return e
+end
+
+--- @diagnostic disable: return-type-mismatch
+--- @diagnostic disable: unused-local
+
 ----------------------------------------------------------------
 
--- --- @class _V3DPipelineContext
--- --- @field private uniforms_written { [string]: true | nil, [integer]: string }
--- --- @field private uniforms_read { [string]: true, [integer]: string }
+_macro_environments.core = {}
 
-local function _create_blank_context()
-	return {
-		uniforms_written = {},
-		uniforms_read = {},
-	}
+--- @param name string
+--- @return any
+function _macro_environments.core.v3d_uniform(name)
+	return MACRO_EXPAND_LATER
 end
+
+--- @param name string
+--- @return nil
+function _macro_environments.core.v3d_event(name)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param name string
+--- @return nil
+function _macro_environments.core.v3d_start_timer(name)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param name string
+--- @return nil
+function _macro_environments.core.v3d_stop_timer(name)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param a number
+--- @param b number
+--- @return boolean
+function _macro_environments.core.v3d_compare_depth(a, b)
+	return '(' .. a .. ' > ' .. b .. ')'
+end
+
+----------------------------------------------------------------
+
+_macro_environments.images = {}
+
+--- @param lens string
+--- @param attribute 'width' | 'height' | 'depth' | nil
+--- @return integer | V3DImage
+function _macro_environments.images.v3d_image(lens, attribute)
+	assert(not attribute or attribute == 'width' or attribute == 'height' or attribute == 'depth')
+	return MACRO_EXPAND_LATER
+end
+
+----------------------------------------------------------------
+
+_macro_environments.pixel = {}
+
+--- @param lens string
+--- @param xyzuvw string
+--- @param absolute 'absolute' | 'relative' | nil
+--- @return integer ...
+function _macro_environments.pixel.v3d_pixel_position(lens, xyzuvw, absolute)
+	if not absolute then
+		return 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw .. ', relative)'
+	end
+
+	if #xyzuvw > 1 then
+		local t = {}
+		for i = 1, #xyzuvw do
+			table.insert(t, 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw:sub(i, i) .. ', ' .. absolute .. ')')
+		end
+		return table.concat(t, ', ')
+	end
+
+	assert(xyzuvw == 'x' or xyzuvw == 'y' or xyzuvw == 'z' or xyzuvw == 'u' or xyzuvw == 'v' or xyzuvw == 'w')
+	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @param xyzwhd string
+--- @return integer ...
+function _macro_environments.pixel.v3d_pixel_region(lens, xyzwhd, absolute)
+	if not absolute then
+		return 'v3d_pixel_region(' .. lens .. ', ' .. xyzwhd .. ', relative)'
+	end
+
+	if #xyzwhd > 1 then
+		local t = {}
+		for i = 1, #xyzwhd do
+			table.insert(t, 'v3d_pixel_region(' .. lens .. ', ' .. xyzwhd:sub(i, i) .. ', ' .. absolute .. ')')
+		end
+		return table.concat(t, ', ')
+	end
+
+	assert(xyzwhd == 'x' or xyzwhd == 'y' or xyzwhd == 'z' or xyzwhd == 'w' or xyzwhd == 'h' or xyzwhd == 'd')
+	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @return integer
+function _macro_environments.pixel.v3d_pixel_index(lens)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @return any
+function _macro_environments.pixel.v3d_pixel(lens)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @return any ...
+function _macro_environments.pixel.v3d_pixel_unpacked(lens)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @param value any
+--- @return nil
+function _macro_environments.pixel.v3d_set_pixel(lens, value)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @param ... any
+--- @return nil
+function _macro_environments.pixel.v3d_set_pixel_unpacked(lens, ...)
+	return MACRO_EXPAND_LATER
+end
+
+----------------------------------------------------------------
+
+_macro_environments.image_map = {}
+
+--- @return boolean
+function _macro_environments.image_map.is_self_allowed()
+	return MACRO_EXPAND_LATER
+end
+
+--- @diagnostic enable: return-type-mismatch
+--- @diagnostic enable: unused-local
 
 end ----------------------------------------------------------------------------
 
@@ -3612,69 +3926,56 @@ end ----------------------------------------------------------------------------
 -- Image map pipelines ---------------------------------------------------------
 do -----------------------------------------------------------------------------
 
--- TODO
+--- TODO
+--- @class V3DImageMapPipeline: V3DPipeline
 
--- --- @class V3DImageMapPipeline: V3DPipeline
+--- TODO
+--- @class V3DImageMapPipelineOptions: V3DPipelineOptions
+--- TODO
+--- @field source_image_format V3DFormat
+--- TODO
+--- @field destination_image_format V3DFormat
+--- Whether to allow the pipeline to read from and write to the same image. If
+--- true, the order of operations will ensure that the pipeline does not read
+--- from a pixel that it has written to previously, at a minor performance
+--- penalty. Defaults to false.
+--- @field allow_self boolean | nil
+--- @v3d-untracked
+--- @v3d-structural
 
--- --- @class V3DImageMapPipelineOptions: V3DPipelineOptions
--- --- @field sources { main: string }
--- --- @field source_image_format V3DFormat
--- --- @field destination_image_format V3DFormat
--- --- @field allow_overlap boolean | nil
--- --- @v3d-untracked
+--- TODO
+--- @param options V3DImageMapPipelineOptions
+--- @return V3DImageMapPipeline
+--- @v3d-nomethod
+function v3d.compile_image_map_pipeline(options)
+	local pipeline = _create_instance('V3DImageMapPipeline', options.label)
 
--- --- @param options V3DImageMapPipelineOptions
--- --- @return V3DImageMapPipeline
--- --- @v3d-nomethod
--- function v3d.compile_image_map_pipeline(options)
--- 	local pipeline = _create_instance('V3DImageMapPipeline', options.label)
+	local sources = options.sources
+	local allow_self = options.allow_self ~= false
 
--- 	local sources = options.sources
--- 	local allow_overlap = options.allow_overlap ~= false
+	local init_finish_aliases = _combine_macro_environments(_macro_environments.core, _macro_environments.images)
+	local init_source, init_macro_calls = _process_pipeline_source_macro_calls(sources.init or '', init_finish_aliases)
+	local finish_source, finish_macro_calls = _process_pipeline_source_macro_calls(sources.finish or '', init_finish_aliases)
 
--- 	-- v3d_source_image()
--- 	-- v3d_source_image(width | height | depth | format)
+	local main_aliases = _combine_macro_environments(_macro_environments.core, _macro_environments.images, _macro_environments.pixel, _macro_environments.image_map)
+	local main_source, main_macro_calls = _process_pipeline_source_macro_calls(sources.main or '', main_aliases)
 
--- 	-- v3d_destination_image()
--- 	-- v3d_destination_image(width | height | depth | format)
+	_v3d_contextual_error(main_source, 0)
 
--- 	-- v3d_source_absolute_xyz()
--- 	-- v3d_source_absolute_uv()
--- 	-- v3d_source_relative_xyz()
--- 	-- v3d_source_relative_uv()
--- 	-- v3d_source(absolute_x | absolute_y | absolute_z | absolute_u | absolute_v | absolute_w | absolute_index | relative_x | relative_y | relative_z | relative_u | relative_v | relative_w | relative_index)
+	return pipeline
+end
 
--- 	-- v3d_destination_absolute_xyz()
--- 	-- v3d_destination_relative_xyz()
--- 	-- v3d_destination(absolute_x | absolute_y | absolute_z | absolute_u | absolute_v | absolute_w | absolute_index | relative_x | relative_y | relative_z | relative_u | relative_v | relative_w | relative_index)
-
--- 	-- v3d_write_pixel_values(values...)
--- 	-- v3d_read_pixel_values()
-
--- 	-- v3d_write_pixel(lens, value)
--- 	-- v3d_write_pixel(value)
--- 	-- v3d_read_pixel(lens)
--- 	-- v3d_read_pixel()
-
--- 	local aliases = _v3d_macro_aliases {
--- 		v3d_is_overlap_allowed = function() return allow_overlap and 'true' or 'false' end,
--- 		-- TODO?
--- 	}
--- 	local main_source, macro_calls = _process_pipeline_source_macro_calls(sources.main or '', aliases)
-
--- 	return pipeline
--- end
-
--- --- @param pipeline V3DImageMapPipeline
--- --- @param source_image V3DImage
--- --- @param source_region V3DImageRegion
--- --- @param destination_image V3DImage
--- --- @param destination_region V3DImageRegion
--- --- @return V3DImageMapPipeline
--- --- @v3d-chainable
--- function v3d.imagemappipeline_execute(pipeline, source_image, source_region, destination_image, destination_region)
-
--- end
+--- @param pipeline V3DImageMapPipeline
+--- @param source_image V3DImage
+--- @param source_region V3DImageRegion
+--- @param destination_image V3DImage
+--- @param destination_region V3DImageRegion
+--- @return V3DImageMapPipeline
+--- @v3d-chainable
+--- @v3d-generated
+function v3d.imagemappipeline_execute(pipeline, source_image, source_region, destination_image, destination_region)
+	---@diagnostic disable-next-line: missing-return
+end
 
 end ----------------------------------------------------------------------------
 
@@ -4049,6 +4350,9 @@ function v3d.sampler1d_sample(sampler, image, u) end
 -- function v3d.sampler3d_sample(sampler, image, u, v, w) end
 
 end ----------------------------------------------------------------------------
+
+-- TODO: palette/rgb
+-- TODO: util/support
 
 -- #gen-type-methods
 -- #gen-type-instances

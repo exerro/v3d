@@ -179,6 +179,60 @@ do -- replace `-- #gen-generated-functions`
 	v3d_content = v3d_content:gsub('%-%- #gen%-generated%-functions', gen_generated_functions)
 end
 
+do -- replace `-- #gen-show-types`
+	local function gen_show_types()
+		local lines = {}
+
+		for _, class in ipairs(v3d_docstring.classes) do
+			if not class.is_structural then
+				table.insert(lines, 'v3d_show_types[\'' .. class.name .. '\'] = function(item, line)')
+				table.insert(lines, '\ttable.insert(line.left_text_segments_expanded, {')
+				table.insert(lines, '\t\ttext = \'' .. class.name .. '\',')
+				table.insert(lines, '\t\tcolour = COLOUR_V3D_TYPE,')
+				table.insert(lines, '\t})')
+
+				for _, field in ipairs(class.fields) do
+					if not field.is_private then
+						table.insert(lines, '\tshow(item.' .. field.name .. ', insert_to_lines(line, new_rich_line {')
+						table.insert(lines, '\t\tleft_text_segments_expanded = {')
+						table.insert(lines, '\t\t\t{ text = \'' .. field.name .. '\', colour = COLOUR_VARIABLE },')
+						table.insert(lines, '\t\t\t{ text = \' = \', colour = COLOUR_FOREGROUND_ALT },')
+						table.insert(lines, '\t\t},')
+						table.insert(lines, '\t\tindentation = line.indentation + 1')
+						table.insert(lines, '\t}))')
+					end
+				end
+
+				table.insert(lines, 'end')
+			end
+		end
+
+		return table.concat(lines, '\n\t')
+	end
+
+	v3debug_content = v3debug_content:gsub('%-%- #gen%-show%-types', gen_show_types)
+end
+
+do -- replace `-- #gen-function-parameter-names`
+	local function gen_function_parameter_names()
+		local lines = {}
+
+		for i, fn in ipairs(v3d_docstring.functions) do
+			local parameter_names = {}
+			for j = 1, #fn.parameters do
+				table.insert(parameter_names, '\'' .. fn.parameters[j].name .. '\'')
+			end
+
+			lines[i] = 'v3d_function_parameter_names[\'' .. fn.name .. '\'] = '
+			        .. '{ ' .. table.concat(parameter_names, ', ') .. ' }'
+		end
+
+		return table.concat(lines, '\n\t')
+	end
+
+	v3debug_content = v3debug_content:gsub('%-%- #gen%-function%-parameter%-names', gen_function_parameter_names)
+end
+
 do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappers`
 	local fn_blacklist = {
 		['v3d.enter_debug_region'] = true,
@@ -511,7 +565,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		table.insert(lines, '\tend')
 
 		if fn.is_v3debug_logged then
-			table.insert(lines, '\tlocal _call = { name = \'' .. fn.name .. '\', parameters = { ' .. table.concat(param_names, ', ') .. ' } }')
+			table.insert(lines, '\tlocal _call = { fn_name = \'' .. fn.name .. '\', parameters = { ' .. table.concat(param_names, ', ') .. ' } }')
 			table.insert(lines, '\t_table_insert(v3d_this_frame_calls, _call)')
 			table.insert(lines, '\tlocal result = ' .. reference_name .. '(' .. table.concat(param_names, ', ') .. ')')
 			table.insert(lines, '\t_call.result = result')

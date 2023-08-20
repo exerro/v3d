@@ -306,7 +306,7 @@ local function filter_groups(groups)
 		end
 
 		if not is_class and not is_alias then
-			if not group.suffix or group.suffix:find '^%s*local%s' then
+			if not group.suffix or group.suffix:find '^%s*local%s' or group.suffix:find 'function%s*_' then
 				table.remove(groups, i)
 			end
 		end
