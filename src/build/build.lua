@@ -75,7 +75,7 @@ do -- replace `-- #gen-type-methods`
 		end
 
 		local str = {}
-		
+
 		if #metamethod_annotation_snippets > 0 or #method_annotation_snippets > 0 then
 			table.insert(str, '--- @class ' .. typename)
 
@@ -501,7 +501,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 				table.insert(type_validator_lines, '\t\t' .. field_validator .. '(errors, attribute .. \'.' .. field.name .. '\', value.' .. field.name .. ')')
 			end
 		end
-		
+
 		table.insert(type_validator_lines, '\t\tif #errors > n_errors then return end')
 
 		for _, validation in ipairs(class.validations) do
@@ -539,7 +539,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 			end
 		else
 			init = 'local ' .. validator_name .. '_valid_typenames = {'
-		
+
 			for i = 1, #valid_typenames do
 				init = init .. '[\'' .. valid_typenames[i] .. '\'] = true, '
 			end
@@ -643,6 +643,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 
 		if fn.is_v3debug_logged then
 			table.insert(lines, '\tlocal _call = { fn_name = \'' .. fn.name .. '\', parameters = { ' .. table.concat(param_names, ', ') .. ' } }')
+			table.insert(lines, '\tv3d_last_frame_calls = nil')
 			table.insert(lines, '\t_table_insert(v3d_this_frame_calls, _call)')
 			table.insert(lines, '\tlocal result = ' .. reference_name .. '(' .. table.concat(param_names, ', ') .. ')')
 			table.insert(lines, '\t_call.result = result')

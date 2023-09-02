@@ -5,8 +5,8 @@ local program_name
 local program_args = {}
 local headless = false
 local capture_frame = nil
-local capture_current_key = keys.f11
-local capture_next_frame_key = keys.f12
+local capture_current_key = keys.f1
+local capture_next_frame_key = keys.f2
 do -- parse CLI args
 	while args[1] do
 		if args[1] == '--capture-frame' or args[1] == '--frame' or args[1] == '-f' then
@@ -48,8 +48,9 @@ end
 -- here's a load of mutable state with functions to wrap (some of) it up:
 
 --- @alias V3DDebugNormalCall { fn_name: string, parameters: any[], result: any | nil }
+--- @alias V3DDebugRegion { debug_region: true, name: string | nil, calls: V3DDebugCall[], start_time: number, elapsed_time: number }
 --- @alias V3DDebugCall V3DDebugNormalCall
----                   | { debug_region: true, name: string | nil, calls: V3DDebugCall[] }
+---                   | V3DDebugRegion
 
 --- @class V3DValidationErrorContext
 --- @field errors { attribute: string | nil, value: any, message: string }[]
@@ -67,6 +68,7 @@ local v3d_this_frame_calls = {}
 -- previous top table.
 --- @type V3DDebugCall[][]
 local v3d_this_frame_call_stack = {}
+local v3d_last_frame_calls = nil
 
 local enter_capture_view -- function defined later
 local end_frame -- functions defined later
@@ -105,6 +107,7 @@ do -- state stuff
 			end
 		end
 
+		v3d_last_frame_calls = v3d_this_frame_calls
 		v3d_this_frame_call_stack = {}
 		v3d_this_frame_calls = {}
 		frame_start_time = os.clock()
@@ -810,14 +813,39 @@ do -- TODO
 			}
 
 			if call.debug_region then
-				table.insert(result.left_text_segments_contracted, { text = 'Debug region', colour = COLOUR_REGION })
-				table.insert(result.left_text_segments_expanded, { text = 'Debug region', colour = COLOUR_REGION })
-				if call.name then
-					table.insert(result.left_text_segments_contracted, { text = ' \'' .. call.name .. '\'', colour = COLOUR_FOREGROUND })
-					table.insert(result.left_text_segments_expanded, { text = ' \'' .. call.name .. '\'', colour = COLOUR_FOREGROUND })
+				local items = {}
+				local elapsed_time = call.elapsed_time or ((ccemux and ccemux.nanoTime() / 1000000000 or os.clock()) - call.start_time)
+				local elapsed_time_unit = 's'
+
+				if elapsed_time < 1 then
+					elapsed_time = elapsed_time * 1000
+					elapsed_time_unit = 'ms'
 				end
-				table.insert(result.left_text_segments_contracted, { text = ' (' .. tostring(#call.calls) .. ')', colour = COLOUR_FOREGROUND_ALT })
-				table.insert(result.left_text_segments_expanded, { text = ' (' .. tostring(#call.calls) .. ')', colour = COLOUR_FOREGROUND_ALT })
+				if elapsed_time < 1 then
+					elapsed_time = elapsed_time * 1000
+					elapsed_time_unit = 'us'
+				end
+				if elapsed_time < 1 then
+					elapsed_time = elapsed_time * 1000
+					elapsed_time_unit = 'ns'
+				end
+
+				table.insert(items, { text = 'Debug region', colour = COLOUR_REGION })
+
+				if call.name then
+					table.insert(items, { text = ' \'' .. call.name .. '\'', colour = COLOUR_FOREGROUND })
+				end
+
+				table.insert(items, { text = ' (' .. tostring(#call.calls) .. ' items, ', colour = COLOUR_FOREGROUND_ALT })
+				table.insert(items, { text = string.format('%.01f', elapsed_time), colour = COLOUR_FOREGROUND_ALT })
+				table.insert(items, { text = elapsed_time_unit .. ', ', colour = COLOUR_FOREGROUND_ALT })
+				table.insert(items, { text = math.floor(call.elapsed_time / get_frame_duration() * 100 + 0.5) .. '%)', colour = COLOUR_FOREGROUND_ALT })
+
+				for i = 1, #items do
+					table.insert(result.left_text_segments_contracted, items[i])
+					table.insert(result.left_text_segments_expanded, items[i])
+				end
+
 				map_items_to_lines(result, call.calls, map_call_to_lines(indentation + 1))
 			else
 				table.insert(result.left_text_segments_contracted, { text = tostring(call.fn_name), colour = COLOUR_FUNCTION })
@@ -902,6 +930,16 @@ function enter_capture_view()
 		error(table.concat(messages, '\n'), 0)
 	end
 
+	while #v3d_this_frame_call_stack > 0 do
+		v3d_modified_library.exit_debug_region()
+	end
+
+	local calls = v3d_this_frame_calls
+
+	if #calls == 0 and v3d_last_frame_calls then
+		calls = v3d_last_frame_calls
+	end
+
 	local state = {
 		--- @type 'Overview' | 'Capture'
 		page = 'Overview',
@@ -915,7 +953,7 @@ function enter_capture_view()
 
 		calls_min_y = 3,
 		calls_max_y = select(2, term.getSize()) - 2,
-		capture_line = map_items_to_lines(nil, v3d_this_frame_calls, map_call_to_lines(0)) or {
+		capture_line = map_items_to_lines(nil, calls, map_call_to_lines(0)) or {
 			left_text_segments_contracted = { { text = 'No calls captured', colour = colours.yellow } },
 			right_text_segments = {},
 			indentation = 0,
@@ -934,12 +972,16 @@ function enter_capture_view()
 		local graphics_mode = term.getGraphicsMode and term.getGraphicsMode()
 		local old_palette = {}
 
+		if graphics_mode then
+			term.setGraphicsMode(false)
+		end
+
 		for i = 0, 15 do
 			old_palette[i + 1] = { term.getPaletteColour(2 ^ i) }
 		end
 
-		if graphics_mode then
-			term.setGraphicsMode(false)
+		for i = 0, 15 do
+			term.setPaletteColour(2 ^ i, term.nativePaletteColour(2 ^ i))
 		end
 
 		term.setPaletteColour(colours.purple, 0x582d8c)
@@ -1134,14 +1176,23 @@ do -- create modified library
 			debug_region = true,
 			name = name ~= nil and tostring(name) or nil,
 			calls = {},
+			start_time = ccemux and ccemux.nanoTime() / 1000000000 or os.clock(),
+			elapsed_time = math.huge,
 		}
+		v3d_last_frame_calls = nil
 		table.insert(v3d_this_frame_calls, call)
 		table.insert(v3d_this_frame_call_stack, v3d_this_frame_calls)
 		v3d_this_frame_calls = call.calls
 	end
 
 	function v3d_modified_library.exit_debug_region()
+		if v3d_this_frame_call_stack == 0 then
+			return
+		end
+
 		v3d_this_frame_calls = table.remove(v3d_this_frame_call_stack)
+		local debug_region = v3d_this_frame_calls[#v3d_this_frame_calls]
+		debug_region.elapsed_time = (ccemux and ccemux.nanoTime() / 1000000000 or os.clock()) - debug_region.start_time
 	end
 
 	local image_view_present_term_subpixel = v3d_modified_library.image_view_present_term_subpixel
@@ -1163,6 +1214,7 @@ do -- create modified library
 end
 
 -- keep a copy of the palette so we can restore it later
+local graphics_mode = term.getGraphicsMode and term.getGraphicsMode()
 local palette = {}
 for i = 0, 15 do
 	palette[i + 1] = { term.getPaletteColour(2 ^ i) }
@@ -1237,6 +1289,10 @@ end_frame()
 
 if term.setFrozen then
 	term.setFrozen(false)
+end
+
+if term.setGraphicsMode then
+	term.setGraphicsMode(graphics_mode)
 end
 
 -- restore the palette
