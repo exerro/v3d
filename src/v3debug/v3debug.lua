@@ -3,6 +3,7 @@ local args = { ... }
 
 local program_name
 local program_args = {}
+local headless = false
 local capture_frame = nil
 local capture_current_key = keys.f11
 local capture_next_frame_key = keys.f12
@@ -28,6 +29,9 @@ do -- parse CLI args
 			local key_name = table.remove(args, 1)
 			if not keys[key_name] then error('Invalid key name \'' .. key_name .. '\'', 0) end
 			capture_next_frame_key = keys[key_name]
+		elseif args[1] == '--headless' then
+			headless = true
+			table.remove(args, 1)
 		else
 			program_name = args[1]
 			table.remove(args, 1)
@@ -232,16 +236,19 @@ local v3d
 local v3d_modified_library
 do -- load v3d
 	local this_dir = shell
-				and shell.getRunningProgram()
-						:gsub('src/v3debug/v3debug%.lua$', '')
-						:gsub('v3debug%.lua$', '')
-						:gsub('v3debug$', '')
-				or '../../../'
+				 and shell.getRunningProgram()
+				         :gsub('/v3debug%.lua$', '')
+				         :gsub('^v3debug%.lua$', '')
+				         :gsub('/v3debug$', '')
+				         :gsub('^v3debug$', '')
+				  or './'
 
 	local v3d_try_paths = {
 		this_dir .. 'artifacts/v3d.lua',
 		this_dir .. 'v3d.lua',
 		this_dir .. 'v3d',
+		'/v3d/artifacts/v3d.lua',
+		'/v3d.lua',
 	}
 
 	for _, v3d_path in ipairs(v3d_try_paths) do
@@ -270,6 +277,7 @@ do -- provide a modified 'module' and 'require' to the program
 end
 
 local COLOUR_BACKGROUND = colours.black
+local COLOUR_BACKGROUND_SEL = colours.grey
 local COLOUR_BACKGROUND_ALT = colours.grey
 local COLOUR_BACKGROUND_HL = colours.purple
 local COLOUR_FOREGROUND = colours.white
@@ -453,7 +461,7 @@ do -- define operations on rich text lines
 	--- @param min_y integer
 	--- @param max_y integer
 	function draw_lines(line, x, y, width, min_y, max_y)
-		term.setBackgroundColour(COLOUR_BACKGROUND_ALT)
+		term.setBackgroundColour(COLOUR_BACKGROUND_SEL)
 
 		local forward_line = line
 		local forward_y = y
@@ -487,9 +495,11 @@ do -- TODO
 	local show
 	local v3d_show_types = {}
 	local v3d_function_parameter_names = {}
+	local v3d_struct_field_orderings = {}
 
 	-- #gen-show-types
 	-- #gen-function-parameter-names
+	-- #gen-struct-field-orderings
 
 	--- @param item V3DFormat
 	--- @param line RichTextLine
@@ -601,7 +611,14 @@ do -- TODO
 				end
 			end
 
-			table.sort(map_elements, function(a, b) return tostring(a[1]) < tostring(b[1]) end)
+			table.sort(map_elements, function(a, b)
+				local o1 = v3d_struct_field_orderings[a[1]]
+				local o2 = v3d_struct_field_orderings[b[1]]
+				if not o1 or not o2 or o1 == o2 then
+					return tostring(a[1]) < tostring(b[1])
+				end
+				return o1 < o2
+			end)
 
 			map_items_to_lines(line, map_elements, function(element)
 				local l = new_rich_line {
@@ -711,6 +728,35 @@ end
 
 --- @return boolean continue_running
 function enter_capture_view()
+	if headless then
+		local messages = {}
+
+		if get_normal_error() then
+			table.insert(messages, get_normal_error())
+		elseif get_validation_error() then
+			table.insert(messages, 'Validation error in ' .. V3D_VALIDATION_ERROR.context.fn_name .. ':')
+
+			for _, e in ipairs(V3D_VALIDATION_ERROR.context.errors) do
+				if e.attribute then
+					table.insert(messages, ' \007 ' .. e.attribute .. ' (' .. tostring(e.value) .. '): ' .. e.message)
+				else
+					table.insert(messages, ' \007 ' .. e.message)
+				end
+			end
+		else
+			return true
+		end
+
+		table.insert(messages, '')
+		table.insert(messages, 'Stack trace:')
+
+		for _, st in ipairs(get_stacktrace()) do
+			table.insert(messages, st)
+		end
+
+		error(table.concat(messages, '\n'), 0)
+	end
+
 	local state = {
 		--- @type 'Overview' | 'Capture'
 		page = 'Overview',
@@ -813,7 +859,7 @@ function enter_capture_view()
 			if get_validation_error() then
 				term.setTextColour(colours.red)
 				term.setCursorPos(2, y)
-				y = y + print('Error in ' .. V3D_VALIDATION_ERROR.context.fn_name .. ':')
+				y = y + print('Validation error in ' .. V3D_VALIDATION_ERROR.context.fn_name .. ':')
 				term.setTextColour(COLOUR_FOREGROUND_ALT)
 				for _, e in ipairs(V3D_VALIDATION_ERROR.context.errors) do
 					term.setCursorPos(2, y)
@@ -945,16 +991,16 @@ do -- create modified library
 		v3d_this_frame_calls = table.remove(v3d_this_frame_call_stack)
 	end
 
-	local image_present_term_subpixel = v3d_modified_library.image_present_term_subpixel
-	local image_present_graphics = v3d_modified_library.image_present_graphics
+	local image_view_present_term_subpixel = v3d_modified_library.image_view_present_term_subpixel
+	local image_view_present_graphics = v3d_modified_library.image_view_present_graphics
 
-	function v3d_modified_library.image_present_term_subpixel(...)
-		image_present_term_subpixel(...)
+	function v3d_modified_library.image_view_present_term_subpixel(...)
+		image_view_present_term_subpixel(...)
 		end_frame()
 	end
 
-	function v3d_modified_library.image_present_graphics(...)
-		image_present_graphics(...)
+	function v3d_modified_library.image_view_present_graphics(...)
+		image_view_present_graphics(...)
 		end_frame()
 	end
 
@@ -975,11 +1021,14 @@ while true do
 		if not should_continue_running() then
 			program_event_queue = {} -- signal below to break the outer loop
 			break
-		end
 	
 		-- if we don't have a queued event, pull one
-		if not program_event_queue[1] then
+		elseif not program_event_queue[1] then
 			program_event_queue[1] = { coroutine.yield() }
+
+		elseif program_event_queue[1][1] == 'terminate' then
+			program_event_queue = {} -- signal below to break the outer loop
+			break
 
 		-- if the user has pressed the capture current key, enter the capture view
 		elseif program_event_queue[1][1] == 'key' and program_event_queue[1][2] == capture_current_key then
@@ -1030,6 +1079,8 @@ while true do
 	-- set the event filter for the next iteration
 	event_filter = yielded[2]
 end
+
+end_frame()
 
 -- restore the palette
 for i = 0, 15 do

@@ -233,6 +233,76 @@ do -- replace `-- #gen-function-parameter-names`
 	v3debug_content = v3debug_content:gsub('%-%- #gen%-function%-parameter%-names', gen_function_parameter_names)
 end
 
+-- TODO: this is dumb, should be record based and embed the dependencies in the
+--       program directly and it can resolve with lookup tables
+
+do -- replace `-- #gen-struct-field-orderings`
+	local function gen_struct_field_orderings()
+		local lines = {}
+		local field_orderings = {}
+
+		for _, class in ipairs(v3d_docstring.classes) do
+			if class.is_structural then
+				local field_names = {}
+
+				for _, field in ipairs(class.fields) do
+					if not field.is_private then
+						table.insert(field_names, field.name)
+					end
+				end
+
+				for i = 2, #field_names do
+					table.insert(field_orderings, { field_names[i - 1], field_names[i] })
+				end
+			end
+		end
+
+		local order = 0
+		while #field_orderings > 0 do
+			local seen = {}
+			local dependent = {}
+			local n_orderings = #field_orderings
+
+			for i = 1, n_orderings do
+				seen[field_orderings[i][1]] = true
+				seen[field_orderings[i][2]] = true
+				dependent[field_orderings[i][2]] = true
+			end
+
+			local independent = {}
+			for field_name in pairs(seen) do
+				if not dependent[field_name] then
+					table.insert(independent, field_name)
+
+					for i = #field_orderings, 1, -1 do
+						if field_orderings[i][1] == field_name then
+							table.remove(field_orderings, i)
+						end
+					end
+				end
+			end
+
+			if #field_orderings == n_orderings then
+				for i = 1, #field_orderings do
+					print(field_orderings[i][1] .. ' <- ' .. field_orderings[i][2])
+				end
+
+				error('circular dependency in struct field orderings')
+			end
+
+			for i = 1, #independent do
+				table.insert(lines, 'v3d_struct_field_orderings[\'' .. independent[i] .. '\'] = ' .. order)
+			end
+
+			order = order + 1
+		end
+
+		return table.concat(lines, '\n\t')
+	end
+
+	v3debug_content = v3debug_content:gsub('%-%- #gen%-struct%-field%-orderings', gen_struct_field_orderings)
+end
+
 do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappers`
 	local fn_blacklist = {
 		['v3d.enter_debug_region'] = true,
@@ -423,6 +493,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 		table.insert(type_validator_lines, '\tif type(value) ~= \'table\' then')
 		table.insert(type_validator_lines, '\t\ttable.insert(errors, { attribute = attribute, value = value, message = \'expected ' .. class.name .. ', got \' .. type(value) })')
 		table.insert(type_validator_lines, '\telse')
+		table.insert(type_validator_lines, '\t\tlocal n_errors = #errors')
 		for i = 1, #fields_to_validate do
 			local field = fields_to_validate[i].field
 			local field_validator = fields_to_validate[i].validator
@@ -430,6 +501,8 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 				table.insert(type_validator_lines, '\t\t' .. field_validator .. '(errors, attribute .. \'.' .. field.name .. '\', value.' .. field.name .. ')')
 			end
 		end
+		
+		table.insert(type_validator_lines, '\t\tif #errors > n_errors then return end')
 
 		for _, validation in ipairs(class.validations) do
 			table.insert(type_validator_lines, '\t\tif not (' .. validation.check_code:gsub('self', 'value') .. ') then')
@@ -525,10 +598,14 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 			table.insert(param_names, fn.parameters[i].name)
 		end
 		table.insert(lines, 'local ' .. reference_name .. ' = ' .. revised_name)
-		table.insert(lines, 'function ' .. revised_name .. '(' .. table.concat(param_names, ', ') .. ')')
+		table.insert(lines, 'function ' .. revised_name .. '(' .. table.concat(param_names, ', ') .. ', ...)')
 
 		if #fn.parameters > 0 then
 			table.insert(lines, '\tlocal _validation_errors = {}')
+			table.insert(lines, '')
+			table.insert(lines, '\tif ... then')
+			table.insert(lines, '\t\ttable.insert(_validation_errors, { attribute = nil, value = nil, message = \'unexpected extra parameters\' })')
+			table.insert(lines, '\tend')
 
 			for i = 1, #fn.parameters do
 				local validator = get_type_validator(docstring.parse_type(fn.parameters[i].type))
@@ -543,7 +620,7 @@ do -- replace `-- #gen-function-wrappers` and `-- #gen-generated-function-wrappe
 			for i = 1, #fn.validations do
 				local validation = fn.validations[i]
 				table.insert(lines, '\t\tif not (' .. validation.check_code .. ') then')
-				table.insert(lines, '\t\t\ttable.insert(_validation_errors, { attribute = nil, value = nil, message = \'' .. validation.message:gsub('\'', '\\\'') .. '\' })')
+				table.insert(lines, '\t\t\ttable.insert(_validation_errors, { attribute = nil, value = nil, message = \'' .. validation.message:gsub('[\'\n]', '\\%1') .. '\' })')
 				table.insert(lines, '\t\tend')
 			end
 			table.insert(lines, '\tend')
@@ -838,6 +915,11 @@ do -- test examples:
 	local w, h = term.getSize()
 	local window = _ENV.window.create(term.current(), 1, 1, w, h, false)
 
+	local v3debug_file_handle = assert(io.open(v3d_base_dir .. 'artifacts/v3debug.lua'))
+	local v3debug_content = v3debug_file_handle:read '*a'
+	v3debug_file_handle:close()
+	local v3debug = assert(load(v3debug_content, '=v3debug.lua', nil, _ENV))
+
 	for _, fn in ipairs(v3d_docstring.functions) do
 		for i, example_usage in ipairs(fn.example_usages) do
 			local filename = 'artifacts/examples/' .. fn.name .. '-' .. i .. '.lua'
@@ -845,10 +927,10 @@ do -- test examples:
 			             .. table.concat(example_usage.lines, '\n')
 			write_file(filename, content)
 			local prev = term.redirect(window)
-			local ok = shell.execute('/' .. v3d_base_dir .. 'artifacts/v3debug.lua', '/' .. v3d_base_dir .. filename)
+			local ok, err = pcall(v3debug, '--headless', '/' .. v3d_base_dir .. filename)
 			term.redirect(prev)
 			if not ok then
-				error('Example ' .. i .. ' from ' .. fn.name .. ' failed', 0)
+				error('Example ' .. i .. ' from ' .. fn.name .. ' failed: ' .. err, 0)
 			end
 		end
 	end

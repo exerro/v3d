@@ -5,26 +5,6 @@ term.setBackgroundColour(colours.black)
 term.clear()
 term.setCursorPos(1, 1)
 
-local image1 = v3d.create_image(v3d.uinteger(), 10, 10, 1, nil, 'Image 1')
-local image2 = v3d.create_image(v3d.uinteger(), 10, 10, 1, nil, 'Image 2')
-
-local map = v3d.compile_image_map_pipeline {
-	sources = {
-		main = [[
-			local xy = v3d_pixel_position(source, 'xy')
-			v3d_set_pixel(destination, v3d_pixel(source))
-		]]
-	},
-	source_image_format = image1.format,
-	destination_image_format = image2.format,
-}
-
-map:execute(image1, image1:full_region(), image2, image2:full_region())
-
-do return end
-
---------------------------------------------------------------------------------
-
 local term_width, term_height = term.getSize()
 local image_width, image_height = term_width * 2, term_height * 3
 local framebuffer = v3d.create_framebuffer(image_width, image_height, 1, {
@@ -43,7 +23,7 @@ local camera = v3d.camera { z = 1 }
 -- 	end
 -- ]]
 
--- local render_pipeline = v3d.compile_render_pipeline {
+-- local render_pipeline = v3d.compile_pipeline {
 -- 	vertex_format = geometry.vertex_format,
 -- 	face_format = geometry.face_format,
 -- 	framebuffer_format = framebuffer.format,
@@ -60,18 +40,20 @@ local camera = v3d.camera { z = 1 }
 -- render_pipeline:render(geometry, framebuffer, camera, viewport)
 
 local image = v3d.create_image(v3d.uinteger(), term_width, term_height, 1)
+local image_view = v3d.image_view(image)
+local smaller_image_view = v3d.image_view(image, {
+	x = 2, y = 3, z = 0,
+	width = 10, height = 10, depth = 1,
+})
 
 term.setGraphicsMode(1)
 
-while true do
-	v3d.image_fill(image, colours.white)
-	v3d.image_fill(image, colours.red, {
-		x = 0, y = 0, z = 0,
-		width = 10, height = 10, depth = 1,
-	})
+for _ = 1, 100 do
+	v3d.image_view_fill(image_view, colours.white)
+	v3d.image_view_fill(smaller_image_view, 2 ^ math.random(1, 15))
 
-	v3d.image_present_graphics(image, term, true)
-	sleep(0)
+	v3d.image_view_present_graphics(image_view, term.current(), true)
+	sleep(0.1)
 end
 
 sleep(1)

@@ -4,7 +4,7 @@ local gen = require 'gen'
 
 --- @param docstring string
 local function short_docstring(docstring)
-	return docstring:match('^%s*(.-)[%.]'):gsub('\n\n.*$', '')
+	return (docstring:match('^%s*(.-)[%.]') or docstring):gsub('\n\n.*$', '')
 end
 
 local function function_sorter(a, b)

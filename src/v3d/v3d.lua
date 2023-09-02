@@ -688,7 +688,7 @@ end
 --- local my_format = v3d.tuple { v3d.integer(), v3d.boolean() }
 --- local my_value = { 1, true }
 ---
---- local buffer = v3d.format_buffer(my_format, my_value)
+--- local buffer = v3d.format_buffer_into(my_format, my_value)
 ---
 --- assert(buffer[1] == 1)
 --- assert(buffer[2] == true)
@@ -697,13 +697,13 @@ end
 --- local my_value = { 1, true }
 --- local my_buffer = {}
 ---
---- v3d.format_buffer(my_format, my_value, my_buffer, 1)
+--- v3d.format_buffer_into(my_format, my_value, my_buffer, 1)
 ---
 --- assert(my_buffer[1] == nil) -- skipped due to the offset of 1
 --- assert(my_buffer[2] == 1)
 --- assert(my_buffer[3] == true)
 --- @v3d-example
-function v3d.format_buffer(format, value, buffer, offset)
+function v3d.format_buffer_into(format, value, buffer, offset)
 	buffer = buffer or {}
 	offset = offset or 0
 
@@ -711,12 +711,12 @@ function v3d.format_buffer(format, value, buffer, offset)
 		buffer[offset + 1] = value
 	elseif format.kind == 'tuple' then
 		for i = 1, #format.fields do
-			buffer = v3d.format_buffer(format.fields[i], value[i], buffer, offset)
+			buffer = v3d.format_buffer_into(format.fields[i], value[i], buffer, offset)
 			offset = offset + v3d.format_size(format.fields[i])
 		end
 	elseif format.kind == 'struct' then
 		for i = 1, #format.fields do
-			buffer = v3d.format_buffer(format.fields[i].format, value[format.fields[i].name], buffer, offset)
+			buffer = v3d.format_buffer_into(format.fields[i].format, value[format.fields[i].name], buffer, offset)
 			offset = offset + v3d.format_size(format.fields[i].format)
 		end
 	else
@@ -743,7 +743,7 @@ end
 --- local my_format = v3d.struct { x = v3d.integer(), y = v3d.boolean() }
 --- local my_buffer = { 1, true }
 ---
---- local value = v3d.format_unbuffer(my_format, my_buffer)
+--- local value = v3d.format_unbuffer_from(my_format, my_buffer)
 ---
 --- assert(value.x == 1)
 --- assert(value.y == true)
@@ -751,12 +751,12 @@ end
 --- local my_format = v3d.struct { x = v3d.integer(), y = v3d.boolean() }
 --- local my_buffer = { 1, true, 2, false, 3, true }
 ---
---- local value = v3d.format_unbuffer(my_format, my_buffer, 2 * v3d.format_size(my_format))
+--- local value = v3d.format_unbuffer_from(my_format, my_buffer, 2 * v3d.format_size(my_format))
 ---
 --- assert(value.x == 3)
 --- assert(value.y == true)
 --- @v3d-example
-function v3d.format_unbuffer(format, buffer, offset)
+function v3d.format_unbuffer_from(format, buffer, offset)
 	offset = offset or 0
 
 	if format.kind == 'boolean' or format.kind == 'integer' or format.kind == 'uinteger' or format.kind == 'number' or format.kind == 'character' or format.kind == 'string' then
@@ -764,14 +764,14 @@ function v3d.format_unbuffer(format, buffer, offset)
 	elseif format.kind == 'tuple' then
 		local value = {}
 		for i = 1, #format.fields do
-			value[i] = v3d.format_unbuffer(format.fields[i], buffer, offset)
+			value[i] = v3d.format_unbuffer_from(format.fields[i], buffer, offset)
 			offset = offset + v3d.format_size(format.fields[i])
 		end
 		return value
 	elseif format.kind == 'struct' then
 		local value = {}
 		for i = 1, #format.fields do
-			value[format.fields[i].name] = v3d.format_unbuffer(format.fields[i].format, buffer, offset)
+			value[format.fields[i].name] = v3d.format_unbuffer_from(format.fields[i].format, buffer, offset)
 			offset = offset + v3d.format_size(format.fields[i].format)
 		end
 		return value
@@ -1455,8 +1455,8 @@ do -----------------------------------------------------------------------------
 --- @v3d-example 4
 function v3d.create_image(format, width, height, depth, pixel_value, label)
 	local image = _create_instance('V3DImage', label)
-	local pixel_data = v3d.format_buffer(format, pixel_value or v3d.format_default_value(format))
-	local pixel_data_size = #pixel_data
+	local pixel_data = v3d.format_buffer_into(format, pixel_value or v3d.format_default_value(format))
+	local pixel_format_size = #pixel_data
 
 	image.format = format
 	image.width = width
@@ -1465,39 +1465,13 @@ function v3d.create_image(format, width, height, depth, pixel_value, label)
 
 	local index = 1
 	for _ = 1, width * height * depth do
-		for i = 1, pixel_data_size do
+		for i = 1, pixel_format_size do
 			image[index] = pixel_data[i]
 			index = index + 1
 		end
 	end
 
 	return _finalise_instance(image)
-end
-
-----------------------------------------------------------------
-
---- Return a region containing the entire image.
---- @param image V3DImage
---- @return V3DImageRegion
---- @v3d-nolog
---- local my_image = v3d.create_image(v3d.number(), 1, 2, 3)
---- local my_region = v3d.image_full_region(my_image)
---- assert(my_region.x == 0)
---- assert(my_region.y == 0)
---- assert(my_region.z == 0)
---- assert(my_region.width == 1)
---- assert(my_region.height == 2)
---- assert(my_region.depth == 3)
---- @v3d-example 2:8
-function v3d.image_full_region(image)
-	return {
-		x = 0,
-		y = 0,
-		z = 0,
-		width = image.width,
-		height = image.height,
-		depth = image.depth,
-	}
 end
 
 ----------------------------------------------------------------
@@ -1527,382 +1501,13 @@ end
 
 ----------------------------------------------------------------
 
---- Fill a region of an image with the specified value.
---- * If no region is specified, the entire image will be filled.
---- * If no value is provided, the image will be filled with the default value
----   for the image's format.
----
---- Note, the value must be compatible with the image's format and will be
---- flattened within the image's internal data buffer.
----
---- Returns the image.
---- @param image V3DImage
---- @param value any | nil
---- @param region V3DImageRegion | nil
---- @return V3DImage
---- @v3d-chainable
---- Pixel value must be an instance of the specified format or nil
---- @v3d-validate value == nil or v3d.format_is_instance(image.format, value)
---- Region must be contained within the image
---- @v3d-validate region == nil or v3d.image_contains_region(image, region)
---- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, 1, colours.white)
----
---- v3d.image_fill(my_image, colours.black)
----
---- assert(my_image:get_pixel(0, 0, 0) == colours.black)
---- @v3d-example 3
---- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, 1, colours.white)
---- local my_region = {
---- 	x = 1, y = 1, z = 0,
---- 	width = 50, height = 18, depth = 1,
---- }
----
---- v3d.image_fill(my_image, colours.orange, my_region)
----
---- assert(my_image:get_pixel(0, 0, 0) == colours.white)
---- assert(my_image:get_pixel(1, 1, 0) == colours.orange)
---- @v3d-example 7
-function v3d.image_fill(image, value, region)
-	value = value or v3d.format_default_value(image.format)
-
-	local pixel_data = v3d.format_buffer(image.format, value)
-	local pixel_data_size = #pixel_data
-
-	local z_init = 1
-	local z_end = image.depth
-	local y_init = 1
-	local y_end = image.height
-	local x_init = 1
-	local x_end = image.width
-	local index = 1
-	local z_step = 0
-	local y_step = 0
-
-	if region then
-		x_init = region.x + 1
-		x_end = region.x + region.width
-		y_init = region.y + 1
-		y_end = region.y + region.height
-		z_init = region.z + 1
-		z_end = region.z + region.depth
-
-		index = ((z_init - 1) * image.width * image.height + (y_init - 1) * image.width + (x_init - 1)) * pixel_data_size + 1
-		y_step = (image.width - region.width) * pixel_data_size
-		z_step = (image.height - region.height) * image.width * pixel_data_size
-	end
-
-	for _ = z_init, z_end do
-		for _ = y_init, y_end do
-			for _ = x_init, x_end do
-				for i = 1, pixel_data_size do
-					image[index] = pixel_data[i]
-					index = index + 1
-				end
-			end
-			index = index + y_step
-		end
-		index = index + z_step
-	end
-
-	return image
-end
-
-----------------------------------------------------------------
-
---- Get the value of a pixel in the image. If the pixel is out of bounds, nil
---- will be returned. The coordinates are 0-indexed, meaning (0, 0, 0) is the
---- first pixel in the image (top-left, front-most).
----
---- Note, the value will be unflattened from the image's internal data buffer.
---- For example, if the image's format is a struct, a table with the field values
---- will be returned.
----
---- @see v3d.image_buffer
---- @param image V3DImage
---- @param x integer
---- @param y integer
---- @param z integer
---- @return any
---- @v3d-nolog
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
----
---- local single_pixel_value = v3d.image_get_pixel(my_image, 0, 0, 0)
----
---- assert(single_pixel_value == 42)
---- @v3d-example 3
---- local rgba_format = v3d.tuple { v3d.number(), v3d.number(), v3d.number(), v3d.number() }
---- local my_image = v3d.create_image(rgba_format, 16, 16, 16, { 0.1, 0.2, 0.3, 1 })
----
---- local rgba = v3d.image_get_pixel(my_image, 0, 0, 0)
----
---- assert(rgba[1] == 0.1)
---- assert(rgba[2] == 0.2)
---- assert(rgba[3] == 0.3)
---- assert(rgba[4] == 1)
---- @v3d-example 4
-function v3d.image_get_pixel(image, x, y, z)
-	if x < 0 or x >= image.width or y < 0 or y >= image.height or z < 0 or z >= image.depth then
-		return nil
-	end
-
-	local pixel_data_size = v3d.format_size(image.format)
-	local offset = ((z * image.width * image.height) + (y * image.width) + x) * pixel_data_size
-
-	return v3d.format_unbuffer(image.format, image, offset)
-end
-
---- Set the value of a pixel in the image. If the pixel is out of bounds, the
---- image will be returned unchanged. The coordinates are 0-indexed, meaning
---- (0, 0, 0) is the first pixel in the image (top-left, front-most).
----
---- Note, the value must be compatible with the image's format and will be
---- flattened within the image's internal data buffer.
----
---- Returns the image.
----
---- @see v3d.image_unbuffer
---- @param image V3DImage
---- @param x integer
---- @param y integer
---- @param z integer
---- @param value any
---- @return V3DImage
---- @v3d-chainable
---- Pixel value must be an instance of the specified format
---- @v3d-validate v3d.format_is_instance(image.format, value)
---- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, colours.white)
----
---- v3d.image_set_pixel(my_image, 0, 0, 0, colours.black)
----
---- assert(v3d.image_get_pixel(my_image, 0, 0, 0) == colours.black)
---- @v3d-example 3
-function v3d.image_set_pixel(image, x, y, z, value)
-	if x < 0 or x >= image.width or y < 0 or y >= image.height or z < 0 or z >= image.depth then
-		return image
-	end
-
-	local pixel_data_size = v3d.format_size(image.format)
-	local offset = ((z * image.width * image.height) + (y * image.width) + x) * pixel_data_size
-
-	v3d.format_buffer(image.format, value, image, offset)
-
-	return image
-end
-
-----------------------------------------------------------------
-
---- Copy the contents of a region within the image into a buffer.
---- * If no region is specified, the entire image will be copied.
---- * If no buffer is provided, a new buffer will be created. Regardless, the
----   buffer will be returned.
---- * If an offset is provided, the buffer will be written to from that offset.
----   For example, an offset of 1 will start writing at the second element of
----   the buffer.
----
---- Note, the buffer will contain the unflattened values of the image's internal
---- data buffer. For example, if the image's format is a struct, the buffer will
---- contain tables with the field values for each pixel, e.g.
---- ```
---- {
---- 	{ r = 1, g = 2, b = 3 },
---- 	{ r = 4, g = 5, b = 6 },
---- }
---- ```
----
---- Buffer values will be depth-major, row-major, meaning the first value will
---- be the front-most, top-left pixel, the second value will be the pixel to the
---- right of that, and so on.
---- @param image V3DImage
---- @param buffer table | nil
---- @param offset integer | nil
---- @param region V3DImageRegion | nil
---- @return table
---- @v3d-nolog
---- @v3d-advanced
---- Offset must not be negative
---- @v3d-validate offset == nil or offset >= 0
---- Region must be contained within the image
---- @v3d-validate region == nil or v3d.image_contains_region(image, region)
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
----
---- local buffer = v3d.image_buffer(my_image)
----
---- assert(buffer[1] == 42)
---- @v3d-example 3
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
---- local my_region = {
---- 	x = 1, y = 1, z = 0,
---- 	width = 14, height = 14, depth = 14,
---- }
----
---- local buffer = v3d.image_buffer(my_image, nil, nil, my_region)
---- -- buffer only contains contents from that region
---- @v3d-example 7
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
---- local my_buffer = {}
----
---- v3d.image_buffer(my_image, my_buffer)
----
---- assert(my_buffer[1] == 42)
---- @v3d-example 4
-function v3d.image_buffer(image, buffer, offset, region)
-	buffer = buffer or {}
-	offset = offset or 0
-
-	local image_format = image.format
-	local image_width = image.width
-	local image_height = image.height
-	local v3d_format_unbuffer = v3d.format_unbuffer
-	local pixel_value_size = v3d.format_size(image.format)
-
-	local z_init = 1
-	local z_end = image.depth
-	local y_init = 1
-	local y_end = image_height
-	local x_init = 1
-	local x_end = image_width
-
-	local z_step = 0
-	local y_step = 0
-
-	if region then
-		x_init = region.x + 1
-		x_end = region.x + region.width
-		y_init = region.y + 1
-		y_end = region.y + region.height
-		z_init = region.z + 1
-		z_end = region.z + region.depth
-
-		z_step = (image_height - region.height) * image_width * pixel_value_size
-		y_step = (image_width - region.width) * pixel_value_size
-	end
-
-	local buffer_index = offset + 1
-	local image_offset = ((z_init - 1) * image_width * image_height + (y_init - 1) * image_width + (x_init - 1)) * pixel_value_size
-
-	for _ = z_init, z_end do
-		for _ = y_init, y_end do
-			for _ = x_init, x_end do
-				buffer[buffer_index] = v3d_format_unbuffer(image_format, image, image_offset)
-				buffer_index = buffer_index + 1
-				image_offset = image_offset + pixel_value_size
-			end
-			image_offset = image_offset + y_step
-		end
-		image_offset = image_offset + z_step
-	end
-
-	return buffer
-end
-
--- TODO: validate buffer contents as well
---- Copy the contents of a buffer into a region within the image.
---- * If no offset is provided, the buffer will be read from the first element.
---- * If no region is specified, the buffer will be copied into the entire
----   image.
----
---- The buffer must contain enough values to fill the region.
----
---- Note, the buffer must contain values compatible with the image's format and
---- will be flattened within the image's internal data buffer. For example, if
---- the image's format is a struct, the buffer must contain tables with the field
---- values for each pixel, e.g.
---- ```
---- {
---- 	{ r = 1, g = 2, b = 3 },
---- 	{ r = 4, g = 5, b = 6 },
---- }
---- ```
----
---- This function can be used to load values into an image efficiently.
---- @param image V3DImage
---- @param buffer table
---- @param offset integer | nil
---- @param region V3DImageRegion | nil
---- @return V3DImage
---- @v3d-chainable
---- @v3d-nolog
---- @v3d-advanced
---- Offset must not be negative
---- @v3d-validate offset == nil or offset >= 0
---- Region must be contained within the image
---- @v3d-validate region == nil or v3d.image_contains_region(image, region)
---- Buffer must contain enough values to fill the region
---- @v3d-validate #buffer - (offset or 0) >= v3d.format_size(image.format) * (region or image).width * (region or image).height * (region or image).depth
---- local my_image = v3d.create_image(v3d.number(), 2, 1, 1)
---- local my_buffer = { 1, 2 }
----
---- v3d.image_unbuffer(my_image, my_buffer)
----
---- assert(v3d.image_get_pixel(my_image, 0, 0, 0) == 1)
---- assert(v3d.image_get_pixel(my_image, 1, 0, 0) == 2)
---- @v3d-example 4
---- local my_image = v3d.create_image(v3d.number(), 2, 1, 1, 42)
---- local my_buffer = { 5, 6 }
---- local my_region = {
---- 	x = 1, y = 0, z = 0,
---- 	width = 1, height = 1, depth = 1,
---- }
----
---- v3d.image_unbuffer(my_image, my_buffer, 1, my_region)
----
---- assert(v3d.image_get_pixel(my_image, 0, 0, 0) == 42)
---- assert(v3d.image_get_pixel(my_image, 1, 0, 0) == 6)
---- @v3d-example 8
-function v3d.image_unbuffer(image, buffer, offset, region)
-	offset = offset or 0
-
-	local image_format = image.format
-	local image_width = image.width
-	local image_height = image.height
-	local v3d_format_buffer = v3d.format_buffer
-	local pixel_value_size = v3d.format_size(image.format)
-
-	local z_init = 1
-	local z_end = image.depth
-	local y_init = 1
-	local y_end = image_height
-	local x_init = 1
-	local x_end = image_width
-
-	local z_step = 0
-	local y_step = 0
-
-	if region then
-		x_init = region.x + 1
-		x_end = region.x + region.width
-		y_init = region.y + 1
-		y_end = region.y + region.height
-		z_init = region.z + 1
-		z_end = region.z + region.depth
-
-		z_step = (image_height - region.height) * image_width * pixel_value_size
-		y_step = (image_width - region.width) * pixel_value_size
-	end
-
-	local buffer_index = offset + 1
-	local image_offset = ((z_init - 1) * image_width * image_height + (y_init - 1) * image_width + (x_init - 1)) * pixel_value_size
-
-	for _ = z_init, z_end do
-		for _ = y_init, y_end do
-			for _ = x_init, x_end do
-				v3d_format_buffer(image_format, buffer[buffer_index], image, image_offset)
-				buffer_index = buffer_index + 1
-				image_offset = image_offset + pixel_value_size
-			end
-			image_offset = image_offset + y_step
-		end
-		image_offset = image_offset + z_step
-	end
-
-	return image
-end
-
-----------------------------------------------------------------
-
 --- Return an identical copy of the image with the same format and dimensions.
+---
+--- Modifying the returned image will not modify the original image, and vice
+--- versa.
 --- @param image V3DImage
 --- @param label string | nil
+--- @v3d-constructor
 --- @return V3DImage
 --- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 24)
 --- local my_image_copy = v3d.image_copy(my_image)
@@ -1931,199 +1536,494 @@ function v3d.image_copy(image, label)
 	return new_image
 end
 
---- Copy the contents of one image into another image.
---- * If no source region is specified, the entire source image will be copied.
---- * If no destination region is specified, the source image will be copied
----   into the entire destination image.
----
---- Note, this may not be as efficient as using `image_buffer` and
---- `image_unbuffer` directly, and also affords less control when it comes to
---- casting data. This function is meant as an easy way to copy images of
---- compatible formats.
----
---- TODO: implement copy shaders
----
---- Returns the source image.
----
---- @see v3d.image_buffer
---- @see v3d.image_unbuffer
---- @param source V3DImage
---- @param destination V3DImage
---- @param source_region V3DImageRegion | nil
---- @param destination_region V3DImageRegion | nil
---- @return V3DImage
---- @v3d-chainable
---- Source region must be contained within the source image
---- @v3d-validate source_region == nil or v3d.image_contains_region(source, source_region)
---- Destination region must be contained within the destination image
---- @v3d-validate destination_region == nil or v3d.image_contains_region(destination, destination_region)
---- If source and destination regions are specified, they must have the same size
---- @v3d-validate source_region == nil or destination_region == nil or (source_region.width == destination_region.width and source_region.height == destination_region.height and source_region.depth == destination_region.depth)
---- If no regions are specified, source and destination images must have the same size
---- @v3d-validate source_region ~= nil or destination_region ~= nil or (source.width == destination.width and source.height == destination.height and source.depth == destination.depth)
---- If only a source region is specified, the source region and desination image must have the same size
---- @v3d-validate source_region == nil or destination_region ~= nil or (source_region.width == destination.width and source_region.height == destination.height and source_region.depth == destination.depth)
---- If only a destination region is specified, the destination region and source image must have the same size
---- @v3d-validate source_region ~= nil or destination_region == nil or (source.width == destination_region.width and source.height == destination_region.height and source.depth == destination_region.depth)
---- Source format must be compatible with the destination format
---- @v3d-validate v3d.format_is_compatible_with(source.format, destination.format)
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
---- local my_other_image = v3d.create_image(v3d.number(), 16, 16, 16, 24)
----
---- v3d.image_copy_into(my_image, my_other_image)
----
---- assert(v3d.image_get_pixel(my_other_image, 0, 0, 0) == 42)
---- assert(v3d.image_get_pixel(my_other_image, 15, 15, 15) == 42)
---- @v3d-example 4
---- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
---- local my_other_image = v3d.create_image(v3d.number(), 16, 16, 16, 24)
---- local my_region = {
---- 	x = 1, y = 1, z = 1,
---- 	width = 14, height = 14, depth = 14,
---- }
----
---- v3d.image_copy_into(my_image, my_other_image, my_region, my_region)
----
---- assert(v3d.image_get_pixel(my_other_image, 0, 0, 0) == 24)
---- assert(v3d.image_get_pixel(my_other_image, 1, 1, 1) == 42)
---- assert(v3d.image_get_pixel(my_other_image, 14, 14, 14) == 42)
---- assert(v3d.image_get_pixel(my_other_image, 15, 15, 15) == 24)
---- @v3d-example 8
-function v3d.image_copy_into(source, destination, source_region, destination_region)
-	local buffer = v3d.image_buffer(source, nil, nil, source_region)
-	v3d.image_unbuffer(destination, buffer, nil, destination_region)
-	return source
-end
-
 end ----------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
--- Framebuffers ----------------------------------------------------------------
+-- Image views -----------------------------------------------------------------
 do -----------------------------------------------------------------------------
 
---- A framebuffer is a collection of images known as layers. Layers are named
---- and may be any format, but must all have the same dimensions.
---- @class V3DFramebuffer
---- Format of the framebuffer. Will always be a struct mapping layer names to
---- layer formats.
---- @field format V3DFormat
---- Width of the framebuffer. All layers must have the same width.
---- @field width integer
---- Height of the framebuffer. All layers must have the same height.
---- @field height integer
---- Depth of the framebuffer. All layers must have the same depth.
---- @field depth integer
---- @field private n_layers integer
---- @field private layer_formats V3DFormat[]
+--- An image view is a view into an image. It has the same format as the image,
+--- but represents a sub region of the image.
+---
+--- Image views are used to access and modify the data within images.
+--- @class V3DImageView
+--- Image this view is into.
+--- @field image V3DImage
+--- Region of the image this view is into. This region will always be specified
+--- and entirely contained within the image.
+--- @field region V3DImageRegion
+--- @field private init_offset integer
+--- @field private pixel_format_size integer
+--- @field private row_end_delta integer
+--- @field private layer_end_delta integer
+--- @v3d-untracked
 
---- String name of a layer within a framebuffer.
---- @alias V3DLayerName string
---- Layer names must be valid Lua identifiers
---- @v3d-validate self:match '^[%a_][%w_]*$'
-
---- Create a new framebuffer with the specified format and dimensions.
---- @param width integer
---- @param height integer
---- @param depth integer
---- @param layers { [V3DLayerName]: V3DFormat }
---- @param label string | nil
---- @return V3DFramebuffer
---- @v3d-constructor
---- @v3d-nomethod
+--- Partial assignment of image region fields. Used with `image_view` to specify
+--- a sub region of an image.
+--- If X, Y, or Z are not specified, they will default to 0. If width, height,
+--- or depth are not specified, they will default to the maximum possible value
+--- for that dimension, accounting for the specified X, Y, and Z.
+--- @class V3DPartialImageRegion
+--- Horizontal offset of the region. An offset of 0 means the region starts at
+--- the leftmost pixel.
+--- @field x integer | nil
+--- Vertical offset of the region. An offset of 0 means the region starts at the
+--- topmost pixel.
+--- @field y integer | nil
+--- Depth offset of the region. An offset of 0 means the region starts at the
+--- frontmost pixel.
+--- @field z integer | nil
+--- Width of the region. A width of 1 means the region is 1 pixel wide.
+--- @field width integer | nil
+--- Height of the region. A height of 1 means the region is 1 pixel tall.
+--- @field height integer | nil
+--- Depth of the region. A depth of 1 means the region is 1 pixel deep.
+--- @field depth integer | nil
+--- @v3d-structural
 --- Width must not be negative
---- @v3d-validate width >= 0
+--- @v3d-validate not self.width or self.width >= 0
 --- Height must not be negative
---- @v3d-validate height >= 0
+--- @v3d-validate not self.height or self.height >= 0
 --- Depth must not be negative
---- @v3d-validate depth >= 0
---- At least one layer must be specified
---- @v3d-validate next(layers) ~= nil
---- -- Create a blank 16x16x16 3D framebuffer.
---- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
---- @v3d-example 2
-function v3d.create_framebuffer(width, height, depth, layers, label)
-	local framebuffer = _create_instance('V3DFramebuffer', label)
+--- @v3d-validate not self.depth or self.depth >= 0
 
-	framebuffer.format = v3d.struct(layers)
-	framebuffer.width = width
-	framebuffer.height = height
-	framebuffer.depth = depth
-	
+--- Create a new image view into an image. The image view will have the same
+--- format as the image. If a region is specified, the image view will represent
+--- that region of the image. Otherwise, the image view will represent the
+--- entire image.
+---
+--- If provided, the region will be clamped to be within the image. This
+--- includes negative X, Y, or Z values, and sizes that extend beyond the image.
+--- @param image V3DImage
+--- @param region V3DPartialImageRegion | nil
+--- @return V3DImageView
+--- @v3d-constructor
+--- @v3d-nolog
+--- local my_image = v3d.create_image(v3d.number(), 1, 2, 3, 42)
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- assert(my_image_view.image == my_image)
+--- assert(my_image_view.region.x == 0)
+--- assert(my_image_view.region.y == 0)
+--- assert(my_image_view.region.z == 0)
+--- assert(my_image_view.region.width == 1)
+--- assert(my_image_view.region.height == 2)
+--- assert(my_image_view.region.depth == 3)
+--- @v3d-example 1:2
+--- local my_image = v3d.create_image(v3d.number(), 2, 3, 4, 42)
+--- local my_image_view = v3d.image_view(my_image, {
+--- 	x = 1,
+--- 	height = 2,
+--- 	depth = 100,
+--- })
+---
+--- assert(my_image_view.image == my_image)
+--- assert(my_image_view.region.x == 1)
+--- assert(my_image_view.region.y == 0)
+--- assert(my_image_view.region.z == 0)
+--- assert(my_image_view.region.width == 1)
+--- assert(my_image_view.region.height == 2)
+--- assert(my_image_view.region.depth == 4)
+--- @v3d-example 1:6
+function v3d.image_view(image, region)
+	local view = _create_instance('V3DImageView')
+
+	region = region or {
+		x = 0, y = 0, z = 0,
+		width = image.width, height = image.height, depth = image.depth,
+	}
+
+	local x = math.max(region.x or 0, 0)
+	local y = math.max(region.y or 0, 0)
+	local z = math.max(region.z or 0, 0)
+
+	view.image = image
+	view.region = {
+		x = x,
+		y = y,
+		z = z,
+		width = math.max(0, math.min(region.width or math.huge, image.width - x)),
+		height = math.max(0, math.min(region.height or math.huge, image.height - y)),
+		depth = math.max(0, math.min(region.depth or math.huge, image.depth - z)),
+	}
+
 	--- @diagnostic disable: invisible
-	framebuffer.n_layers = #framebuffer.format.fields
-	framebuffer.layer_formats = {}
+	view.pixel_format_size = v3d.format_size(image.format)
+	view.init_offset = ((view.region.z * image.width * image.height) + (view.region.y * image.width) + view.region.x) * view.pixel_format_size
+	view.row_end_delta = (image.width - view.region.width) * view.pixel_format_size
+	view.layer_end_delta = (image.height - view.region.height) * image.width * view.pixel_format_size
+	--- @diagnostic enable: invisible
 
-	for i, struct_field in ipairs(framebuffer.format.fields) do
-		framebuffer.layer_formats[i] = struct_field.format
+	return view
+end
+
+-- TODO: image_view_view(image_view, region)
+
+----------------------------------------------------------------
+
+--- Create a new image containing just the contents of this image view. The
+--- image will have the same format as the image view and the resultant image's
+--- data will not be linked with the original image. In other words, making a
+--- change to the original image will not affect the new image, and vice versa.
+--- @param image_view V3DImageView
+--- @param label string | nil
+--- @return V3DImage
+--- @v3d-constructor
+--- @v3d-advanced
+--- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
+--- local my_image_view = v3d.image_view(my_image)
+--- local my_image_copy = v3d.image_view_create_image(my_image_view)
+--- @v3d-example 1:3
+function v3d.image_view_create_image(image_view, label)
+	local image = v3d.create_image(image_view.image.format, image_view.region.width, image_view.region.height, image_view.region.depth, label)
+
+	--- @diagnostic disable: invisible
+	local target_index = 1
+	local index = image_view.init_offset + 1
+
+	for _ = 1, image_view.region.depth do
+		for _ = 1, image_view.region.height do
+			for _ = 1, image_view.region.width do
+				for _ = 1, image_view.pixel_format_size do
+					image[target_index] = image_view.image[index]
+					target_index = target_index + 1
+					index = index + 1
+				end
+			end
+			index = index + image_view.row_end_delta
+		end
+		index = index + image_view.layer_end_delta
 	end
 	--- @diagnostic enable: invisible
 
-	for i, struct_field in ipairs(framebuffer.format.fields) do
-		framebuffer[i] = v3d.create_image(struct_field.format, width, height, depth)
-	end
-
-	return framebuffer
+	return image
 end
 
---- Return whether a framebuffer has a layer with the specified name.
---- @param framebuffer V3DFramebuffer
---- @param layer_name V3DLayerName
---- @return boolean
---- @v3d-nolog
---- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
---- assert(v3d.framebuffer_has_layer(my_framebuffer, 'colour'))
---- @v3d-example 2
-function v3d.framebuffer_has_layer(framebuffer, layer_name)
-	for _, struct_field in ipairs(framebuffer.format.fields) do
-		if struct_field.name == layer_name then
-			return true
-		end
-	end
-	return false
-end
+----------------------------------------------------------------
 
---- Get the underlying V3DImage for a layer within a framebuffer. If the layer
---- does not exist, nil will be returned.
---- @param framebuffer V3DFramebuffer
---- @param layer_name V3DLayerName
---- @return V3DImage | nil
---- @v3d-nolog
---- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
---- local my_layer = v3d.framebuffer_layer(my_framebuffer, 'colour')
---- @v3d-example 2
-function v3d.framebuffer_layer(framebuffer, layer_name)
-	for i, struct_field in ipairs(framebuffer.format.fields) do
-		if struct_field.name == layer_name then
-			return framebuffer[i]
-		end
-	end
-	return nil
-end
-
---- Fill the layers of a framebuffer using the specified values. `values` should
---- be a table mapping layer names to the value to fill that layer with.
---- If a region is specified, only the specified region of each layer will be
---- filled.
---- @param framebuffer V3DFramebuffer
---- @param values { [V3DLayerName]: any }
---- @param region V3DImageRegion | nil
---- @return V3DFramebuffer
+--- Fill an image view with the specified value. If no value is provided, the
+--- image view will be filled with the default value for the image's format.
+---
+--- Note, the value must be compatible with the image's format and will be
+--- flattened within the image's internal data buffer.
+---
+--- Returns the image view.
+--- @param image_view V3DImageView
+--- @param value any | nil
+--- @return V3DImageView
 --- @v3d-chainable
---- Values provided should match the format of the framebuffer.
---- @v3d-validate v3d.format_is_instance(framebuffer.format, values)
---- Region should be contained within the framebuffer.
---- @v3d-validate region == nil or v3d.image_contains_region(framebuffer[1], region)
---- local my_framebuffer = v3d.create_framebuffer(16, 16, 16, { colour = v3d.number() })
---- v3d.framebuffer_fill(my_framebuffer, { colour = 42 })
---- local colour_layer = v3d.framebuffer_layer(my_framebuffer, 'colour')
---- assert(v3d.image_get_pixel(colour_layer, 0, 0, 0) == 42)
---- @v3d-example 1:2
-function v3d.framebuffer_fill(framebuffer, values, region)
-	for i, struct_field in ipairs(framebuffer.format.fields) do
-		v3d.image_fill(framebuffer[i], values[struct_field.name], region)
+--- Pixel value must be an instance of the specified format or nil
+--- @v3d-validate value == nil or v3d.format_is_instance(image_view.image.format, value)
+--- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, 1, colours.white)
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- v3d.image_view_fill(my_image_view, colours.black)
+---
+--- assert(v3d.image_view_get_pixel(my_image_view, 0, 0, 0) == colours.black)
+--- @v3d-example 4
+--- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, 1, colours.white)
+--- local my_region = {
+--- 	x = 1, y = 1, z = 0,
+--- 	width = 50, height = 18, depth = 1,
+--- }
+--- local my_image_view = v3d.image_view(my_image)
+--- local my_image_sub_view = v3d.image_view(my_image, my_region)
+---
+--- v3d.image_view_fill(my_image_sub_view, colours.orange)
+---
+--- assert(v3d.image_view_get_pixel(my_image_view, 0, 0, 0) == colours.white)
+--- assert(v3d.image_view_get_pixel(my_image_view, 1, 1, 0) == colours.orange)
+--- @v3d-example 9
+function v3d.image_view_fill(image_view, value)
+	value = value or v3d.format_default_value(image_view.image.format)
+
+	--- @diagnostic disable: invisible
+	local image = image_view.image
+	local index = image_view.init_offset + 1
+	local pixel_data = v3d.format_buffer_into(image_view.image.format, value)
+	local pixel_format_size = image_view.pixel_format_size
+	local row_end_delta = image_view.row_end_delta
+	local layer_end_delta = image_view.layer_end_delta
+	--- @diagnostic enable: invisible
+
+	-- TODO: consider reordering the loops to avoid unnecessary pixel data indexes
+	for _ = 1, image_view.region.depth do
+		for _ = 1, image_view.region.height do
+			for _ = 1, image_view.region.width do
+				for i = 1, pixel_format_size do
+					image[index] = pixel_data[i]
+					index = index + 1
+				end
+			end
+			index = index + row_end_delta
+		end
+		index = index + layer_end_delta
 	end
-	return framebuffer
+
+	return image_view
 end
+
+----------------------------------------------------------------
+
+--- Get the value of a pixel in the image view. If the pixel is out of bounds,
+--- nil will be returned. The coordinates are 0-indexed, meaning (0, 0, 0) is
+--- the first pixel in the image view (top-left, front-most).
+---
+--- The coordinate provided is relative to the image view's offset within the
+--- image, and coordinates outside the image view's region will not be
+--- accessible.
+---
+--- Note, the value will be unflattened from the image's internal data buffer.
+--- For example, if the image's format is a struct, a table with the field
+--- values will be returned.
+---
+--- @see v3d.image_view_buffer_into
+--- @param image_view V3DImageView
+--- @param x integer
+--- @param y integer
+--- @param z integer
+--- @return any
+--- @v3d-nolog
+--- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- local single_pixel_value = v3d.image_view_get_pixel(my_image_view, 0, 0, 0)
+---
+--- assert(single_pixel_value == 42)
+--- @v3d-example 4
+--- local rgba_format = v3d.tuple { v3d.number(), v3d.number(), v3d.number(), v3d.number() }
+--- local my_image = v3d.create_image(rgba_format, 16, 16, 16, { 0.1, 0.2, 0.3, 1 })
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- local rgba = v3d.image_view_get_pixel(my_image_view, 0, 0, 0)
+---
+--- assert(rgba[1] == 0.1)
+--- assert(rgba[2] == 0.2)
+--- assert(rgba[3] == 0.3)
+--- assert(rgba[4] == 1)
+--- @v3d-example 5
+function v3d.image_view_get_pixel(image_view, x, y, z)
+	local region = image_view.region
+
+	if x < 0 or x >= region.width then
+		return nil
+	elseif y < 0 or y >= region.height then
+		return nil
+	elseif z < 0 or z >= region.depth then
+		return nil
+	end
+
+	--- @diagnostic disable: invisible
+	local pixel_format_size = image_view.pixel_format_size
+	local offset = image_view.init_offset + ((z * image_view.image.width * image_view.image.height) + (y * image_view.image.width) + x) * pixel_format_size
+	--- @diagnostic enable: invisible
+
+	return v3d.format_unbuffer_from(image_view.image.format, image_view.image, offset)
+end
+
+--- Set the value of a pixel in the image viewport. If the pixel is out of
+--- bounds, the image view will be returned with no changes applied. The
+--- coordinates are 0-indexed, meaning (0, 0, 0) is the first pixel in the image
+--- view (top-left, front-most).
+---
+--- The coordinate provided is relative to the image view's offset within the
+--- image, and coordinates outside the image view's region will not be
+--- accessible.
+---
+--- Note, the value must be compatible with the image views's image format and
+--- will be flattened within the image's internal data buffer.
+---
+--- @see v3d.image_view_unbuffer_from
+--- @param image_view V3DImageView
+--- @param x integer
+--- @param y integer
+--- @param z integer
+--- @param value any
+--- @return V3DImageView
+--- @v3d-chainable
+--- Pixel value must be an instance of the specified format
+--- @v3d-validate v3d.format_is_instance(image_view.image.format, value)
+--- local my_image = v3d.create_image(v3d.uinteger(), 51, 19, colours.white)
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- v3d.image_view_set_pixel(my_image_view, 0, 0, 0, colours.black)
+---
+--- assert(v3d.image_view_get_pixel(my_image_view, 0, 0, 0) == colours.black)
+--- @v3d-example 3
+function v3d.image_view_set_pixel(image_view, x, y, z, value)
+	local region = image_view.region
+
+	if x < 0 or x >= region.width then
+		return image_view
+	elseif y < 0 or y >= region.height then
+		return image_view
+	elseif z < 0 or z >= region.depth then
+		return image_view
+	end
+
+	--- @diagnostic disable: invisible
+	local pixel_format_size = image_view.pixel_format_size
+	local offset = image_view.init_offset + ((z * image_view.image.width * image_view.image.height) + (y * image_view.image.width) + x) * pixel_format_size
+	--- @diagnostic enable: invisible
+
+	v3d.format_buffer_into(image_view.image.format, value, image_view.image, offset)
+
+	return image_view
+end
+
+----------------------------------------------------------------
+
+--- Copy the contents of an image view into a buffer.
+--- * If no buffer is provided, a new buffer will be created. Regardless, the
+---   buffer will be returned.
+--- * If an offset is provided, the buffer will be written to from that offset.
+---   For example, an offset of 1 will start writing at the second element of
+---   the buffer.
+---
+--- This function can be used to read values from an image efficiently.
+---
+--- Note, the buffer will contain the unflattened values of the image's internal
+--- data buffer. For example, if the image view's image format is a struct, the
+--- buffer will contain tables with the field values for each pixel, e.g.
+--- ```
+--- {
+--- 	{ r = 1, g = 2, b = 3 },
+--- 	{ r = 4, g = 5, b = 6 },
+--- }
+--- ```
+---
+--- Buffer values will be depth-major, row-major, meaning the first value will
+--- be the back-most, top-left pixel, the second value will be the pixel to the
+--- right of that, and so on.
+--- @param image_view V3DImageView
+--- @param buffer table | nil
+--- @param offset integer | nil
+--- @return table
+--- @v3d-nolog
+--- @v3d-advanced
+--- Offset must not be negative
+--- @v3d-validate offset == nil or offset >= 0
+--- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
+--- local my_image_view = v3d.image_view(my_image)
+---
+--- local buffer = v3d.image_view_buffer_into(my_image_view)
+---
+--- assert(buffer[1] == 42)
+--- @v3d-example 4
+--- local my_image = v3d.create_image(v3d.number(), 16, 16, 16, 42)
+--- local my_image_view = v3d.image_view(my_image)
+--- local my_buffer = {}
+---
+--- v3d.image_view_buffer_into(my_image_view, my_buffer)
+---
+--- assert(my_buffer[1] == 42)
+--- @v3d-example 5
+function v3d.image_view_buffer_into(image_view, buffer, offset)
+	buffer = buffer or {}
+	offset = offset or 0
+
+	--- @diagnostic disable: invisible
+	local pixel_format_size = image_view.pixel_format_size
+	local row_end_delta = image_view.row_end_delta
+	local layer_end_delta = image_view.layer_end_delta
+	local image_offset = image_view.init_offset
+	--- @diagnostic enable: invisible
+	local region = image_view.region
+	local image = image_view.image
+	local image_format = image.format
+	local region_width = region.width
+	local region_height = region.height
+	local buffer_index = offset + 1
+	local v3d_format_unbuffer_from = v3d.format_unbuffer_from
+
+	for _ = 1, region.depth do
+		for _ = 1, region_height do
+			for _ = 1, region_width do
+				buffer[buffer_index] = v3d_format_unbuffer_from(image_format, image, image_offset)
+				buffer_index = buffer_index + 1
+				image_offset = image_offset + pixel_format_size
+			end
+			image_offset = image_offset + row_end_delta
+		end
+		image_offset = image_offset + layer_end_delta
+	end
+
+	return buffer
+end
+
+-- TODO: validate buffer contents as well
+--- Copy the contents of a buffer into an image view. If no offset is provided,
+--- the buffer will be read from the first element.
+---
+--- This function can be used to load values into an image efficiently.
+---
+--- The buffer must contain enough values to fill the region.
+---
+--- Note, the buffer must contain values compatible with the image's format and
+--- will be flattened within the image's internal data buffer. For example, if
+--- the image's format is a struct, the buffer must contain tables with the
+--- field values for each pixel, e.g.
+--- ```
+--- {
+--- 	{ r = 1, g = 2, b = 3 },
+--- 	{ r = 4, g = 5, b = 6 },
+--- }
+--- ```
+--- @param image_view V3DImageView
+--- @param buffer table
+--- @param offset integer | nil
+--- @return V3DImageView
+--- @v3d-chainable
+--- @v3d-nolog
+--- @v3d-advanced
+--- Offset must not be negative
+--- @v3d-validate offset == nil or offset >= 0
+--- Buffer must contain enough values to fill the region
+--- @v3d-validate #buffer - (offset or 0) >= image_view.region.width * image_view.region.height * image_view.region.depth
+--- local my_image = v3d.create_image(v3d.number(), 2, 1, 1)
+--- local my_image_view = v3d.image_view(my_image)
+--- local my_buffer = { 1, 2 }
+---
+--- v3d.image_view_unbuffer_from(my_image_view, my_buffer)
+---
+--- assert(v3d.image_view_get_pixel(my_image_view, 0, 0, 0) == 1)
+--- assert(v3d.image_view_get_pixel(my_image_view, 1, 0, 0) == 2)
+--- @v3d-example 5
+function v3d.image_view_unbuffer_from(image_view, buffer, offset)
+	offset = offset or 0
+
+	--- @diagnostic disable: invisible
+	local image_offset = image_view.init_offset
+	local row_end_delta = image_view.row_end_delta
+	local layer_end_delta = image_view.layer_end_delta
+	local pixel_format_size = image_view.pixel_format_size
+	--- @diagnostic enable: invisible
+	local image = image_view.image
+	local region = image_view.region
+	local image_format = image.format
+	local region_width = image.width
+	local region_height = image.height
+	local buffer_index = offset + 1
+	local v3d_format_buffer_into = v3d.format_buffer_into
+
+	for _ = 1, region.depth do
+		for _ = 1, region_height do
+			for _ = 1, region_width do
+				v3d_format_buffer_into(image_format, buffer[buffer_index], image, image_offset)
+				buffer_index = buffer_index + 1
+				image_offset = image_offset + pixel_format_size
+			end
+			image_offset = image_offset + row_end_delta
+		end
+		image_offset = image_offset + layer_end_delta
+	end
+
+	return image_view
+end
+
+-- TODO: !copy_into
+-- TODO: !present_graphics
+-- TODO: !present_subpixel
 
 end ----------------------------------------------------------------------------
 
@@ -2247,7 +2147,7 @@ end
 
 ----------------------------------------------------------------
 
---- Present this image to the terminal drawing subpixels to increase the
+--- Present an image view to the terminal drawing subpixels to increase the
 --- effective resolution of the terminal.
 ---
 --- If specified, dx and dy will be used as the offset of the top-left pixel
@@ -2255,58 +2155,39 @@ end
 --- right and 1 down from the top-left of the terminal. These are 0-based and
 --- both default to 0. A value of 0 means no offset.
 ---
---- If an image region is specified, only that region of the image will be
---- drawn.
---- @param image V3DImage
+--- @param image_view V3DImageView
 --- @param term CCTermObject
 --- @param dx integer | nil
 --- @param dy integer | nil
---- @param image_region V3DImageRegion | nil
---- @return V3DImage
+--- @return V3DImageView
 --- @v3d-chainable
---- Image format must be compatible with `v3d.uinteger()`.
---- @v3d-validate v3d.format_is_compatible_with(image.format, v3d.uinteger())
---- If a region is specified, it must be contained within the image.
---- @v3d-validate image_region == nil or v3d.image_contains_region(image, image_region)
---- If a region is specified, it must have a width and height that are multiples of 2 and 3 respectively.
---- @v3d-validate image_region == nil or (image_region.width % 2 == 0 and image_region.height % 3 == 0)
---- If a region is not specified, the image must have a width and height that are multiples of 2 and 3 respectively.
---- @v3d-validate image_region ~= nil or (image.width % 2 == 0 and image.height % 3 == 0)
+--- Image view's image format must be compatible with `v3d.uinteger()`.
+--- @v3d-validate v3d.format_is_compatible_with(image_view.image.format, v3d.uinteger())
+--- Image view's depth must be 1.
+--- @v3d-validate image_view.region.depth == 1
+--- Image view's region must have a width and height that are multiples of 2 and
+--- 3 respectively.
+--- @v3d-validate image_view.region.width % 2 == 0 and image_view.region.height % 3 == 0
 --- local term_width, term_height = term.getSize()
 --- local my_image = v3d.create_image(v3d.uinteger(), term_width * 2, term_height * 3, 1)
 --- local fill_region = {
 --- 	x = 1, y = 1, z = 0,
 --- 	width = 6, height = 6, depth = 1,
 --- }
+--- local my_image_view = v3d.image_view(my_image)
+--- local my_image_region_view = v3d.image_view(my_image, fill_region)
 ---
---- v3d.image_fill(my_image, colours.white)
---- v3d.image_fill(my_image, colours.red)
+--- v3d.image_view_fill(my_image_view, colours.white)
+--- v3d.image_view_fill(my_image_region_view, colours.red)
 ---
 --- -- Draw the image to `term.current()`
---- v3d.image_present_term_subpixel(my_image, term.current())
+--- v3d.image_view_present_term_subpixel(my_image_view, term.current())
 --- @v3d-example 11:12
---- local term_width, term_height = term.getSize()
---- local my_image = v3d.create_image(v3d.uinteger(), term_width * 2, term_height * 3, 1)
---- local fill_region = {
---- 	x = 1, y = 1, z = 0,
---- 	width = 6, height = 6, depth = 1,
---- }
----
---- v3d.image_fill(my_image, colours.white)
---- v3d.image_fill(my_image, colours.red)
----
---- -- Draw the red part of the image to `term.current()`, 5 pixels to the
---- -- right, and 10 down
---- v3d.image_present_term_subpixel(my_image, term.current(), 5, 10, fill_region)
---- @v3d-example 11:13
-function v3d.image_present_term_subpixel(image, term, dx, dy, image_region)
+function v3d.image_view_present_term_subpixel(image_view, term, dx, dy)
 	dy = dy or 0
 
 	local SUBPIXEL_WIDTH = 2
 	local SUBPIXEL_HEIGHT = 3
-
-	local fb_colour = image
-	local fb_width = image.width
 
 	local x_blit = 1 + (dx or 0)
 
@@ -2316,26 +2197,27 @@ function v3d.image_present_term_subpixel(image, term, dx, dy, image_region)
 	local term_blit = term.blit
 	local term_setCursorPos = term.setCursorPos
 
-	local i0 = 1
-	local i_delta = fb_width * (SUBPIXEL_HEIGHT - 1)
-	local num_columns = fb_width / SUBPIXEL_WIDTH
+	--- @diagnostic disable: invisible
+	local i0 = image_view.init_offset + 1
+	local next_pixel_delta = image_view.pixel_format_size
+	local next_row_delta = image_view.region.width * image_view.pixel_format_size
+	local row_end_delta = image_view.row_end_delta + next_row_delta * (SUBPIXEL_HEIGHT - 1)
+	--- @diagnostic enable: invisible
+
+	local colour_data = image_view.image
+	local next_macro_pixel_delta = next_pixel_delta * SUBPIXEL_WIDTH
+	local num_columns = image_view.region.width / SUBPIXEL_WIDTH
 	local ch_t = {}
 	local fg_t = {}
 	local bg_t = {}
 
-	if image_region ~= nil then
-		i0 = i0 + image_region.x + image_region.y * fb_width
-		num_columns = image_region.width / SUBPIXEL_WIDTH
-		i_delta = i_delta + image.width - image_region.width
-	end
-
-	for y_blit = 1 + dy, (image_region or image).height / SUBPIXEL_HEIGHT + dy do
+	for y_blit = 1 + dy, image_view.region.height / SUBPIXEL_HEIGHT + dy do
 		for ix = 1, num_columns do
-			local i1 = i0 + fb_width
-			local i2 = i1 + fb_width
-			local c00, c10 = fb_colour[i0], fb_colour[i0 + 1]
-			local c01, c11 = fb_colour[i1], fb_colour[i1 + 1]
-			local c02, c12 = fb_colour[i2], fb_colour[i2 + 1]
+			local i1 = i0 + next_row_delta
+			local i2 = i1 + next_row_delta
+			local c00, c10 = colour_data[i0], colour_data[i0 + next_pixel_delta]
+			local c01, c11 = colour_data[i1], colour_data[i1 + next_pixel_delta]
+			local c02, c12 = colour_data[i2], colour_data[i2 + next_pixel_delta]
 
 			-- I've considered turning this into a alrge decision tree to avoid
 			-- the table accesses, however the tree is so large it would not be
@@ -2407,15 +2289,15 @@ function v3d.image_present_term_subpixel(image, term, dx, dy, image_region)
 				bg_t[ix] = colour_byte_lookup[colours[subpixel_code_bg_lookup[subpixel_code]]]
 			end
 
-			i0 = i0 + SUBPIXEL_WIDTH
+			i0 = i0 + next_macro_pixel_delta
 		end
 
 		term_setCursorPos(x_blit, y_blit)
 		term_blit(string_char(table_unpack(ch_t)), string_char(table_unpack(fg_t)), string_char(table_unpack(bg_t)))
-		i0 = i0 + i_delta
+		i0 = i0 + row_end_delta
 	end
 
-	return image
+	return image_view
 end
 
 ----------------------------------------------------------------
@@ -2434,51 +2316,35 @@ end
 ---   image colours, this must be set to `true`.
 --- * Otherwise, this must be set to `false`.
 ---
---- If an image region is specified, only that region of the image will be
---- drawn.
---- @param image V3DImage
+--- @param image_view V3DImageView
 --- @param term CraftOSPCTermObject
 --- @param normalise boolean
 --- @param dx integer | nil
 --- @param dy integer | nil
---- @param image_region V3DImageRegion | nil
---- @return V3DImage
+--- @return V3DImageView
 --- @v3d-chainable
---- Image format must be compatible with `v3d.uinteger()`.
---- @v3d-validate v3d.format_is_compatible_with(image.format, v3d.uinteger())
---- If a region is specified, it must be contained within the image.
---- @v3d-validate image_region == nil or v3d.image_contains_region(image, image_region)
---- Any graphics mode is being used.
+--- Image view's image format must be compatible with `v3d.uinteger()`.
+--- @v3d-validate v3d.format_is_compatible_with(image_view.image.format, v3d.uinteger())
+--- Image view's depth must be 1.
+--- @v3d-validate image_view.region.depth == 1
+--- Any graphics mode must be being used.
 --- @v3d-validate term.getGraphicsMode()
 --- local term_width, term_height = 720, 540
 --- local image = v3d.create_image(v3d.uinteger(), term_width, term_height, 1)
----
---- v3d.image_fill(image, colours.white)
---- v3d.image_fill(image, colours.red, {
+--- local fill_region = {
 --- 	x = 20, y = 20, z = 0,
 --- 	width = 100, height = 100, depth = 1,
---- })
+--- }
+--- local image_view = v3d.image_view(image)
+--- local image_region_view = v3d.image_view(image, fill_region)
+---
+--- v3d.image_view_fill(image_view, colours.white)
+--- v3d.image_view_fill(image_region_view, colours.red)
 ---
 --- term.setGraphicsMode(1)
---- v3d.image_present_graphics(image, term, true)
---- @v3d-example 10:11
---- local term_width, term_height = 720, 540
---- local image = v3d.create_image(v3d.uinteger(), term_width, term_height, 1)
----
---- v3d.image_fill(image, 0)
---- v3d.image_fill(image, 7, {
---- 	x = 20, y = 20, z = 0,
---- 	width = 100, height = 100, depth = 1,
---- })
----
---- term.setGraphicsMode(1)
---- v3d.image_present_graphics(image, term, false)
---- @v3d-example 10:11
-function v3d.image_present_graphics(image, term, normalise, dx, dy, image_region)
+--- v3d.image_present_graphics(image_view, term, true)
+function v3d.image_view_present_graphics(image_view, term, normalise, dx, dy)
 	local lines = {}
-	local index = 1
-	local index_delta = 0
-	local fb_width = image.width
 	local string_char = string.char
 	local table_concat = table.concat
 	local math_floor = math.floor
@@ -2494,27 +2360,30 @@ function v3d.image_present_graphics(image, term, normalise, dx, dy, image_region
 	dx = dx or 0
 	dy = dy or 0
 
-	if image_region then
-		index = index + image_region.x + image_region.y * fb_width
-		index_delta = index_delta + image.width - image_region.width
-		fb_width = image_region.width
-	end
+	local n_columns = image_view.region.width
+	local pixel_data = image_view.image
 
-	for y = 1, (image_region or image).height do
+	--- @diagnostic disable: invisible
+	local index = image_view.init_offset + 1
+	local next_pixel_delta = image_view.pixel_format_size
+	local row_end_delta = image_view.row_end_delta
+	--- @diagnostic enable: invisible
+
+	for y = 1, image_view.region.height do
 		local line = {}
 
-		for x = 1, fb_width do
-			line[x] = string_char(convert_pixel(image[index]))
-			index = index + 1
+		for x = 1, n_columns do
+			line[x] = string_char(convert_pixel(pixel_data[index]))
+			index = index + next_pixel_delta
 		end
 
 		lines[y] = table_concat(line)
-		index = index + index_delta
+		index = index + row_end_delta
 	end
 
 	term.drawPixels(dx, dy, lines)
 
-	return image
+	return image_view
 end
 
 end ----------------------------------------------------------------------------
@@ -3343,12 +3212,12 @@ function v3d.geometry_builder_build(builder, label)
 	local index = 1
 	for i = 1, builder.n_faces do
 		--- @diagnostic disable-next-line: invisible
-		v3d.format_buffer(builder.face_format, builder.faces[i], g, index)
+		v3d.format_buffer_into(builder.face_format, builder.faces[i], g, index)
 		index = index + g.face_stride
 	end
 	for i = 1, builder.n_vertices do
 		--- @diagnostic disable-next-line: invisible
-		v3d.format_buffer(builder.vertex_format, builder.vertices[i], g, index)
+		v3d.format_buffer_into(builder.vertex_format, builder.vertices[i], g, index)
 		index = index + g.vertex_stride
 	end
 
@@ -3371,12 +3240,12 @@ function v3d.geometry_to_builder(geometry)
 	local index = 1
 	for i = 1, geometry.n_faces do
 		--- @diagnostic disable-next-line: invisible
-		b.faces[i] = v3d.format_unbuffer(geometry.face_format, geometry, index)
+		b.faces[i] = v3d.format_unbuffer_from(geometry.face_format, geometry, index)
 		index = index + geometry.face_stride
 	end
 	for i = 1, geometry.n_vertices do
 		--- @diagnostic disable-next-line: invisible
-		b.vertices[i] = v3d.format_unbuffer(geometry.vertex_format, geometry, index)
+		b.vertices[i] = v3d.format_unbuffer_from(geometry.vertex_format, geometry, index)
 		index = index + geometry.vertex_stride
 	end
 
@@ -3572,8 +3441,6 @@ end
 
 end ----------------------------------------------------------------------------
 
-local MACRO_EXPAND_LATER = {}
-local _process_pipeline_source_macro_calls
 --------------------------------------------------------------------------------
 -- Pipelines -------------------------------------------------------------------
 do -----------------------------------------------------------------------------
@@ -3585,14 +3452,14 @@ do -----------------------------------------------------------------------------
 
 ----------------------------------------------------------------
 
---- A pipeline is a compiled, optimised function inspired by OpenGL shaders.
---- There are many types of pipeline, each specialised for a specific purpose.
----
---- @see V3DImageMapPipeline
+--- A pipeline is a compiled, optimised function dedicated to rendering pixels
+--- to one or more images. They are incredibly versatile, supporting 2D or 3D
+--- rasterization with customisable per-pixel behaviour.
 ---
 --- Pipelines are compiled from 'sources', which are just strings containing Lua
 --- code. The exception to this is that pipeline source code is run through a
---- templating and macro engine before being compiled.
+--- templating and macro engine before being compiled. This allows common
+--- operations to be optimised by the library.
 ---
 --- 'Uniform variables' are values that are bound to a pipeline and remain
 --- constant during its execution. They can be used to pass values in from
@@ -3604,64 +3471,102 @@ do -----------------------------------------------------------------------------
 --- @see v3d.pipeline_write_uniform
 --- @see v3d.pipeline_read_uniform
 --- @class V3DPipeline
+--- Options that the pipeline was created with.
+--- @field created_options V3DPipelineOptions
+--- Options that the pipeline is using, accounting for default values.
+--- @field used_options V3DPipelineOptions
+--- TODO
+--- @field compiled_sources { [string]: string }
+--- TODO
+--- @field compiled_source string
 --- Table storing uniform values for the pipeline.
 --- @field private uniforms table
 --- @v3d-abstract
 
 ----------------------------------------------------------------
 
---- Options common to all pipelines used when creating the pipeline.
+--- @class V3DPipelineSources
+--- @field init string | nil
+--- @field vertex string | nil
+--- @field pixel string | nil
+--- @field finish string | nil
+--- @v3d-structural
+
+--- Miscellaneous options used when creating a pipeline.
 --- @class V3DPipelineOptions
 --- Sources to compile the pipeline from. This field contains a map of source
---- name to source code, e.g.
---- ```
---- {
---- 	vertex = '...',
---- 	fragment = '...',
---- }
---- ```
---- @field sources { [string]: string }
+--- name to source code.
+--- @field sources V3DPipelineSources | nil
+--- TODO
+--- @field image_formats { [string]: V3DFormat }
+--- TODO
+--- @field vertex_format V3DFormat
+--- TODO
+--- @field face_format V3DFormat | nil
+--- TODO
+--- @field position_lens V3DLens
+--- Specify a face to cull (not draw), or false to disable face culling.
+--- Defaults to 'back'. This is a technique to improve performance and should
+--- only be changed from the default when doing something weird. For example, to
+--- not draw faces facing towards the camera, use `cull_face = 'front'`.
+--- @field cull_faces 'front' | 'back' | false | nil
+--- Aspect ratio of the pixels being drawn. For square pixels, this should be 1.
+--- For non-square pixels, like the ComputerCraft non-subpixel characters, this
+--- should be their width/height, for example 2/3 for non-subpixel characters.
+--- Defaults to `1`.
+--- @field pixel_aspect_ratio number | nil
+--- Whether to reverse the horizontal iteration order when drawing rows of
+--- horizontal pixels. If true, the X value will decrease from right to left as
+--- each row is drawn. Defaults to false.
+--- @field reverse_horizontal_iteration boolean | nil
+--- Whether to reverse the vertical iteration order when drawing rows of
+--- horizontal pixels. If true, the Y value will decrease from bottom to top as
+--- each row is drawn. Defaults to false.
+--- @field reverse_vertical_iteration boolean | nil
+--- If true, the v3d_event, v3d_start_timer, and v3d_stop_timer macros will be
+--- enabled in pipeline sources. This may incur a minor performance penalty
+--- depending on the macros usage. Defaults to false, however v3debug will
+--- default this to true.
+--- @field record_statistics boolean | nil
 --- Label to assign to the pipeline.
 --- @field label string | nil
---- @v3d-untracked
+--- @v3d-structural
 
-----------------------------------------------------------------
-
---- Write a value to a uniform variable.
----
---- Returns the shader.
---- @param pipeline V3DPipeline
---- @param name V3DUniformName
---- @param value any
---- @return V3DPipeline
---- @v3d-chainable
---- local my_pipeline = TODO()
---- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
---- @v3d-example 2
-function v3d.pipeline_write_uniform(pipeline, name, value)
-	--- @diagnostic disable-next-line: invisible
-	pipeline.uniforms[name] = value
-	return pipeline
-end
-
---- Read a value from a uniform variable.
---- @param pipeline V3DPipeline
---- @param name V3DUniformName
---- @return any
---- @v3d-nolog
---- local my_pipeline = TODO()
---- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
---- local my_uniform_value = v3d.pipeline_read_uniform(my_pipeline, 'my_uniform')
---- assert(my_uniform_value == 42)
---- @v3d-example 2:4
-function v3d.pipeline_read_uniform(pipeline, name)
-	--- @diagnostic disable-next-line: invisible
-	return pipeline.uniforms[name]
-end
+--- Statistics related to pipeline execution, recorded per-execution.
+--- @class V3DPipelineStatistics
+--- Total time (in seconds) spent in the function.
+--- @field total_time number
+--- Total time (in seconds) spent transforming vertices.
+--- @field transform_time number
+--- Total time (in seconds) spent rasterizing pixels.
+--- @field rasterize_time number
+--- Number of faces which were considered to be drawn.
+--- @field candidate_faces integer
+--- Number of faces which were fully discarded due to face culling or clipping.
+--- @field discarded_faces integer
+--- Number of faces which were clipped into one or more sub faces due to
+--- clipping.
+--- @field clipped_faces integer
+--- Number of faces actually drawn, accounting for face culling and clipping.
+--- Note, if one face is clipped into multiple faces, this will count each
+--- of those faces separately.
+--- @field drawn_faces integer
+--- Number of fragments which were considered to be drawn.
+--- @field candidate_fragments integer
+--- Total durations for each timer, including the time spent in any nested
+--- timers.
+--- @field total_timer_durations { [string]: number }
+--- Duration of each timer, excluding the time spent in any nested timers.
+--- @field exclusive_timer_durations { [string]: number }
+--- Number of times an event was recorded.
+--- @field events { [string]: integer }
 
 ----------------------------------------------------------------
 
 --- @alias _V3DPipelineMacroCalls { macro_name: string, parameters: string[] }[]
+
+local MACRO_EXPAND_LATER = {}
+local _macro_environment = {}
 
 local function _parse_parameters(s)
 	local params = {}
@@ -3712,7 +3617,7 @@ end
 --- @param source string
 --- @param aliases { [string]: fun(...: string): string }
 --- @return string, _V3DPipelineMacroCalls
-function _process_pipeline_source_macro_calls(source, aliases)
+local function _process_pipeline_source_macro_calls(source, aliases)
 	local calls = {}
 	local i = 1
 
@@ -3758,16 +3663,7 @@ function _process_pipeline_source_macro_calls(source, aliases)
 	return source, calls
 end
 
-end ----------------------------------------------------------------------------
-
-local _macro_environments = {}
-local _combine_macro_environments
---------------------------------------------------------------------------------
--- Macro environments ----------------------------------------------------------
-do -----------------------------------------------------------------------------
-
-
-function _combine_macro_environments(...)
+local function _combine_macro_environments(...)
 	local e = {}
 
 	for _, env in ipairs { ... } do
@@ -3784,206 +3680,172 @@ end
 
 ----------------------------------------------------------------
 
-_macro_environments.core = {}
-
+--- Return the value of a uniform variable.
 --- @param name string
 --- @return any
-function _macro_environments.core.v3d_uniform(name)
+function _macro_environment.v3d_uniform(name)
+	return MACRO_EXPAND_LATER
+end
+
+--- Record an event. This only has an effect when the pipeline has event
+--- recording enabled.
+--- @param name string
+--- @return nil
+function _macro_environment.v3d_event(name)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param name string
 --- @return nil
-function _macro_environments.core.v3d_event(name)
+function _macro_environment.v3d_start_timer(name)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param name string
 --- @return nil
-function _macro_environments.core.v3d_start_timer(name)
+function _macro_environment.v3d_stop_timer(name)
 	return MACRO_EXPAND_LATER
 end
 
---- @param name string
---- @return nil
-function _macro_environments.core.v3d_stop_timer(name)
-	return MACRO_EXPAND_LATER
-end
-
+--- Return whether the depth represented by `a` is closer than the depth
+--- represented by `b`.
 --- @param a number
 --- @param b number
 --- @return boolean
-function _macro_environments.core.v3d_compare_depth(a, b)
+function _macro_environment.v3d_compare_depth(a, b)
 	return '(' .. a .. ' > ' .. b .. ')'
 end
 
 ----------------------------------------------------------------
 
-_macro_environments.images = {}
-
---- @param lens string
---- @param attribute 'width' | 'height' | 'depth' | nil
---- @return integer | V3DImage
-function _macro_environments.images.v3d_image(lens, attribute)
-	assert(not attribute or attribute == 'width' or attribute == 'height' or attribute == 'depth')
+-- TODO: local w, h, d, fmt = v3d_image(image, 'whdf')
+-- allow rx, ry, rz, rw, rh, rd too?
+--- Return a named image object being used in this pipeline's execution.
+--- Note: v3d optimises accessing image fields if they immediately follow this
+---       macro invocation. For example:
+--- ```lua
+--- local width = v3d_image('my_image').width -- optimised
+--- local image = v3d_image('my_image')
+--- local width = image.width -- not optimised
+--- ```
+--- @param name string
+--- @return V3DImage
+function _macro_environment.v3d_image(name)
 	return MACRO_EXPAND_LATER
 end
+
+-- plus something for views?
 
 ----------------------------------------------------------------
 
-_macro_environments.pixel = {}
+-- --- Return one or more position values of the current pixel.
+-- --- @param xyzuvw string
+-- --- @param reference_image string | nil
+-- --- @return integer ...
+-- function _macro_environment.v3d_pixel_position(xyzuvw, reference_image)
+-- 	if not absolute then
+-- 		return 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw .. ', relative)'
+-- 	end
 
---- @param lens string
---- @param xyzuvw string
---- @param absolute 'absolute' | 'relative' | nil
---- @return integer ...
-function _macro_environments.pixel.v3d_pixel_position(lens, xyzuvw, absolute)
-	if not absolute then
-		return 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw .. ', relative)'
-	end
+-- 	if #xyzuvw > 1 then
+-- 		local t = {}
+-- 		for i = 1, #xyzuvw do
+-- 			table.insert(t, 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw:sub(i, i) .. ', ' .. absolute .. ')')
+-- 		end
+-- 		return table.concat(t, ', ')
+-- 	end
 
-	if #xyzuvw > 1 then
-		local t = {}
-		for i = 1, #xyzuvw do
-			table.insert(t, 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw:sub(i, i) .. ', ' .. absolute .. ')')
-		end
-		return table.concat(t, ', ')
-	end
-
-	assert(xyzuvw == 'x' or xyzuvw == 'y' or xyzuvw == 'z' or xyzuvw == 'u' or xyzuvw == 'v' or xyzuvw == 'w')
-	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
-	return MACRO_EXPAND_LATER
-end
-
---- @param lens string
---- @param xyzwhd string
---- @return integer ...
-function _macro_environments.pixel.v3d_pixel_region(lens, xyzwhd, absolute)
-	if not absolute then
-		return 'v3d_pixel_region(' .. lens .. ', ' .. xyzwhd .. ', relative)'
-	end
-
-	if #xyzwhd > 1 then
-		local t = {}
-		for i = 1, #xyzwhd do
-			table.insert(t, 'v3d_pixel_region(' .. lens .. ', ' .. xyzwhd:sub(i, i) .. ', ' .. absolute .. ')')
-		end
-		return table.concat(t, ', ')
-	end
-
-	assert(xyzwhd == 'x' or xyzwhd == 'y' or xyzwhd == 'z' or xyzwhd == 'w' or xyzwhd == 'h' or xyzwhd == 'd')
-	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
-	return MACRO_EXPAND_LATER
-end
+-- 	assert(xyzuvw == 'x' or xyzuvw == 'y' or xyzuvw == 'z' or xyzuvw == 'u' or xyzuvw == 'v' or xyzuvw == 'w')
+-- 	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
+-- 	return MACRO_EXPAND_LATER
+-- end
 
 --- @param lens string
 --- @return integer
-function _macro_environments.pixel.v3d_pixel_index(lens)
+function _macro_environment.v3d_pixel_index(lens)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param lens string
 --- @return any
-function _macro_environments.pixel.v3d_pixel(lens)
+function _macro_environment.v3d_pixel(lens)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param lens string
 --- @return any ...
-function _macro_environments.pixel.v3d_pixel_unpacked(lens)
+function _macro_environment.v3d_pixel_flat(lens)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param lens string
 --- @param value any
 --- @return nil
-function _macro_environments.pixel.v3d_set_pixel(lens, value)
+function _macro_environment.v3d_set_pixel(lens, value)
 	return MACRO_EXPAND_LATER
 end
 
 --- @param lens string
 --- @param ... any
 --- @return nil
-function _macro_environments.pixel.v3d_set_pixel_unpacked(lens, ...)
+function _macro_environment.v3d_set_pixel_flat(lens, ...)
 	return MACRO_EXPAND_LATER
 end
 
 ----------------------------------------------------------------
 
-_macro_environments.image_map = {}
+-- TODO: methods for getting offsets and getting/setting values at those offsets
 
---- @return boolean
-function _macro_environments.image_map.is_self_allowed()
+----------------------------------------------------------------
+
+--- @param lens string
+--- @return any
+function _macro_environment.v3d_face(lens)
+	return MACRO_EXPAND_LATER
+end
+
+--- @param lens string
+--- @return any
+function _macro_environment.v3d_vertex(lens)
 	return MACRO_EXPAND_LATER
 end
 
 --- @diagnostic enable: return-type-mismatch
 --- @diagnostic enable: unused-local
 
-end ----------------------------------------------------------------------------
+----------------------------------------------------------------
 
---------------------------------------------------------------------------------
--- Image map pipelines ---------------------------------------------------------
-do -----------------------------------------------------------------------------
-
---- TODO
---- @class V3DImageMapPipeline: V3DPipeline
-
---- TODO
---- @class V3DImageMapPipelineOptions: V3DPipelineOptions
---- TODO
---- @field source_image_format V3DFormat
---- TODO
---- @field destination_image_format V3DFormat
---- Whether to allow the pipeline to read from and write to the same image. If
---- true, the order of operations will ensure that the pipeline does not read
---- from a pixel that it has written to previously, at a minor performance
---- penalty. Defaults to false.
---- @field allow_self boolean | nil
---- @v3d-untracked
---- @v3d-structural
-
---- TODO
---- @param options V3DImageMapPipelineOptions
---- @return V3DImageMapPipeline
---- @v3d-nomethod
-function v3d.compile_image_map_pipeline(options)
-	local pipeline = _create_instance('V3DImageMapPipeline', options.label)
-
-	local sources = options.sources
-	local allow_self = options.allow_self ~= false
-
-	local init_finish_aliases = _combine_macro_environments(_macro_environments.core, _macro_environments.images)
-	local init_source, init_macro_calls = _process_pipeline_source_macro_calls(sources.init or '', init_finish_aliases)
-	local finish_source, finish_macro_calls = _process_pipeline_source_macro_calls(sources.finish or '', init_finish_aliases)
-
-	local main_aliases = _combine_macro_environments(_macro_environments.core, _macro_environments.images, _macro_environments.pixel, _macro_environments.image_map)
-	local main_source, main_macro_calls = _process_pipeline_source_macro_calls(sources.main or '', main_aliases)
-
-	_v3d_contextual_error(main_source, 0)
-
+--- Write a value to a uniform variable.
+---
+--- Returns the shader.
+--- @param pipeline V3DPipeline
+--- @param name V3DUniformName
+--- @param value any
+--- @return V3DPipeline
+--- @v3d-chainable
+--- -- local my_pipeline = TODO()
+--- -- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
+--- @v3d-example 2
+function v3d.pipeline_write_uniform(pipeline, name, value)
+	--- @diagnostic disable-next-line: invisible
+	pipeline.uniforms[name] = value
 	return pipeline
 end
 
---- @param pipeline V3DImageMapPipeline
---- @param source_image V3DImage
---- @param source_region V3DImageRegion
---- @param destination_image V3DImage
---- @param destination_region V3DImageRegion
---- @return V3DImageMapPipeline
---- @v3d-chainable
---- @v3d-generated
-function v3d.imagemappipeline_execute(pipeline, source_image, source_region, destination_image, destination_region)
-	---@diagnostic disable-next-line: missing-return
+--- Read a value from a uniform variable.
+--- @param pipeline V3DPipeline
+--- @param name V3DUniformName
+--- @return any
+--- @v3d-nolog
+--- -- local my_pipeline = TODO()
+--- -- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
+--- -- local my_uniform_value = v3d.pipeline_read_uniform(my_pipeline, 'my_uniform')
+--- -- assert(my_uniform_value == 42)
+--- @v3d-example 2:4
+function v3d.pipeline_read_uniform(pipeline, name)
+	--- @diagnostic disable-next-line: invisible
+	return pipeline.uniforms[name]
 end
-
-end ----------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- Image render pipelines ------------------------------------------------------
-do -----------------------------------------------------------------------------
-
--- TODO
 
 end ----------------------------------------------------------------------------
 
@@ -4293,7 +4155,7 @@ end
 --- format is a struct, the inner values of the pixel will be returned as
 --- separate values.
 ---
---- Note, to wrap them into a struct, use `v3d.format_unbuffer`.
+--- Note, to wrap them into a struct, use `v3d.format_unbuffer_from`.
 --- @param sampler V3DSampler1D
 --- @param image V3DImage
 --- @param u number
@@ -4304,7 +4166,7 @@ end
 --- @v3d-validate v3d.format_is_compatible_with(image.format, sampler.options.format)
 --- local my_sampler = v3d.create_sampler1D { format = v3d.number(), interpolate_u = 'linear' }
 --- local my_image = v3d.create_image(v3d.number(), 2, 1, 1, 0)
---- v3d.image_set_pixel(my_image, 1, 0, 0, 10)
+--- v3d.image_view_set_pixel(v3d.image_view(my_image), 1, 0, 0, 10)
 ---
 --- local single_value = v3d.sampler1d_sample(my_sampler, my_image, 0.5)
 --- assert(math.abs(single_value - 5) < 0.0001)
@@ -4312,7 +4174,7 @@ end
 --- local rgb_format = v3d.struct { r = v3d.number(), g = v3d.number(), b = v3d.number() }
 --- local my_sampler = v3d.create_sampler1D { format = rgb_format, interpolate_u = 'linear' }
 --- local my_rgb_image = v3d.create_image(rgb_format, 2, 1, 1)
---- v3d.image_set_pixel(my_rgb_image, 1, 0, 0, { r = 10, g = 20, b = 30 })
+--- v3d.image_view_set_pixel(v3d.image_view(my_rgb_image), 1, 0, 0, { r = 10, g = 20, b = 30 })
 ---
 --- -- note, the u value will be clamped to 1
 --- -- b, g, r is the internal order of the struct (alphabetical)
@@ -4324,9 +4186,9 @@ end
 --- local rgba_format = v3d.struct { r = v3d.number(), g = v3d.number(), b = v3d.number(), a = v3d.number() }
 --- local my_sampler = v3d.create_sampler1D { format = rgba_format, interpolate_u = 'linear' }
 --- local my_rgba_image = v3d.create_image(rgba_format, 2, 1, 1)
---- v3d.image_set_pixel(my_rgba_image, 1, 0, 0, { r = 10, g = 20, b = 30, a = 1 })
+--- v3d.image_view_set_pixel(v3d.image_view(my_rgba_image), 1, 0, 0, { r = 10, g = 20, b = 30, a = 1 })
 ---
---- local rgba = v3d.format_unbuffer(rgba_format, { v3d.sampler1d_sample(my_sampler, my_rgba_image, 0.1) })
+--- local rgba = v3d.format_unbuffer_from(rgba_format, { v3d.sampler1d_sample(my_sampler, my_rgba_image, 0.1) })
 --- assert(math.abs(rgba.r - 1) < 0.0001)
 --- assert(math.abs(rgba.g - 2) < 0.0001)
 --- assert(math.abs(rgba.b - 3) < 0.0001)

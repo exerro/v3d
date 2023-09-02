@@ -535,7 +535,7 @@ local function parse_class(entity, warnings)
 			docstring = table.concat(annotation.context, '\n'),
 		})
 
-		if #annotation.context == 0 then
+		if #annotation.context == 0 and not is_private then
 			table.insert(warnings, {
 				type = 'missing-docstring',
 				line = annotation.starting_line,
