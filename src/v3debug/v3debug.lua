@@ -96,10 +96,10 @@ do -- state stuff
 
 		if capture_frame then
 			if capture_frame == 0 then
+				capture_frame = nil
 				if not enter_capture_view() then
 					forcibly_stop_running()
 				end
-				capture_frame = nil
 			else
 				capture_frame = capture_frame - 1
 			end
@@ -443,7 +443,7 @@ do -- define operations on rich text lines
 		end
 		return line
 	end
-	
+
 	function any_next_peer(line)
 		while line do
 			if line.next_peer then
@@ -501,10 +501,87 @@ do -- TODO
 	-- #gen-function-parameter-names
 	-- #gen-struct-field-orderings
 
+	local _generated_show_V3DGeometry = v3d_show_types.V3DGeometry
+	--- @param item V3DGeometry
+	--- @param line RichTextLine
+	function v3d_show_types.V3DGeometry(item, line)
+		_generated_show_V3DGeometry(item, line)
+
+		local face_data_line = new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Faces', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		}
+
+		local vertex_data_line = new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Vertices', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		}
+
+		local raw_data_line = new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Raw data', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		}
+
+		for i = 0, item.n_faces - 1 do
+			local packed_face = v3d.format_unbuffer_from(item.face_format, item, i * item.face_stride)
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = 'Face ', colour = COLOUR_FOREGROUND },
+					{ text = tostring(i), colour = COLOUR_VARIABLE },
+					{ text = ' = ', colour = COLOUR_FOREGROUND },
+				},
+				indentation = line.indentation + 2,
+			}
+			show(packed_face, l)
+			insert_to_lines(face_data_line, l)
+		end
+
+		for i = 0, item.n_vertices - 1 do
+			local packed_vertex = v3d.format_unbuffer_from(item.vertex_format, item, item.vertex_offset + i * item.vertex_stride)
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = 'Vertex ', colour = COLOUR_FOREGROUND },
+					{ text = tostring(i), colour = COLOUR_VARIABLE },
+					{ text = ' = ', colour = COLOUR_FOREGROUND },
+				},
+				indentation = line.indentation + 2,
+			}
+			show(packed_vertex, l)
+			insert_to_lines(vertex_data_line, l)
+		end
+
+		for i = 1, #item do
+			local l = new_rich_line {
+				left_text_segments_expanded = {},
+				indentation = line.indentation + 2,
+			}
+			show(item[i], l)
+			insert_to_lines(raw_data_line, l)
+
+			if i == item.vertex_offset then
+				insert_to_lines(raw_data_line, new_rich_line {
+					left_text_segments_expanded = {
+						{ text = '---', colour = COLOUR_FOREGROUND_ALT },
+					},
+					indentation = line.indentation + 2,
+				})
+			end
+		end
+
+		insert_to_lines(line, face_data_line)
+		insert_to_lines(line, vertex_data_line)
+		insert_to_lines(line, raw_data_line)
+	end
+
 	--- @param item V3DFormat
 	--- @param line RichTextLine
 	function v3d_show_types.V3DFormat(item, line)
-		--- @cast item V3DFormat
 		if item.kind == 'struct' then
 			table.insert(line.left_text_segments_expanded, {
 				text = 'struct',
@@ -546,6 +623,55 @@ do -- TODO
 		end
 	end
 
+	local _generated_show_V3DTransform = v3d_show_types.V3DTransform
+	--- @param item V3DTransform
+	--- @param line RichTextLine
+	function v3d_show_types.V3DTransform(item, line)
+		_generated_show_V3DTransform(item, line)
+
+		local matrix_strs = {}
+		local column_widths = {}
+		for column = 1, 4 do
+			column_widths[column] = 0
+			for row = 1, 3 do
+				local s = string.format("%.01f", item[(row - 1) * 4 + column])
+				matrix_strs[row] = matrix_strs[row] or {}
+				matrix_strs[row][column] = s
+				column_widths[column] = math.max(column_widths[column], #s)
+			end
+		end
+
+		for row = 1, 3 do
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = '|', colour = COLOUR_FOREGROUND_ALT },
+				},
+				indentation = line.indentation + 1,
+			}
+
+			for column = 1, 4 do
+				local s = matrix_strs[row][column]
+				if column == 4 then
+					table.insert(l.left_text_segments_expanded, {
+						text = '|',
+						colour = COLOUR_FOREGROUND_ALT,
+					})
+				end
+				table.insert(l.left_text_segments_expanded, {
+					text = string.rep(' ', column_widths[column] - #s + 1) .. s .. ' ',
+					colour = COLOUR_CONSTANT,
+				})
+			end
+
+			table.insert(l.left_text_segments_expanded, {
+				text = '|',
+				colour = COLOUR_FOREGROUND_ALT,
+			})
+
+			insert_to_lines(line, l)
+		end
+	end
+
 	--- @param item any
 	--- @return RichTextSegment[]
 	local function show_short_segments(item)
@@ -561,6 +687,10 @@ do -- TODO
 						{ text = item.__v3d_typename, colour = COLOUR_V3D_TYPE },
 					}
 				end
+			elseif not next(item) then
+				return {
+					{ text = '{}', colour = COLOUR_FOREGROUND_ALT },
+				}
 			else
 				return {
 					{ text = '{...}', colour = COLOUR_FOREGROUND_ALT },
@@ -644,6 +774,21 @@ do -- TODO
 					table.insert(l.left_text_segments_expanded, { text = ']', colour = COLOUR_FOREGROUND_ALT })
 				end
 
+				table.insert(l.left_text_segments_expanded, { text = ' = ', colour = COLOUR_FOREGROUND_ALT })
+				show(element[2], l)
+
+				return l
+			end)
+
+			map_items_to_lines(line, list_elements, function(element)
+				local l = new_rich_line {
+					left_text_segments_expanded = {},
+					indentation = line.indentation + 1,
+				}
+
+				table.insert(l.left_text_segments_expanded, { text = '[', colour = COLOUR_FOREGROUND_ALT })
+				table.insert(l.left_text_segments_expanded, { text = tostring(element[1]), colour = COLOUR_CONSTANT })
+				table.insert(l.left_text_segments_expanded, { text = ']', colour = COLOUR_FOREGROUND_ALT })
 				table.insert(l.left_text_segments_expanded, { text = ' = ', colour = COLOUR_FOREGROUND_ALT })
 				show(element[2], l)
 
@@ -792,11 +937,11 @@ function enter_capture_view()
 		for i = 0, 15 do
 			old_palette[i + 1] = { term.getPaletteColour(2 ^ i) }
 		end
-	
+
 		if graphics_mode then
 			term.setGraphicsMode(false)
 		end
-	
+
 		term.setPaletteColour(colours.purple, 0x582d8c)
 
 		function restore_graphics()
@@ -811,6 +956,10 @@ function enter_capture_view()
 	end
 
 	local function draw()
+		if term.setFrozen then
+			term.setFrozen(true)
+		end
+
 		term.setBackgroundColour(COLOUR_BACKGROUND)
 		term.setTextColour(COLOUR_FOREGROUND)
 		term.clear()
@@ -841,7 +990,7 @@ function enter_capture_view()
 				term.write(' ' .. page_title:sub(1, this_tab_width - 1) .. (' '):rep(math.max(0, this_tab_width - #page_title - 1)))
 				tab_start_x = tab_start_x + this_tab_width
 			end
-			
+
 			term.setBackgroundColour(COLOUR_BACKGROUND)
 			term.setTextColour(COLOUR_FOREGROUND)
 		end
@@ -901,6 +1050,10 @@ function enter_capture_view()
 			term.setBackgroundColour(COLOUR_BACKGROUND)
 
 			draw_lines(state.capture_line, 1, state.capture_line_y, select(1, term.getSize()), state.calls_min_y, state.calls_max_y)
+		end
+
+		if term.setFrozen then
+			term.setFrozen(false)
 		end
 	end
 
@@ -1021,7 +1174,7 @@ while true do
 		if not should_continue_running() then
 			program_event_queue = {} -- signal below to break the outer loop
 			break
-	
+
 		-- if we don't have a queued event, pull one
 		elseif not program_event_queue[1] then
 			program_event_queue[1] = { coroutine.yield() }
@@ -1081,6 +1234,10 @@ while true do
 end
 
 end_frame()
+
+if term.setFrozen then
+	term.setFrozen(false)
+end
 
 -- restore the palette
 for i = 0, 15 do
