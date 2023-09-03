@@ -120,7 +120,7 @@ local function _v3d_optimise_globals(source, handle_upvalues)
 	local libraries_found = {}
 	local functions_found = {}
 
-	for _, library in ipairs { 'math', 'table' } do
+	for _, library in ipairs { 'math', 'table', 'ccemux', 'os' } do
 		source = source:gsub(library .. '%.([%w_]+)', function(fn)
 			if _G[library][fn] then
 				local replacement_name = '__' .. library .. '_' .. fn
@@ -3544,10 +3544,9 @@ do -----------------------------------------------------------------------------
 --- horizontal pixels. If true, the Y value will decrease from bottom to top as
 --- each row is drawn. Defaults to false.
 --- @field reverse_vertical_iteration boolean | nil
---- If true, the v3d_event, v3d_start_timer, and v3d_stop_timer macros will be
---- enabled in pipeline sources. This may incur a minor performance penalty
---- depending on the macros usage. Defaults to false, however v3debug will
---- default this to true.
+--- If true, the v3d_event macro will be enabled in pipeline sources and timings
+--- will be recorded. This may incur a performance penalty depending on the
+--- macro's usage. Defaults to false, however v3debug will default this to true.
 --- @field record_statistics boolean | nil
 --- Label to assign to the pipeline.
 --- @field label string | nil
@@ -3556,32 +3555,13 @@ do -----------------------------------------------------------------------------
 -- TODO: culled_faces?
 --- Statistics related to pipeline execution, recorded per-execution.
 --- @class V3DPipelineStatistics
---- Total time (in seconds) spent in the function.
---- @field total_time number
---- Total time (in seconds) spent transforming vertices.
---- @field transform_time number
---- Total time (in seconds) spent rasterizing pixels.
---- @field rasterize_time number
---- Number of faces which were considered to be drawn.
---- @field candidate_faces integer
---- Number of faces which were fully discarded due to face culling or clipping.
---- @field discarded_faces integer
---- Number of faces which were clipped into one or more sub faces due to
---- clipping.
---- @field clipped_faces integer
---- Number of faces actually drawn, accounting for face culling and clipping.
---- Note, if one face is clipped into multiple faces, this will count each
---- of those faces separately.
---- @field drawn_faces integer
---- Number of fragments which were considered to be drawn.
---- @field candidate_fragments integer
 --- Total durations for each timer, including the time spent in any nested
---- timers.
---- @field total_timer_durations { [string]: number }
---- Duration of each timer, excluding the time spent in any nested timers.
---- @field exclusive_timer_durations { [string]: number }
+--- timers. Timer names are defined by the pipeline's source code but include
+--- 'parents', e.g. a nested timer will have a name like 'a/b'.
+--- @field timers { [string]: number }
 --- Number of times an event was recorded.
 --- @field events { [string]: integer }
+--- @v3d-untracked
 
 ----------------------------------------------------------------
 
@@ -3725,6 +3705,7 @@ end
 --- @param viewport V3DImageRegion | nil
 --- @return V3DPipelineStatistics
 --- @v3d-generated
+--- @v3d-constructor
 function v3d.pipeline_render(pipeline, geometry, views, transform, model_transform, viewport)
 	-- Generated at runtime based on pipeline settings.
 	--- @diagnostic disable-next-line: missing-return
@@ -3788,23 +3769,21 @@ end
 {% end %}
 ]]
 
--- TODO (timers)
 -- locals: 8 + N(event_counters)
 local _PIPELINE_INIT_STATISTICS = [[
 {% if options.record_statistics then %}
-	{% for _, counter_name in ipairs(event_counters_updated) do %}
+	{% for _, counter_name in ipairs(_ENV.event_counters_updated) do %}
 local {= get_event_counter_local_variable(counter_name) =} = 0
 	{% end %}
-{% end %}
 
-local {= get_statistic_local_variable 'total_time' =} = 0
-local {= get_statistic_local_variable 'transform_time' =} = 0
-local {= get_statistic_local_variable 'rasterize_time' =} = 0
-local {= get_statistic_local_variable 'candidate_faces' =} = 0
-local {= get_statistic_local_variable 'discarded_faces' =} = 0
-local {= get_statistic_local_variable 'clipped_faces' =} = 0
-local {= get_statistic_local_variable 'drawn_faces' =} = 0
-local {= get_statistic_local_variable 'candidate_fragments' =} = 0
+	{% if #_ENV.timers_updated > 0 then %}
+local _v3d_timer_now
+	{% end %}
+
+	{% for _, timer_name in ipairs(_ENV.timers_updated) do %}
+local {= get_timer_local_variable(timer_name) =} = 0
+	{% end %}
+{% end %}
 ]]
 
 -- TODO
@@ -4176,6 +4155,7 @@ end
 
 -- TODO
 local _PIPELINE_RENDER_TRIANGLE = [[
+{! start_timer('rasterize') !}
 {! _PIPELINE_RENDER_TRIANGLE_SORT_VERTICES !}
 {! _PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT !}
 
@@ -4247,12 +4227,15 @@ if _v3d_region_dy > 0 then
 
 	{! _PIPELINE_RENDER_REGION !}
 end
+
+{! stop_timer('rasterize') !}
 ]]
 
 -- TODO
 -- uses environment: interpolate_vertex_indices, interpolate_world_position, needs_interpolated_depth, needs_fragment_world_position, needs_face_world_normal
 -- uses utility: increment_statistic
 local _PIPELINE_RENDER_FACE = [[
+{! start_timer('process_vertices') !}
 {! _PIPELINE_INIT_FACE_VERTICES !}
 
 {% for _, idx in ipairs(_ENV.access_face_indices) do %}
@@ -4280,9 +4263,12 @@ end
 if not _v3d_cull_face then
 {% end %}
 
+{! stop_timer('process_vertices') !}
+
 -- TODO: make this split polygons for clipping
 {% local clipping_plane = 0.0001 %}
 if _v3d_transformed_p0z <= {= clipping_plane =} and _v3d_transformed_p1z <= {= clipping_plane =} and _v3d_transformed_p2z <= {= clipping_plane =} then
+	{! start_timer('process_vertices') !}
 	local _v3d_rasterize_p0_w = -1 / _v3d_transformed_p0z
 	local _v3d_rasterize_p0_x = (_v3d_transformed_p0x * _v3d_rasterize_p0_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
 	local _v3d_rasterize_p0_y = (-_v3d_transformed_p0y * _v3d_rasterize_p0_w + 1) * _v3d_viewport_translate_scale_y
@@ -4311,6 +4297,8 @@ if _v3d_transformed_p0z <= {= clipping_plane =} and _v3d_transformed_p1z <= {= c
 	local {= get_vertex_index_local_variable(2, idx) =} = _v3d_geometry[_v3d_vertex_offset + {= idx + options.vertex_format:size() * 2 =}]
 	{% end %}
 
+	{! stop_timer('process_vertices') !}
+
 	{! _PIPELINE_RENDER_TRIANGLE !}
 	{! increment_statistic 'drawn_faces' !}
 else
@@ -4329,34 +4317,50 @@ _v3d_face_offset = _v3d_face_offset + {= options.face_format:size() =}
 {% end %}
 ]]
 
--- TODO (timers)
--- uses environment: event_counters_updated
-local _PIPELINE_RETURN_STATISTICS = [[
-return {
-	total_time = {= get_statistic_local_variable 'total_time' =},
-	transform_time = {= get_statistic_local_variable 'transform_time' =},
-	rasterize_time = {= get_statistic_local_variable 'rasterize_time' =},
-	candidate_faces = {= get_statistic_local_variable 'candidate_faces' =},
-	discarded_faces = {= get_statistic_local_variable 'discarded_faces' =},
-	clipped_faces = {= get_statistic_local_variable 'clipped_faces' =},
-	drawn_faces = {= get_statistic_local_variable 'drawn_faces' =},
-	candidate_fragments = {= get_statistic_local_variable 'candidate_fragments' =},
-	total_timer_durations = {}, -- TODO
-	exclusive_timer_durations = {}, -- TODO
-	events = {
-		{% for _, counter_name in ipairs(event_counters_updated) do %}
-			{% if options.record_statistics then %}
-		{= counter_name =} = _v3d_event_counter_{= counter_name =},
-			{% else %}
-		{= counter_name =} = 0,
-			{% end %}
+local _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE = [[
+{
+	{% for _, timer_name in ipairs(_ENV.timers_updated) do %}
+		{% if options.record_statistics then %}
+	['{= timer_name =}'] = {= get_timer_local_variable(timer_name) =},
+		{% else %}
+	['{= timer_name =}'] = 0,
 		{% end %}
-	},
+	{% end %}
 }
 ]]
 
+local _PIPELINE_RETURN_STATISTICS_EVENT_VALUE = [[
+{
+{% for _, counter_name in ipairs(_ENV.event_counters_updated) do %}
+	{% if options.record_statistics then %}
+{= counter_name =} = {= get_event_counter_local_variable(counter_name) =},
+	{% else %}
+{= counter_name =} = 0,
+	{% end %}
+{% end %}
+}
+]]
+
+local _PIPELINE_RETURN_STATISTICS = [[
+-- _v3d_create_instance, _v3d_finalise_instance
+{% if options.record_statistics then %}
+	local _v3d_return_statistics = _v3d_create_instance('V3DPipelineStatistics')
+	_v3d_return_statistics.timers = {! _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE !}
+	_v3d_return_statistics.events = {! _PIPELINE_RETURN_STATISTICS_EVENT_VALUE !}
+	return _v3d_finalise_instance(_v3d_return_statistics)
+{% else %}
+	return {
+		timers = {! _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE !},
+		events = {! _PIPELINE_RETURN_STATISTICS_EVENT_VALUE !},
+	}
+{% end %}
+]]
+
 local _PIPELINE_RENDER_MAIN = [[
+local _v3d_create_instance, _v3d_finalise_instance = ...
 return function(_v3d_pipeline, _v3d_geometry, _v3d_views, _v3d_transform, _v3d_model_transform, _v3d_viewport)
+	{! start_timer('render') !}
+
 	{! _PIPELINE_INIT_CONSTANTS !}
 	{! _PIPELINE_INIT_UNIFORMS !}
 	{! _PIPELINE_INIT_STATISTICS !}
@@ -4369,6 +4373,8 @@ return function(_v3d_pipeline, _v3d_geometry, _v3d_views, _v3d_transform, _v3d_m
 	for _ = 1, _v3d_geometry.n_vertices, 3 do
 		{! _PIPELINE_RENDER_FACE !}
 	end
+
+	{! stop_timer('render') !}
 
 	{! _PIPELINE_RETURN_STATISTICS !}
 end
@@ -4386,6 +4392,8 @@ v3d_set_pixel_flat(colour, 2 ^ v3d_face_flat('index'))
 -- TODO: examples
 function v3d.compile_pipeline(options)
 	local pipeline = _create_instance('V3DPipeline', options.label)
+
+	local clock_function_str = ccemux and 'ccemux.nanoTime() / 1000000000' or 'os.clock()'
 
 	local actual_options = {}
 	actual_options.sources = {}
@@ -4426,6 +4434,8 @@ function v3d.compile_pipeline(options)
 	_environment._PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT = _PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT
 	_environment._PIPELINE_RENDER_TRIANGLE = _PIPELINE_RENDER_TRIANGLE
 	_environment._PIPELINE_RENDER_FACE = _PIPELINE_RENDER_FACE
+	_environment._PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE = _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE
+	_environment._PIPELINE_RETURN_STATISTICS_EVENT_VALUE = _PIPELINE_RETURN_STATISTICS_EVENT_VALUE
 	_environment._PIPELINE_RETURN_STATISTICS = _PIPELINE_RETURN_STATISTICS
 
 	_environment.uniforms_accessed = {}
@@ -4434,10 +4444,12 @@ function v3d.compile_pipeline(options)
 	_environment.access_face_indices = { set = {} }
 	_environment.interpolate_vertex_indices = { set = {} }
 	_environment.event_counters_updated = {}
+	_environment.timers_updated = {}
 	_environment.interpolate_world_position = false
 	_environment.needs_fragment_world_position = false
 	_environment.needs_face_world_normal = false
 	_environment.needs_interpolated_depth = false
+	_environment.timer_stack = {}
 
 	local function TODO() error('TODO') end
 
@@ -4460,26 +4472,20 @@ function v3d.compile_pipeline(options)
 	--- Record an event. This only has an effect when the pipeline has event
 	--- recording enabled.
 	--- @param name string
+	--- @param count integer | nil
 	--- @return nil
-	function _environment.v3d_event(name)
+	function _environment.v3d_event(name, count)
+		if not actual_options.record_statistics then
+			return ''
+		end
+
 		if not _environment.event_counters_updated[name] then
 			_environment.event_counters_updated[name] = true
 			table.insert(_environment.event_counters_updated, name)
 		end
 
-		return _environment.get_event_counter_local_variable(name)
-	end
-
-	--- @param name string
-	--- @return nil
-	function _environment.v3d_start_timer(name)
-		return TODO()
-	end
-
-	--- @param name string
-	--- @return nil
-	function _environment.v3d_stop_timer(name)
-		return TODO()
+		local varname = _environment.get_event_counter_local_variable(name)
+		return varname .. ' = ' .. varname .. ' + ' .. tostring(count or 1)
 	end
 
 	--- Return whether the depth represented by `a` is closer than the depth
@@ -4494,7 +4500,7 @@ function v3d.compile_pipeline(options)
 	-- TODO: local w, h, d, fmt = v3d_image(image, 'whdf')
 	-- allow rx, ry, rz, rw, rh, rd too?
 	--- Return a named image object being used in this pipeline's execution.
-	--- Note: v3d optimises accessing image fields if they immediately follow this
+	--- TODO: Note: v3d optimises accessing image fields if they immediately follow this
 	---       macro invocation. For example:
 	--- ```lua
 	--- local width = v3d_image('my_image').width -- optimised
@@ -4511,17 +4517,6 @@ function v3d.compile_pipeline(options)
 
 		return _environment.get_image_local_variable(name)
 	end
-
-	-- TODO: local w, h, d, fmt = v3d_image(image, 'whdf')
-	-- allow rx, ry, rz, rw, rh, rd too?
-	--- Return a named image object being used in this pipeline's execution.
-	--- Note: v3d optimises accessing image fields if they immediately follow this
-	---       macro invocation. For example:
-	--- ```lua
-	--- local width = v3d_image('my_image').width -- optimised
-	--- local image = v3d_image('my_image')
-	--- local width = image.width -- not optimised
-	--- ```
 	--- @param name string
 	--- @return V3DImageView
 	function _environment.v3d_image_view(name)
@@ -4699,16 +4694,56 @@ function v3d.compile_pipeline(options)
 
 	----------------------------------------------------------------------------
 
+	function _environment.start_timer(name)
+		if not actual_options.record_statistics then
+			return ''
+		end
+
+		if #_environment.timer_stack > 0 then
+			name = _environment.timer_stack[#_environment.timer_stack] .. '/' .. name
+		end
+
+		if not _environment.timers_updated[name] then
+			_environment.timers_updated[name] = true
+			table.insert(_environment.timers_updated, name)
+		end
+
+		local timer_start_name = _environment.get_timer_start_local_variable(name)
+		table.insert(_environment.timer_stack, name)
+		return 'local ' .. timer_start_name .. ' = ' .. clock_function_str
+	end
+
+	function _environment.stop_timer(name)
+		if not actual_options.record_statistics then
+			return ''
+		end
+
+		table.remove(_environment.timer_stack)
+
+		if #_environment.timer_stack > 0 then
+			name = _environment.timer_stack[#_environment.timer_stack] .. '/' .. name
+		end
+
+		local timer_start_name = _environment.get_timer_start_local_variable(name)
+		local timer_name = _environment.get_timer_local_variable(name)
+
+		return timer_name .. ' = ' .. timer_name .. ' + (' .. clock_function_str .. ' - ' .. timer_start_name .. ')'
+	end
+
 	function _environment.get_event_counter_local_variable(name)
 		return '_v3d_event_counter_' .. name
 	end
 
-	function _environment.get_uniform_local_variable(name)
-		return '_v3d_uniforms_' .. name
+	function _environment.get_timer_start_local_variable(name)
+		return '_v3d_timer_start_' .. name:gsub('[^%w_]', '_')
 	end
 
-	function _environment.get_statistic_local_variable(name)
-		return '_v3d_stat_' .. name
+	function _environment.get_timer_local_variable(name)
+		return '_v3d_timer_total_' .. name:gsub('[^%w_]', '_')
+	end
+
+	function _environment.get_uniform_local_variable(name)
+		return '_v3d_uniforms_' .. name
 	end
 
 	function _environment.get_image_local_variable(image_name)
@@ -4732,8 +4767,7 @@ function v3d.compile_pipeline(options)
 			return ''
 		end
 
-		return _environment.get_statistic_local_variable(name) .. ' = '
-			.. _environment.get_statistic_local_variable(name) .. ' + 1'
+		return '{! v3d_event(\'' .. name .. '\') !}'
 	end
 
 	local pixel_source = _v3d_apply_template(actual_options.sources.pixel, _environment)
@@ -4747,7 +4781,7 @@ function v3d.compile_pipeline(options)
 	local f, err = load(content, '=render', nil, _ENV)
 	if f then
 		--- @diagnostic disable-next-line: inject-field
-		pipeline.render = f()
+		pipeline.render = f(_create_instance, _finalise_instance)
 	else
 		_v3d_contextual_error(err, content)
 	end

@@ -500,6 +500,17 @@ do -- TODO
 	local v3d_function_parameter_names = {}
 	local v3d_struct_field_orderings = {}
 
+	local function time_to_string_and_unit(time)
+		if time < 1e-6 then
+			return string.format('%.01f', time * 1e9), 'ns'
+		elseif time < 1e-3 then
+			return string.format('%.01f', time * 1e6), 'us'
+		elseif time < 1 then
+			return string.format('%.01f', time * 1e3), 'ms'
+		end
+		return string.format('%.01f', time), 's'
+	end
+
 	-- #gen-show-types
 	-- #gen-function-parameter-names
 	-- #gen-struct-field-orderings
@@ -624,6 +635,123 @@ do -- TODO
 				colour = COLOUR_FUNCTION,
 			})
 		end
+	end
+
+	--- @param item V3DPipelineStatistics
+	--- @param line RichTextLine
+	function v3d_show_types.V3DPipelineStatistics(item, line)
+		table.insert(line.left_text_segments_contracted, {
+			text = 'V3DPipelineStatistics',
+			colour = COLOUR_V3D_TYPE,
+		})
+
+		local events_line = new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Events', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		}
+
+		local timers_line = new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Timers', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		}
+
+		for k, v in pairs(item.events) do
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = k, colour = COLOUR_VARIABLE },
+					{ text = ' = ', colour = COLOUR_FOREGROUND },
+				},
+				indentation = line.indentation + 2,
+			}
+			show(v, l)
+			insert_to_lines(events_line, l)
+		end
+
+		local timer_queue = {}
+		for k, v in pairs(item.timers) do
+			table.insert(timer_queue, {
+				full_name = k,
+				name = k,
+				parent = k:match '^(.+)/' or nil,
+				ready = not k:find '/',
+				duration = v,
+			})
+		end
+
+		local timer_objects = {}
+		local timer_lookup = {}
+		while #timer_queue > 0 do
+			for i = #timer_queue, 1, -1 do
+				local timer = timer_queue[i]
+				if timer.ready then
+					table.remove(timer_queue, i)
+
+					local instance = {
+						full_name = timer.full_name,
+						name = timer.name,
+						children = {},
+						duration = timer.duration,
+					}
+
+					local parent_list = timer.parent and timer_lookup[timer.parent].children or timer_objects
+
+					timer_lookup[timer.full_name] = instance
+					table.insert(parent_list, instance)
+
+					for j = 1, #timer_queue do
+						if not timer_queue[j].ready then
+							local name, count = timer_queue[j].name:gsub('^' .. timer.name .. '/', '', 1)
+							timer_queue[j].name = name
+							timer_queue[j].ready = count > 0 and not name:find '/'
+						end
+					end
+				end
+			end
+		end
+
+		local function add_timer_lines(timer_objects, line)
+			table.sort(timer_objects, function(a, b)
+				return a.duration > b.duration
+			end)
+			map_items_to_lines(line, timer_objects, function(timer, index)
+				local duration_s, duration_u = time_to_string_and_unit(timer.duration)
+				local l = new_rich_line {
+					left_text_segments_expanded = {
+						{ text = timer.name, colour = COLOUR_VARIABLE },
+						{ text = ' = ', colour = COLOUR_FOREGROUND },
+					},
+					indentation = line.indentation + 2,
+				}
+
+				if #timer.children > 0 then
+					local self_duration = timer.duration
+
+					for _, child in ipairs(timer.children) do
+						self_duration = self_duration - child.duration
+					end
+
+					local self_duration_s, self_duration_u = time_to_string_and_unit(self_duration)
+
+					table.insert(l.left_text_segments_expanded, { text = self_duration_s, colour = COLOUR_CONSTANT })
+					table.insert(l.left_text_segments_expanded, { text = self_duration_u, colour = COLOUR_FOREGROUND })
+					table.insert(l.left_text_segments_expanded, { text = ' / ', colour = COLOUR_FOREGROUND_ALT })
+				end
+
+				table.insert(l.left_text_segments_expanded, { text = duration_s, colour = COLOUR_CONSTANT })
+				table.insert(l.left_text_segments_expanded, { text = duration_u, colour = COLOUR_FOREGROUND })
+
+				add_timer_lines(timer.children, l)
+				return l
+			end)
+		end
+
+		add_timer_lines(timer_objects, timers_line)
+		insert_to_lines(line, events_line)
+		insert_to_lines(line, timers_line)
 	end
 
 	local _generated_show_V3DTransform = v3d_show_types.V3DTransform
@@ -814,21 +942,8 @@ do -- TODO
 
 			if call.debug_region then
 				local items = {}
-				local elapsed_time = call.elapsed_time or ((ccemux and ccemux.nanoTime() / 1000000000 or os.clock()) - call.start_time)
-				local elapsed_time_unit = 's'
-
-				if elapsed_time < 1 then
-					elapsed_time = elapsed_time * 1000
-					elapsed_time_unit = 'ms'
-				end
-				if elapsed_time < 1 then
-					elapsed_time = elapsed_time * 1000
-					elapsed_time_unit = 'us'
-				end
-				if elapsed_time < 1 then
-					elapsed_time = elapsed_time * 1000
-					elapsed_time_unit = 'ns'
-				end
+				local elapsed_time_str, elapsed_time_unit = time_to_string_and_unit(
+					call.elapsed_time or ((ccemux and ccemux.nanoTime() / 1000000000 or os.clock()) - call.start_time))
 
 				table.insert(items, { text = 'Debug region', colour = COLOUR_REGION })
 
@@ -837,7 +952,7 @@ do -- TODO
 				end
 
 				table.insert(items, { text = ' (' .. tostring(#call.calls) .. ' items, ', colour = COLOUR_FOREGROUND_ALT })
-				table.insert(items, { text = string.format('%.01f', elapsed_time), colour = COLOUR_FOREGROUND_ALT })
+				table.insert(items, { text = elapsed_time_str, colour = COLOUR_FOREGROUND_ALT })
 				table.insert(items, { text = elapsed_time_unit .. ', ', colour = COLOUR_FOREGROUND_ALT })
 				table.insert(items, { text = math.floor(call.elapsed_time / get_frame_duration() * 100 + 0.5) .. '%)', colour = COLOUR_FOREGROUND_ALT })
 
@@ -1186,7 +1301,7 @@ do -- create modified library
 	end
 
 	function v3d_modified_library.exit_debug_region()
-		if v3d_this_frame_call_stack == 0 then
+		if #v3d_this_frame_call_stack == 0 then
 			return
 		end
 

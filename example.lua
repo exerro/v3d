@@ -14,11 +14,16 @@ local geometry = v3d.geometry_builder_build(geometry_builder)
 	-- 	v3d_write_pixel('depth', v3d_fragment_depth())
 	-- end
 local my_pixel_shader = [[
+	-- v3d_start_timer('compute_index')
 	local x, y, z = v3d_vertex_flat('position')
 	local index = math.floor(math.max(0, math.min(5, (x + 0.5) * 6))) * 36 + math.floor(math.max(0, math.min(5, (y + 0.5) * 6))) * 6 + math.floor(math.max(0, math.min(5, (z + 0.5) * 6)))
 	index = math.max(0, math.min(255, index))
+	-- v3d_stop_timer('compute_index')
+
+	-- v3d_start_timer('set_pixel')
 	-- v3d_set_pixel_flat('colour', 2 ^ v3d_face_flat('index'))
 	v3d_set_pixel_flat('colour', index)
+	-- v3d_stop_timer('set_pixel')
 ]]
 
 local term_width, term_height = term.getSize()
