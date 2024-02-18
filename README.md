@@ -25,9 +25,9 @@ Planned API changes:
 * replace framebuffers with collections of V3DImages
 * unify the type system for geometry and images
 * use a consistent, general 'pipeline' approach for dynamically generated optimised code
-* old v3d pipelines will become V3DRenderPipeline
-* old framebuffer pixel shaders will become V3DImageMapPipeline
-* image map pipeline will support advanced copying operations
+* old v3d pipelines will become V3DRenderer
+* old framebuffer pixel shaders will become V3DEffect
+* V3DEffect will support advanced copying operations
 
 --------------------------------------------------------------------------------
 

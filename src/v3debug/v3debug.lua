@@ -294,6 +294,8 @@ local COLOUR_VARIABLE = colours.pink
 local COLOUR_FUNCTION = colours.cyan
 local COLOUR_CONSTANT = colours.orange
 local COLOUR_CONSTANT_STRING = colours.orange
+local COLOUR_ERROR = colours.red
+local COLOUR_ACTION = colours.blue
 local PAGES = { 'Overview', 'Capture', 'Objects' }
 
 local new_rich_line, line_inner_expanded_height, map_items_to_lines, insert_to_lines, last_nested_child, any_next_peer, draw_lines
@@ -345,9 +347,10 @@ do -- define operations on rich text lines
 		return total
 	end
 
+	--- @generic T
 	--- @param parent RichTextLine | nil
-	--- @param items any[]
-	--- @param map fun(item: any, index: integer): RichTextLine
+	--- @param items T[]
+	--- @param map fun(item: T, index: integer): RichTextLine
 	function map_items_to_lines(parent, items, map)
 		local previous_peer = parent and parent.first_child
 		local first_item = nil
@@ -494,8 +497,8 @@ do -- define operations on rich text lines
 end
 
 local map_call_to_lines
-do -- TODO
-	local show
+do -- define custom visualisations for types and tostring functions
+	local show, show_field, show_code
 	local v3d_show_types = {}
 	local v3d_function_parameter_names = {}
 	local v3d_struct_field_orderings = {}
@@ -637,11 +640,201 @@ do -- TODO
 		end
 	end
 
-	--- @param item V3DPipelineStatistics
+	local _generated_show_V3DTransform = v3d_show_types.V3DTransform
+	--- @param item V3DTransform
 	--- @param line RichTextLine
-	function v3d_show_types.V3DPipelineStatistics(item, line)
+	function v3d_show_types.V3DTransform(item, line)
+		_generated_show_V3DTransform(item, line)
+
+		local matrix_strs = {}
+		local column_widths = {}
+		for column = 1, 4 do
+			column_widths[column] = 0
+			for row = 1, 3 do
+				local s = string.format("%.01f", item[(row - 1) * 4 + column])
+				matrix_strs[row] = matrix_strs[row] or {}
+				matrix_strs[row][column] = s
+				column_widths[column] = math.max(column_widths[column], #s)
+			end
+		end
+
+		for row = 1, 3 do
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = '|', colour = COLOUR_FOREGROUND_ALT },
+				},
+				indentation = line.indentation + 1,
+			}
+
+			for column = 1, 4 do
+				local s = matrix_strs[row][column]
+				if column == 4 then
+					table.insert(l.left_text_segments_expanded, {
+						text = '|',
+						colour = COLOUR_FOREGROUND_ALT,
+					})
+				end
+				table.insert(l.left_text_segments_expanded, {
+					text = string.rep(' ', column_widths[column] - #s + 1) .. s .. ' ',
+					colour = COLOUR_CONSTANT,
+				})
+			end
+
+			table.insert(l.left_text_segments_expanded, {
+				text = '|',
+				colour = COLOUR_FOREGROUND_ALT,
+			})
+
+			insert_to_lines(line, l)
+		end
+	end
+
+	--- @param item V3DShader
+	--- @param line RichTextLine
+	function v3d_show_types.V3DShader(item, line)
+		table.insert(line.left_text_segments_expanded, {
+			text = 'V3DShader',
+			colour = COLOUR_V3D_TYPE,
+		})
+
+		show_field(item, line, 'source_format')
+		show_field(item, line, 'face_format')
+		show_field(item, line, 'image_formats')
+		show_field(item, line, 'shader_constants', 'Constants')
+		show_field(item, line, 'external_variables', 'External variables')
+		show_code(line, item.expanded_code, 'Expanded code')
+
+		local uses = {}
+		for k, v in pairs(item) do
+			if k:sub(1, 5) == 'uses_' then
+				table.insert(uses, { k:sub(6), v })
+			end
+		end
+		table.sort(uses, function(a, b) return a[1] < b[1] end)
+
+		local uses_line = insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Uses', colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		})
+
+		for i = 1, #uses do
+			local this_uses_line = insert_to_lines(uses_line, new_rich_line {
+				left_text_segments_expanded = {
+					{ text = uses[i][1], colour = COLOUR_VARIABLE },
+					{ text = ' = ', colour = COLOUR_FOREGROUND },
+				},
+				indentation = line.indentation + 2,
+			})
+
+			if type(uses[i][2]) == 'table' and #uses[i][2] == 0 then
+				table.insert(this_uses_line.left_text_segments_expanded, {
+					text = 'none',
+					colour = COLOUR_FOREGROUND_ALT,
+				})
+			elseif uses[i][2] == false then
+				table.insert(this_uses_line.left_text_segments_expanded, {
+					text = 'false',
+					colour = COLOUR_FOREGROUND_ALT,
+				})
+			elseif type(uses[i][2]) == 'table' then
+				table.insert(this_uses_line.left_text_segments_expanded, {
+					text = '{',
+					colour = COLOUR_FOREGROUND_ALT,
+				})
+				for j = 1, #uses[i][2] do
+					if j > 1 then
+						table.insert(this_uses_line.left_text_segments_expanded, {
+							text = ', ',
+							colour = COLOUR_FOREGROUND_ALT,
+						})
+					end
+					show(uses[i][2][j], this_uses_line)
+				end
+				table.insert(this_uses_line.left_text_segments_expanded, {
+					text = '}',
+					colour = COLOUR_FOREGROUND_ALT,
+				})
+			else
+				show(uses[i][2], this_uses_line)
+			end
+		end
+	end
+
+	--- @param item V3DShaderErrors
+	--- @param line RichTextLine
+	function v3d_show_types.V3DShaderErrors(item, line)
+		line.is_expanded = true
+
+		table.insert(line.left_text_segments_expanded, {
+			text = 'V3DShaderErrors',
+			colour = COLOUR_V3D_TYPE,
+		})
+
+		show(item.options, insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'options', colour = COLOUR_VARIABLE },
+				{ text = ' = ', colour = COLOUR_FOREGROUND_ALT },
+			},
+			indentation = line.indentation + 1
+		}))
+
+		map_items_to_lines(line, item.errors, function(err)
+			local new_line = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = err.message, colour = COLOUR_ERROR },
+				},
+				indentation = line.indentation + 1,
+			}
+			insert_to_lines(new_line, new_rich_line {
+				left_text_segments_expanded = {
+					{ text = 'at line ', colour = COLOUR_FOREGROUND },
+					{ text = tostring(err.line), colour = COLOUR_CONSTANT },
+					{ text = ' column ', colour = COLOUR_FOREGROUND },
+					{ text = tostring(err.column), colour = COLOUR_CONSTANT },
+				},
+				indentation = new_line.indentation + 1,
+			})
+			insert_to_lines(new_line, new_rich_line {
+				left_text_segments_expanded = {
+					{ text = item.code_lines[err.line], colour = COLOUR_FOREGROUND_ALT },
+				},
+				indentation = new_line.indentation + 1,
+			})
+			insert_to_lines(new_line, new_rich_line {
+				left_text_segments_expanded = {
+					{ text = (' '):rep(err.column - 1) .. string.char(131):rep(err.length), colour = COLOUR_ERROR },
+				},
+				indentation = new_line.indentation + 1,
+			})
+			return new_line
+		end)
+
+		show_code(line, item.code_lines, 'Shader source code')
+	end
+
+	local _generated_show_V3DRenderer = v3d_show_types.V3DRenderer
+	--- @param item V3DRenderer
+	--- @param line RichTextLine
+	function v3d_show_types.V3DRenderer(item, line)
+		_generated_show_V3DRenderer(item, line)
+
+		-- TODO: implement this:
+
+		insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'Save compiled code as...', colour = COLOUR_ACTION },
+			},
+			indentation = line.indentation + 1,
+		})
+	end
+
+	--- @param item V3DRendererStatistics
+	--- @param line RichTextLine
+	function v3d_show_types.V3DRendererStatistics(item, line)
 		table.insert(line.left_text_segments_contracted, {
-			text = 'V3DPipelineStatistics',
+			text = 'V3DRendererStatistics',
 			colour = COLOUR_V3D_TYPE,
 		})
 
@@ -754,53 +947,21 @@ do -- TODO
 		insert_to_lines(line, timers_line)
 	end
 
-	local _generated_show_V3DTransform = v3d_show_types.V3DTransform
-	--- @param item V3DTransform
+	--- @param item V3DSampler2D
 	--- @param line RichTextLine
-	function v3d_show_types.V3DTransform(item, line)
-		_generated_show_V3DTransform(item, line)
-
-		local matrix_strs = {}
-		local column_widths = {}
-		for column = 1, 4 do
-			column_widths[column] = 0
-			for row = 1, 3 do
-				local s = string.format("%.01f", item[(row - 1) * 4 + column])
-				matrix_strs[row] = matrix_strs[row] or {}
-				matrix_strs[row][column] = s
-				column_widths[column] = math.max(column_widths[column], #s)
-			end
-		end
-
-		for row = 1, 3 do
-			local l = new_rich_line {
-				left_text_segments_expanded = {
-					{ text = '|', colour = COLOUR_FOREGROUND_ALT },
-				},
-				indentation = line.indentation + 1,
-			}
-
-			for column = 1, 4 do
-				local s = matrix_strs[row][column]
-				if column == 4 then
-					table.insert(l.left_text_segments_expanded, {
-						text = '|',
-						colour = COLOUR_FOREGROUND_ALT,
-					})
-				end
-				table.insert(l.left_text_segments_expanded, {
-					text = string.rep(' ', column_widths[column] - #s + 1) .. s .. ' ',
-					colour = COLOUR_CONSTANT,
-				})
-			end
-
-			table.insert(l.left_text_segments_expanded, {
-				text = '|',
-				colour = COLOUR_FOREGROUND_ALT,
-			})
-
-			insert_to_lines(line, l)
-		end
+	function v3d_show_types.V3DSampler2D(item, line)
+		table.insert(line.left_text_segments_expanded, {
+			text = 'V3DSampler2D',
+			colour = COLOUR_V3D_TYPE,
+		})
+		show(item.options, insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = 'options', colour = COLOUR_VARIABLE },
+				{ text = ' = ', colour = COLOUR_FOREGROUND_ALT },
+			},
+			indentation = line.indentation + 1
+		}))
+		show_code(line, item.compiled_sampler, 'Compiled sampler code')
 	end
 
 	--- @param item any
@@ -926,6 +1087,59 @@ do -- TODO
 				return l
 			end)
 		end
+	end
+
+	--- @param item any
+	--- @param line RichTextLine
+	--- @param field_name string
+	--- @param field_label string | nil
+	function show_field(item, line, field_name, field_label)
+		show(item[field_name], insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = field_label or field_name, colour = field_label and COLOUR_FOREGROUND or COLOUR_VARIABLE },
+				{ text = ' = ', colour = COLOUR_FOREGROUND_ALT },
+			},
+			indentation = line.indentation + 1
+		}))
+	end
+
+	--- @param line RichTextLine
+	--- @param source_code string | string[]
+	--- @param source_code_heading string
+	function show_code(line, source_code, source_code_heading)
+		local source_code_lines = {}
+
+		if type(source_code) == 'table' then
+			source_code_lines = source_code
+		else
+			local s = 1
+			local f = source_code:find('\n')
+			while f do
+				table.insert(source_code_lines, source_code:sub(s, f - 1))
+				s = f + 1
+				f = source_code:find('\n', s)
+			end
+			table.insert(source_code_lines, source_code:sub(s))
+		end
+
+		local code_line = insert_to_lines(line, new_rich_line {
+			left_text_segments_expanded = {
+				{ text = source_code_heading, colour = COLOUR_FOREGROUND },
+			},
+			indentation = line.indentation + 1,
+		})
+
+		local lines_digits = math.floor(math.log(#source_code_lines, 10)) + 1
+		map_items_to_lines(code_line, source_code_lines, function(src_line, line_number)
+			local l = new_rich_line {
+				left_text_segments_expanded = {
+					{ text = ('%' .. lines_digits .. 'd '):format(line_number), colour = COLOUR_CONSTANT },
+					{ text = src_line, colour = COLOUR_FOREGROUND_ALT },
+				},
+				indentation = line.indentation + 2,
+			}
+			return l
+		end)
 	end
 
 	--- @param indentation integer
@@ -1163,7 +1377,7 @@ function enter_capture_view()
 			y = y + 1
 
 			if get_validation_error() then
-				term.setTextColour(colours.red)
+				term.setTextColour(COLOUR_ERROR)
 				term.setCursorPos(2, y)
 				y = y + print('Validation error in ' .. V3D_VALIDATION_ERROR.context.fn_name .. ':')
 				term.setTextColour(COLOUR_FOREGROUND_ALT)
@@ -1177,7 +1391,7 @@ function enter_capture_view()
 				end
 				y = y + 1
 			elseif get_normal_error() then
-				term.setTextColour(colours.red)
+				term.setTextColour(COLOUR_ERROR)
 				term.setCursorPos(2, y)
 				y = y + print('Program crashed')
 				term.setTextColour(COLOUR_FOREGROUND)

@@ -181,7 +181,11 @@ function docgen.generate_class_documentation(class, v3d_docstring, compact)
 	generator:writeLine()
 
 	if class.extends ~= nil then
-		generator:writeLine('## Extends %s', class_ref(v3d_docstring.classes[class.extends]))
+		if v3d_docstring.classes[class.extends] then
+			generator:writeLine('## Extends %s', class_ref(v3d_docstring.classes[class.extends]))
+		else
+			generator:writeLine('## Extends %s', str_type_ref(class.extends))
+		end
 		generator:writeLine()
 	end
 

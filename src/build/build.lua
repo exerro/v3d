@@ -4,7 +4,6 @@
 local quick_build = ...
 
 -- TODO: move codegen into this file
-local codegen = require 'codegen'
 local docgen = require 'docgen'
 local embedgen = require 'embedgen'
 local docstring = require 'docstring'
@@ -193,13 +192,7 @@ do -- replace `-- #gen-show-types`
 
 				for _, field in ipairs(class.fields) do
 					if not field.is_private then
-						table.insert(lines, '\tshow(item.' .. field.name .. ', insert_to_lines(line, new_rich_line {')
-						table.insert(lines, '\t\tleft_text_segments_expanded = {')
-						table.insert(lines, '\t\t\t{ text = \'' .. field.name .. '\', colour = COLOUR_VARIABLE },')
-						table.insert(lines, '\t\t\t{ text = \' = \', colour = COLOUR_FOREGROUND_ALT },')
-						table.insert(lines, '\t\t},')
-						table.insert(lines, '\t\tindentation = line.indentation + 1')
-						table.insert(lines, '\t}))')
+						table.insert(lines, '\tshow_field(item, line, \'' .. field.name .. '\')')
 					end
 				end
 

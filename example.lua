@@ -2,31 +2,10 @@
 --- @type V3D
 local v3d = require 'v3d'
 
-local geometry_builder = v3d.debug_cube {
-	-- include_normals = 'vertex',
-	include_indices = 'face',
-}
-
-local geometry = v3d.geometry_builder_build(geometry_builder)
-
-	-- if v3d_compare_depth(v3d_pixel('depth'), v3d_fragment_depth()) then
-	-- 	v3d_write_pixel('colour', v3d_vertex('index'))
-	-- 	v3d_write_pixel('depth', v3d_fragment_depth())
-	-- end
-local my_pixel_shader = [[
-	-- v3d_start_timer('compute_index')
-	local x, y, z = v3d_vertex_flat('position')
-	local index = math.floor(math.max(0, math.min(5, (x + 0.5) * 6))) * 36 + math.floor(math.max(0, math.min(5, (y + 0.5) * 6))) * 6 + math.floor(math.max(0, math.min(5, (z + 0.5) * 6)))
-	index = math.max(0, math.min(255, index))
-	-- v3d_stop_timer('compute_index')
-
-	-- v3d_start_timer('set_pixel')
-	-- v3d_set_pixel_flat('colour', 2 ^ v3d_face_flat('index'))
-	v3d_set_pixel_flat('colour', index)
-	-- v3d_stop_timer('set_pixel')
-]]
-
-local term_width, term_height = term.getSize()
+local geometry = v3d.debug_cuboid {
+	include_uvs = true,
+	include_face_name = true,
+} :build()
 
 term.setGraphicsMode(2)
 
@@ -39,41 +18,117 @@ local views = {
 	depth = v3d.image_view(depth_image),
 }
 
-local camera = v3d.camera {
-	z = 2,
-	y = 0.25,
-} * v3d.rotate_y(math.pi / 4 * 0)
+local camera = v3d.camera { z = 2 }
 
-local render_pipeline = v3d.compile_pipeline {
-	image_formats = {
-		colour = colour_image.format,
-		depth = depth_image.format,
+local model1_transform = v3d.rotate_y(math.pi / 8)
+
+local paintutils_image_str = [[
+dddddddddddddddd
+d5d55d5dd5d55d5d
+5d55d5d5d55d55d5
+87c887c887c7c878
+c878c87c7c88787c
+7c8c77c87887cc87
+87c7c878878c87c8
+c7c87c78cc7c878c
+878c87c7c87887c8
+c8c77c87878cc87c
+7c78c78878c87c88
+77cc7c78cc7c8787
+878787c7c87887c8
+c8887c87887cc87c
+7c7c87887cc87c88
+8c7c87c887c7c878]]
+
+local paintutils_image = paintutils.parseImage(paintutils_image_str)
+
+local test_image = v3d.create_image(v3d.uinteger(), #paintutils_image[1], #paintutils_image, 1, 0)
+local test_image_view = v3d.image_view(test_image)
+for y = 1, test_image.height do
+	for x = 1, test_image.width do
+		local c = paintutils_image[y][x]
+		v3d.image_view_set_pixel(test_image_view, x - 1, y - 1, 0, math.floor(math.log(c + 0.5, 2)))
+	end
+end
+
+local image_formats = {
+	colour = colour_image.format,
+	depth = depth_image.format,
+}
+local renderer = v3d.compile_renderer {
+	image_formats = image_formats,
+	pixel_shader = v3d.shader {
+		source_format = geometry.vertex_format,
+		face_format = geometry.face_format,
+		image_formats = image_formats,
+		code = [[
+			if v3d_src_depth > v3d_dst.depth and v3d_face.name == 'front' then
+				local u, v = v3d_src.uv
+				u = u * 3 - 1
+				v = v * 3 - 1
+
+				v3d_dst.colour = v3d_constant.sampler:sample(v3d_external.image, u, v)
+				v3d_dst.depth = v3d_src_depth
+			end
+		]],
+		constants = {
+			sampler = v3d.create_sampler2D {
+				format = v3d.uinteger(),
+				interpolate = 'nearest',
+				wrap_u = 'mirror',
+				wrap_v = 'repeat',
+			},
+		}
 	},
-	vertex_format = geometry.vertex_format,
-	face_format = geometry.face_format,
-	cull_face = 'back',
-	sources = { pixel = my_pixel_shader },
 	position_lens = v3d.format_lens(geometry.vertex_format, '.position'),
 	record_statistics = true,
 }
 
-local n = 6
-for i = 0, 255 do
-	local r = math.floor(i / n / n) % n
-	local g = math.floor(i / n) % n
-	local b = i % n
-	term.setPaletteColour(i, r / (n - 1), g / (n - 1), b / (n - 1))
+renderer.used_options.pixel_shader:set_variable('image', test_image)
+
+-- for _ = 1, 300 do
+-- 	v3d.renderer_render(renderer, geometry, views, camera, model1_transform)
+-- end
+-- local t0 = os.clock()
+-- for _ = 1, 3000 do
+-- 	v3d.renderer_render(renderer, geometry, views, camera, model1_transform)
+-- end
+-- print('render time:', os.clock() - t0)
+-- do return end
+
+-- local n = 6
+-- for i = 0, 255 do
+-- 	local r = math.floor(i / n / n) % n
+-- 	local g = math.floor(i / n) % n
+-- 	local b = i % n
+-- 	term.setPaletteColour(i, r / (n - 1), g / (n - 1), b / (n - 1))
+-- end
+
+-- for i = 0, 255 do
+-- 	local r = math.floor(i / 16)
+-- 	local g = i % 16
+-- 	term.setPaletteColour(i, r / 15, g / 15, 0.5)
+-- end
+
+-- for i = 0, 255 do
+-- 	term.setPaletteColour(i, i / 255, i / 255, i / 255)
+-- end
+-- term.setPaletteColour(0, 80/255, 160/255, 240/255)
+
+for i = 0, 15 do
+	term.setPaletteColour(i, term.nativePaletteColour(2 ^ i))
 end
+term.setPaletteColour(math.floor(math.log(colours.lightGrey + 0.5, 2)), 0.4, 0.3, 0.2)
+term.setPaletteColour(math.floor(math.log(colours.grey + 0.5, 2)), 0.4, 0.33, 0.24)
 
 for i = 1, 1005 do
 	v3d.enter_debug_region 'clear'
-	-- v3d.image_view_fill(v3d.image_view(colour_image), colours.black)
 	v3d.image_view_fill(v3d.image_view(colour_image), 0)
-	-- pipeline, geometry, views, transform, model_transform, viewport
+	v3d.image_view_fill(v3d.image_view(depth_image), 0)
 	v3d.exit_debug_region 'clear'
 
 	v3d.enter_debug_region 'render'
-	v3d.pipeline_render(render_pipeline, geometry, views, camera)
+	v3d.renderer_render(renderer, geometry, views, camera, model1_transform)
 	v3d.exit_debug_region 'render'
 
 	v3d.enter_debug_region 'present'
@@ -82,39 +137,15 @@ for i = 1, 1005 do
 	v3d.image_view_present_graphics(v3d.image_view(colour_image), term.current(), false)
 	-- v3d.exit_debug_region 'present'
 
-	os.pullEvent 'mouse_click'
+	-- local _, button = os.pullEvent 'mouse_click'
+	-- if button == 2 then
+	-- 	model1_transform = model1_transform * v3d.rotate_y(-0.1)
+	-- else
+	-- 	model1_transform = model1_transform * v3d.rotate_y(0.1)
+	-- end
 
-	-- sleep(0.05)
-	camera = camera * v3d.rotate_y(0.05) * v3d.translate(0, math.sin(i / 10) * 0.05, 0)
+	sleep(0.02)
+	model1_transform = v3d.rotate_y(math.sin(i / 10))
 end
 
-term.setGraphicsMode(false)
-
-do return end
-
--- local viewport = {
--- 	x = 0, y = 0, z = 0,
--- 	width = image_width, height = image_height, depth = 1,
--- }
-
--- render_pipeline:render(geometry, framebuffer, camera, viewport)
-
-local image = v3d.create_image(v3d.uinteger(), term_width, term_height, 1)
-local image_view = v3d.image_view(image)
-local smaller_image_view = v3d.image_view(image, {
-	x = 2, y = 3, z = 0,
-	width = 10, height = 10, depth = 1,
-})
-
-term.setGraphicsMode(1)
-
-for _ = 1, 100 do
-	v3d.image_view_fill(image_view, colours.white)
-	v3d.image_view_fill(smaller_image_view, 2 ^ math.random(1, 15))
-
-	v3d.image_view_present_graphics(image_view, term.current(), true)
-	sleep(0.1)
-end
-
-sleep(1)
 term.setGraphicsMode(false)

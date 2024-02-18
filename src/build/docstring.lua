@@ -141,11 +141,21 @@ local handled_function_annotations = {
 function docstring.parse_type(type_str)
 	type_str = type_str:gsub('^%s+', ''):gsub('%s+$', '')
 
+	if #type_str == 0 then
+		error("Empty type!", 2)
+	end
+
 	if type_str:sub(1, 1) == '{' then
-		assert(type_str:match '%b{}' == type_str, type_str)
-		local key_type, value_type = type_str:match '{%s*%[%s*(.-)%s*%]%s*:%s*(.-)%s*}'
+		assert(type_str:match '%b{}' == type_str or type_str:match '%b{}%s*|%s*nil' == type_str, type_str)
+		local table_type_str = type_str:match '^%b{}'
+		local is_nilable = type_str:find '%s*|%s*nil$'
+		local key_type, value_type = table_type_str:match '^{%s*%[%s*(.-)%s*%]%s*:%s*(.-)%s*}$'
 		assert(key_type, type_str)
-		return { kind = 'map', key_type = docstring.parse_type(key_type), value_type = docstring.parse_type(value_type) }
+		local t = { kind = 'map', key_type = docstring.parse_type(key_type), value_type = docstring.parse_type(value_type) }
+		if is_nilable then
+			t = { kind = 'union', types = { t, { kind = 'constant', value = 'nil' } } }
+		end
+		return t
 	else
 		local union_parts = {}
 		for part in type_str:gmatch '[^|]+' do
@@ -437,7 +447,7 @@ local function parse_alias(entity, warnings)
 		table.insert(warnings, {
 			type = 'missing-docstring',
 			line = alias_annotation.starting_line,
-			message = 'An alias was found without a docstring.',
+			message = 'An alias \'' .. name .. '\' was found without a docstring.',
 		})
 	end
 
@@ -445,7 +455,7 @@ local function parse_alias(entity, warnings)
 		table.insert(warnings, {
 			type = 'trailing-suffix',
 			line = entity.suffix_line,
-			message = 'An alias was found without a docstring.',
+			message = 'An alias was found with a trailing suffix.',
 		})
 	end
 
@@ -468,6 +478,10 @@ end
 local function parse_class(entity, warnings)
 	local class_annotation = entity:find_annotation 'class'
 	local name, extends = class_annotation.payload:match '^%s*(%S+):%s*(%S*)%s*$'
+
+	if not name then
+		name, extends = class_annotation.payload:match '^%s*(%S+):%s*(%b{})%s*$'
+	end
 
 	if not name then
 		name = class_annotation.payload:match '^%s*(%S+)%s*$'
@@ -507,15 +521,15 @@ local function parse_class(entity, warnings)
 		table.insert(warnings, {
 			type = 'missing-docstring',
 			line = class_annotation.starting_line,
-			message = 'A class was found without a docstring.',
+			message = 'A class \'' .. name .. '\' was found without a docstring.',
 		})
 	end
 
-	if entity.suffix ~= '' and class_annotation.payload ~= 'V3D' then
+	if entity.suffix ~= '' and name ~= 'V3D' then
 		table.insert(warnings, {
 			type = 'trailing-suffix',
 			line = entity.suffix_line,
-			message = 'A class \'' .. class_annotation.payload .. '\' was found with a trailing suffix.',
+			message = 'A class \'' .. name .. '\' was found with a trailing suffix.',
 		})
 	end
 
@@ -539,7 +553,7 @@ local function parse_class(entity, warnings)
 			table.insert(warnings, {
 				type = 'missing-docstring',
 				line = annotation.starting_line,
-				message = 'A class field was found without a docstring.',
+				message = 'A class field \'' .. class.name .. '.' .. name .. '\' was found without a docstring.',
 			})
 		end
 	end
@@ -549,7 +563,7 @@ local function parse_class(entity, warnings)
 			table.insert(warnings, {
 				type = 'unused-annotation',
 				line = annotation.starting_line,
-				message = 'A class was found with an unknown annotation \'' .. annotation.annotation .. '\'.',
+				message = 'A class field \'' .. class.name .. '.' .. name .. '\' was found with an unknown annotation \'' .. annotation.annotation .. '\'.',
 			})
 		end
 	end
@@ -628,15 +642,16 @@ local function parse_function(entity, warnings)
 		local return_annotation = entity:find_annotation 'return'
 
 		fn.return_type = return_annotation.payload
-		
+
 		if return_annotation ~= entity.annotations[1] then
 			warn_unexpected_context(return_annotation, warnings)
 		end
 	else
+		fn.return_type = 'nil'
 		table.insert(warnings, {
 			type = 'missing-return-type',
 			line = entity.starting_line,
-			message = 'A function was found without a return type.',
+			message = 'A function \'' .. fn.name .. '\' was found without a return type.',
 		})
 	end
 
@@ -705,7 +720,7 @@ local function complete_classes(docstring, warnings)
 	for i = 1, #docstring.classes do
 		local this_class = docstring.classes[i]
 		local class = this_class
-		while class.extends do
+		while class.extends and docstring.classes[class.extends] do
 			table.insert(docstring.classes[class.extends].subclasses, this_class)
 			class = docstring.classes[class.extends]
 		end

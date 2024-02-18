@@ -41,7 +41,7 @@ end
 local function to_set(values)
 	local seen = {}
 	local set = {}
-	
+
 	for i = 1, #values do
 		if not seen[values[i]] then
 			seen[values[i]] = true
@@ -301,7 +301,6 @@ end
 --- @return string
 function embedgen.generate_function_embedded_documentation(fn)
 	local generator = gen.generator()
-
 	local parsed_return_type = docstring.parse_type(fn.return_type)
 	local param_type_names = {}
 	local return_type_names = find_v3d_types(parsed_return_type)

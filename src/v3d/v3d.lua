@@ -1,6 +1,7 @@
 
 -- localise globals for performance
 local type = type
+local lua_type = type
 local math_cos = math.cos
 local math_pi = math.pi
 local math_sin = math.sin
@@ -22,26 +23,20 @@ local __type_create_hooks = {}
 --- @return T
 local function _create_instance(instance_type, label)
 	local instance = {}
-	local methods = __type_methods[instance_type]
-	local mt = __type_metatables[instance_type]
-	local instances = __type_instances[instance_type]
-	local hook = __type_create_hooks[instance_type]
 
 	instance.__v3d_typename = instance_type
 	instance.__v3d_label = label
 
+	local methods = __type_methods[instance_type]
 	if methods then
 		for k, v in pairs(methods) do
 			instance[k] = v
 		end
 	end
 
+	local mt = __type_metatables[instance_type]
 	if mt then
 		setmetatable(instance, mt)
-	end
-
-	if instances then
-		table.insert(instances, instance)
 	end
 
 	return instance
@@ -53,8 +48,13 @@ end
 local function _finalise_instance(instance)
 	--- @diagnostic disable-next-line: undefined-field
 	local typename = instance.__v3d_typename
-	local create_hook = __type_create_hooks[typename]
 
+	local instances = __type_instances[typename]
+	if instances then
+		table.insert(instances, instance)
+	end
+
+	local create_hook = __type_create_hooks[typename]
 	if create_hook then
 		create_hook(instance)
 	end
@@ -162,6 +162,72 @@ local function _v3d_optimise_globals(source, handle_upvalues)
 	return prefix .. suffix
 end
 
+--- Replace trivial operations like `* 1` with nothing.
+--- @param source string
+--- @return string
+local function _v3d_optimise_maths(source)
+	local s = source
+		:gsub('%s*%*%s*1([^%w_%.])', '%1') -- * 1
+		:gsub('%s*%+%s*0([^%w_%.])', '%1') -- + 0
+		:gsub('([^%w_%.])0%s*%+%s*', '%1') -- 0 +
+		:gsub('%b()%s*%*%s*0([^%w_%.])', '0%1') -- (...) * 0
+		:gsub('([^%w_%.])0%s*%*%s*%b()', '%10') -- 0 * (...)
+		:gsub('[%w_%.]+%s*%*%s*0([^%w_%.])', '0%1') -- xyz * 0
+		:gsub('([^%w_%.])0%s*%*%s*[%w_%.]+', '%10') -- 0 * xyz
+	return s
+end
+
+--- Remove leading indentation and empty leading/trailing lines
+--- @param source string
+--- @return string[]
+local function _v3d_normalise_code_lines(source)
+	local code_lines = {}
+	local whitespace = {}
+	local found_non_empty_line = false
+
+	local function on_code_line(code_line)
+		code_line = code_line:gsub('\t', '  ')
+		if code_line:find '[^\t ]' then
+			found_non_empty_line = true
+			table.insert(whitespace, #code_line:match '^[\t ]*')
+		end
+		if found_non_empty_line then
+			table.insert(code_lines, code_line)
+		end
+	end
+
+	local s = 1
+	local f = source:find('\n')
+	while f do
+		on_code_line(source:sub(s, f - 1))
+		s = f + 1
+		f = source:find('\n', s)
+	end
+	on_code_line(source:sub(s))
+
+	local shortest_whitespace = whitespace[1] or 0
+	for i = 2, #whitespace do
+		shortest_whitespace = math.min(shortest_whitespace, whitespace[i])
+	end
+
+	for i = 1, #code_lines do
+		code_lines[i] = code_lines[i]:sub(shortest_whitespace + 1)
+	end
+
+	for i = #code_lines, 1, -1 do
+		if code_lines[i]:find '[^\t ]' then
+			break
+		end
+		table.remove(code_lines, i)
+	end
+
+	return code_lines
+end
+
+local function _v3d_quote_string(text)
+	return '\'' .. (text:gsub('[\\\'\n\t]', { ['\\'] = '\\\\', ['\''] = '\\\'', ['\n'] = '\\n', ['\t'] = '\\t' })) .. '\''
+end
+
 ----------------------------------------------------------------
 
 local function _xpcall_handler(...)
@@ -196,9 +262,7 @@ local function _v3d_apply_template(source, environment)
 	env.string = string
 	env.table = table
 
-	env.quote = function(text)
-		return '\'' .. (text:gsub('[\\\'\n\t]', { ['\\'] = '\\\\', ['\''] = '\\\'', ['\n'] = '\\n', ['\t'] = '\\t' })) .. '\''
-	end
+	env.quote = _v3d_quote_string
 
 	for k, v in pairs(environment) do
 		env[k] = v
@@ -1063,7 +1127,6 @@ end
 
 end ----------------------------------------------------------------------------
 
-
 --------------------------------------------------------------------------------
 -- Lenses ----------------------------------------------------------------------
 do -----------------------------------------------------------------------------
@@ -1095,6 +1158,7 @@ do -----------------------------------------------------------------------------
 
 ----------------------------------------------------------------
 
+-- TODO: make this not accept string[] indices (move that to lens_get_index)
 --- Create a lens with the specified input and output formats.
 ---
 --- Can optionally pass a string `indices` which will index the input format. The
@@ -1107,8 +1171,8 @@ do -----------------------------------------------------------------------------
 --- Numeric indices are 1-based, so the first element of a tuple or struct is
 --- index 1.
 --- @param format V3DFormat
---- @param indices string | nil
---- @return V3DLens
+--- @param indices string[] | string | nil
+--- @return V3DLens | nil
 --- @v3d-constructor
 --- @v3d-nolog
 --- local my_format = v3d.struct { x = v3d.integer(), y = v3d.integer() }
@@ -1139,7 +1203,7 @@ function v3d.format_lens(format, indices)
 
 	_finalise_instance(lens)
 
-	if indices then
+	if type(indices) == 'string' then
 		for part in indices:gmatch '[^%.]+' do
 			local end_parts = {}
 
@@ -1160,8 +1224,19 @@ function v3d.format_lens(format, indices)
 			end
 
 			for i = 1, #end_parts do
+				if not v3d.lens_has_index(lens, end_parts[i]) then
+					return nil
+				end
 				lens = v3d.lens_get_index(lens, end_parts[i])
 			end
+		end
+	elseif type(indices) == 'table' then
+		for i = 1, #indices do
+			local index = tonumber(indices[i]) or indices[i]
+			if not v3d.lens_has_index(lens, index) then
+				return nil
+			end
+			lens = v3d.lens_get_index(lens, index)
 		end
 	end
 
@@ -2461,6 +2536,44 @@ function v3d.transform_combine(transform, other_transform)
 	return _finalise_instance(t)
 end
 
+--- TODO
+--- @param transform V3DTransform
+--- @param n integer
+--- @return V3DTransform
+--- @nodiscard
+--- @v3d-nolog
+--- @v3d-mt pow
+--- local transform_a = v3d.identity()
+---
+--- local result = v3d.transform_repeated(transform_a, 5)
+--- -- result is a transform which will first apply transform_b, then
+--- -- transform_a
+--- @v3d-example 4:6
+function v3d.transform_repeated(transform, n)
+	local t = _create_instance('V3DTransform')
+
+	for i = 1, n do
+		t[ 1] = transform[ 1] * transform[1] + transform[ 2] * transform[5] + transform[ 3] * transform[ 9]
+		t[ 2] = transform[ 1] * transform[2] + transform[ 2] * transform[6] + transform[ 3] * transform[10]
+		t[ 3] = transform[ 1] * transform[3] + transform[ 2] * transform[7] + transform[ 3] * transform[11]
+		t[ 4] = transform[ 1] * transform[4] + transform[ 2] * transform[8] + transform[ 3] * transform[12] + transform[ 4]
+
+		t[ 5] = transform[ 5] * transform[1] + transform[ 6] * transform[5] + transform[ 7] * transform[ 9]
+		t[ 6] = transform[ 5] * transform[2] + transform[ 6] * transform[6] + transform[ 7] * transform[10]
+		t[ 7] = transform[ 5] * transform[3] + transform[ 6] * transform[7] + transform[ 7] * transform[11]
+		t[ 8] = transform[ 5] * transform[4] + transform[ 6] * transform[8] + transform[ 7] * transform[12] + transform[ 8]
+
+		t[ 9] = transform[ 9] * transform[1] + transform[10] * transform[5] + transform[11] * transform[ 9]
+		t[10] = transform[ 9] * transform[2] + transform[10] * transform[6] + transform[11] * transform[10]
+		t[11] = transform[ 9] * transform[3] + transform[10] * transform[7] + transform[11] * transform[11]
+		t[12] = transform[ 9] * transform[4] + transform[10] * transform[8] + transform[11] * transform[12] + transform[12]
+
+		-- TODO: broken
+	end
+
+	return _finalise_instance(t)
+end
+
 ----------------------------------------------------------------
 
 --- Apply this transformation to the data provided, returning the 3 numeric
@@ -3287,6 +3400,7 @@ end
 --- 'vertex', the normals will be stored only in the vertex data. If set to
 --- 'face', the normals will be stored only in the face data.
 --- @field include_normals 'vertex' | 'face' | boolean | nil
+--- @field include_uvs boolean | nil
 --- Whether to include indices in the geometry. Defaults to false. If set to
 --- 'vertex', the indices will be stored only in the vertex data. If set to
 --- 'face', the indices will be stored only in the face data.
@@ -3304,7 +3418,7 @@ end
 --- @v3d-validate self.depth == nil or self.depth >= 0
 --- @v3d-structural
 
---- Create a debug cube geometry builder.
+--- Create a debug cuboid geometry builder.
 ---
 --- Its vertex format will be a struct containing the following fields (if enabled
 --- according to options):
@@ -3322,7 +3436,7 @@ end
 --- @return V3DGeometryBuilder
 --- @v3d-constructor
 --- @v3d-nolog
-function v3d.debug_cube(options)
+function v3d.debug_cuboid(options)
 	options = options or {}
 
 	local vec3 = v3d.struct {
@@ -3333,6 +3447,7 @@ function v3d.debug_cube(options)
 	local vertex_format = v3d.struct {
 		position = vec3,
 		normal = (options.include_normals == true or options.include_normals == 'vertex') and vec3 or nil,
+		uv = (options.include_uvs == true) and v3d.struct { u = v3d.number(), v = v3d.number() } or nil,
 		index = (options.include_indices == true or options.include_indices == 'vertex') and v3d.uinteger() or nil,
 	}
 
@@ -3371,13 +3486,16 @@ function v3d.debug_cube(options)
 		v3d.geometry_builder_add_face(builder, face)
 	end
 
-	local function _add_vertex(x, y, z, normal, index)
+	local function _add_vertex(x, y, z, normal, u, v, index)
 		local vertex = {
 			position = { x = x, y = y, z = z },
 		}
 
 		if options.include_normals == true or options.include_normals == 'vertex' then
 			vertex.normal = normal
+		end
+		if options.include_uvs == true then
+			vertex.uv = { u = u, v = v }
 		end
 		if options.include_indices == true or options.include_indices == 'vertex' then
 			vertex.index = index
@@ -3388,68 +3506,68 @@ function v3d.debug_cube(options)
 
 	local front_normal = { x = 0, y = 0, z = 1 }
 	local front_index = 0
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, front_normal, 1)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 2)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 0)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, front_normal, 0, 1, 1)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 2)
 	_add_face('front', front_normal, front_index, 0)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 3)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, front_normal, 4)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 5)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 3)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, front_normal, 1, 0, 4)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 5)
 	_add_face('front', front_normal, front_index, 1)
 
 	local back_normal = { x = 0, y = 0, z = -1 }
 	local back_index = 1
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 6)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, back_normal, 7)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 8)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 6)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, back_normal, 0, 0, 7)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 8)
 	_add_face('back', back_normal, back_index, 2)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 9)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, back_normal, 10)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 11)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 9)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, back_normal, 1, 1, 10)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 11)
 	_add_face('back', back_normal, back_index, 3)
 
 	local left_normal = { x = -1, y = 0, z = 0 }
 	local left_index = 2
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 12)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, left_normal, 13)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 14)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 12)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, left_normal, 0, 1, 13)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 14)
 	_add_face('left', left_normal, left_index, 4)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 15)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, left_normal, 16)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 17)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 15)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, left_normal, 1, 0, 16)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 17)
 	_add_face('left', left_normal, left_index, 5)
 
 	local right_normal = { x = 1, y = 0, z = 0 }
 	local right_index = 3
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 18)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, right_normal, 19)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 20)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 18)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, right_normal, 0, 1, 19)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 20)
 	_add_face('right', right_normal, right_index, 6)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 21)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, right_normal, 22)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 23)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 21)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, right_normal, 1, 0, 22)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 23)
 	_add_face('right', right_normal, right_index, 7)
 
 	local top_normal = { x = 0, y = 1, z = 0 }
 	local top_index = 4
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 24)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, top_normal, 25)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 26)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 24)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, top_normal, 0, 1, 25)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 26)
 	_add_face('top', top_normal, top_index, 8)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 27)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, top_normal, 28)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 29)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 27)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, top_normal, 1, 0, 28)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 29)
 	_add_face('top', top_normal, top_index, 9)
 
 	local bottom_normal = { x = 0, y = -1, z = 0 }
 	local bottom_index = 5
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 30)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, bottom_normal, 31)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 32)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 30)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, bottom_normal, 0, 1, 31)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 32)
 	_add_face('bottom', bottom_normal, bottom_index, 10)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 33)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, bottom_normal, 34)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 35)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 33)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, bottom_normal, 1, 0, 34)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 35)
 	_add_face('bottom', bottom_normal, bottom_index, 11)
 
 	return builder
@@ -3458,73 +3576,647 @@ end
 end ----------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
--- Pipelines -------------------------------------------------------------------
+-- Shaders ---------------------------------------------------------------------
 do -----------------------------------------------------------------------------
 
---- Name of a uniform variable for a pipeline.
---- @alias V3DUniformName string
+--- Name of an external variable for a shader.
+--- @alias V3DExternalVariableName string
 --- Uniform names must be valid Lua identifiers
 --- @v3d-validate self:match '^[%a_][%w_]*$'
 
+--- @class V3DShaderOptions
+--- @field source_format V3DFormat | nil
+--- Format of face data within geometry accessible to this shader. If nil, face
+--- data will not be accessible from within shader source code.
+--- @field face_format V3DFormat | nil
+--- @field image_formats { [string]: V3DFormat }
+--- @field code string | string[]
+--- @field constants { [string]: any } | nil
+--- @field label string | nil
+--- @v3d-structural
+--- At least one image format must be provided
+--- @v3d-validate next(self.image_formats)
+
+--- @class V3DShader
+--- Code with variable expansions replaced by their actual values, as outlined
+--- below.
+---
+--- Note: refer to the `uses_*` fields to determine which variables are used in
+--- the shader code.
+---
+--- Variable expansion | Example | Replacement
+--- :-|:-|:-
+--- `v3d_constant` | `v3d_constant.<xyz>` | `_v3d_shader_constant_<xyz>`
+--- `v3d_external` | `v3d_external.<xyz>` | `_v3d_shader_external_<xyz>`
+--- `v3d_face` | `v3d_face.<lens>` | `_v3d_shader_face_<lens_offset_0>, ..., _v3d_shader_face_<lens_offset_N>`
+--- `v3d_src_depth` | `v3d_src_depth` | `_v3d_shader_src_depth`
+--- `v3d_src_absolute_normal` (all) | `v3d_src_absolute_normal` | `_v3d_shader_src_abs_norm_x, _v3d_shader_src_abs_norm_y, _v3d_shader_src_abs_norm_z`
+--- `v3d_src_absolute_normal` (component) | `v3d_src_absolute_normal.x` | `_v3d_shader_src_abs_norm_x`
+--- `v3d_src_absolute_pos` (all) | `v3d_src_absolute_pos` | `v3d_shader_src_abs_pos_x, _v3d_shader_src_abs_pos_y, _v3d_shader_src_abs_pos_z`
+--- `v3d_src_absolute_pos` (component) | `v3d_src_absolute_pos.x` | `v3d_shader_src_abs_pos_x`
+--- `v3d_src_pos` (all) | `v3d_src_pos` | `_v3d_shader_src_pos_x, _v3d_shader_src_pos_y, _v3d_shader_src_pos_z`
+--- `v3d_src_pos` (component) | `v3d_src_pos.x` | `_v3d_shader_src_pos_x`
+--- `v3d_src` | `v3d_src.<lens>` | `_v3d_shader_src_<lens_offset_0>, ..., _v3d_shader_src_<lens_offset_N>`
+--- `v3d_dst_absolute_pos` (all) | `v3d_dst_absolute_pos` | `_v3d_shader_dst_abs_pos_x, _v3d_shader_dst_abs_pos_y, _v3d_shader_dst_abs_pos_z`
+--- `v3d_dst_absolute_pos` (component) | `v3d_dst_absolute_pos.x` | `_v3d_shader_dst_abs_pos_x`
+--- `v3d_dst_pos` (all) | `v3d_dst_pos.<image>` | `_v3d_shader_dst_pos_<image>_x, _v3d_shader_dst_pos_<image>_y, _v3d_shader_dst_pos_<image>_z`
+--- `v3d_dst_pos` (component) | `v3d_dst_pos.<image>.x` | `_v3d_shader_dst_pos_<image>_x`
+--- `v3d_dst` | `v3d_dst.<image>.<lens>` | `_v3d_shader_image_<image>[_v3d_shader_dst_base_offset_<image>_<lens_offset_0>], ..., _v3d_shader_image_<image>[_v3d_shader_dst_base_offset_<image>_<lens_offset_N>]`
+--- `v3d_image` | `v3d_image.<image>` | `_v3d_shader_image_<image>`
+--- `v3d_image_view` | `v3d_image_view.<image>` | `_v3d_shader_image_view_<image>`
+--- @field expanded_code string
+--- @field source_format V3DFormat | nil
+--- @field face_format V3DFormat | nil
+--- @field image_formats { [string]: V3DFormat }
+--- @field uses_shader_constants string[]
+--- @field uses_external_variables string[]
+--- @field uses_face_offsets number[]
+--- @field uses_source_depth boolean
+--- @field uses_source_absolute_normal_x boolean
+--- @field uses_source_absolute_normal_y boolean
+--- @field uses_source_absolute_normal_z boolean
+--- @field uses_source_absolute_position_x boolean
+--- @field uses_source_absolute_position_y boolean
+--- @field uses_source_absolute_position_z boolean
+--- @field uses_source_position_x boolean
+--- @field uses_source_position_y boolean
+--- @field uses_source_position_z boolean
+--- @field uses_source_offsets number[]
+--- @field uses_destination_absolute_position_x string[]
+--- @field uses_destination_absolute_position_y string[]
+--- @field uses_destination_absolute_position_z string[]
+--- @field uses_destination_position_x string[]
+--- @field uses_destination_position_y string[]
+--- @field uses_destination_position_z string[]
+--- @field uses_destination_base_offsets string[]
+--- @field uses_images string[]
+--- @field uses_image_views string[]
+--- @field private shader_constants table
+--- @field private external_variables { [string]: any }
+
+--- @class V3DShaderError
+--- @field message string
+--- @field line number
+--- @field column number
+--- @field length number
+--- @v3d-structural
+
+--- @class V3DShaderErrors
+--- @field options V3DShaderOptions
+--- @field errors V3DShaderError[]
+--- @field code_lines string[]
+--- @v3d-untracked
+--- @v3d-validate #self.errors > 0
+--- There is at least one error
+
 ----------------------------------------------------------------
 
---- A pipeline is a compiled, optimised function dedicated to rendering pixels
---- to one or more images. They are incredibly versatile, supporting 2D or 3D
---- rasterization with customisable per-pixel behaviour.
+--- @class _V3DShaderRawVariableMethodContext
+--- @field name string
+--- @field parameters string[]
+--- @field pre_line string
+
+--- @class _V3DShaderRawVariableRef
+--- @field line number
+--- @field column number
+--- @field name string
+--- @field repr string
+--- @field indices string[]
+--- @field method _V3DShaderRawVariableMethodContext | nil
+
+local allowed_with_methods = { v3d_constant = true }
+
+--- @param str string
+--- @return string[]
+local function _split_commas(str)
+	local s = 1
+	local escaped = false
+	local closers = {}
+	local parts = {}
+
+	for i = 1, #str do
+		local ch = string.sub(str, i, i)
+		if escaped then
+			-- do nothing
+		elseif ch == closers[#closers] then
+			table.remove(closers, #closers)
+		elseif ch == '\\' then
+			escaped = true
+		elseif ch == ',' and #closers == 0 then
+			table.insert(parts, string.sub(str, s, i - 1))
+			s = i + 1
+		elseif ch == '\'' or ch == '\"' then
+			table.insert(closers, ch)
+		elseif ch == '(' then
+			table.insert(closers, ')')
+		elseif ch == '[' then
+			table.insert(closers, ']')
+		elseif ch == '{' then
+			table.insert(closers, '}')
+		end
+	end
+
+	table.insert(parts, string.sub(str, s))
+
+	return parts
+end
+
+--- @param code string
+--- @return _V3DShaderRawVariableRef[], string
+local function _parse_shader(code)
+	local line_number = 1
+	local next_variable_index = 0
+	--- @type _V3DShaderRawVariableRef[]
+	local variables = {}
+	local lines = {}
+
+	local function accept_line(line, column_offset)
+		local offset = 1
+		local line_length = #line
+		local transformed_line = ''
+		while offset <= line_length do
+			local v3d_offset = string.find(line, 'v3d_', offset, true)
+			if not v3d_offset then
+				transformed_line = transformed_line .. string.sub(line, offset)
+				break
+			end
+
+			if string.sub(line, v3d_offset - 1, v3d_offset - 1):find '[%w_]' then
+				transformed_line = transformed_line .. string.sub(line, offset, v3d_offset)
+				offset = v3d_offset + 1
+			else
+				transformed_line = transformed_line .. string.sub(line, offset, v3d_offset - 1)
+
+				local v3d_variable_name = string.match(line, '^v3d_[%w_]*', v3d_offset)
+				offset = v3d_offset + #v3d_variable_name
+
+				local indices = {}
+				while string.find(line, '^%.[%w_]', offset) do
+					local index = string.match(line, '^%.([%w_]+)', offset)
+					table.insert(indices, index)
+					offset = offset + 1 + #index
+				end
+
+				local method = nil
+				if allowed_with_methods[v3d_variable_name] and string.find(line, ':[%w_]+%b()', offset) then
+					local method_name, parameters = string.match(line, '^:([%w_]+)(%b())', offset)
+					local method_parameters = _split_commas(accept_line(parameters:sub(2, -2), offset + 1 + #method_name + 1))
+					method = {
+						name = method_name,
+						parameters = method_parameters,
+						pre_line = transformed_line,
+					}
+					transformed_line = ''
+					offset = offset + 1 + #method_name + #parameters
+				end
+
+				local repr = '$r' .. next_variable_index
+				next_variable_index = next_variable_index + 1
+				transformed_line = transformed_line .. repr
+
+				table.insert(variables, {
+					line = line_number,
+					column = column_offset + v3d_offset,
+					name = v3d_variable_name,
+					repr = repr,
+					indices = indices,
+					method = method,
+				})
+			end
+		end
+
+		return transformed_line
+	end
+
+	for line in string.gmatch(code, '[^\n]+') do
+		lines[line_number] = accept_line(line, 0)
+		line_number = line_number + 1
+	end
+
+	return variables, table.concat(lines, "\n")
+end
+
+--------------------------------------------------------------------------------
+
+--- Variable | Type | Mutability | Description
+--- :-|:-|:-|:-
+--- `v3d_constant` | `table` | `readonly` | Table containing shader options expanded as constants where possible.
+--- `v3d_external` | `table` | `readwrite` | Table containing variables provided externally.
+--- `v3d_face` | `face_format` | `readonly` | Polygon-specific values. For rasterization, this provides access to face attributes. For other contexts, this contains no data.
+--- `v3d_src_depth` | `num` | `readonly` | Depth of the pixel. For rasterization, this is the depth of the pixel being drawn relative to the camera. For other contexts, this is equal to 0.
+--- `v3d_src_absolute_normal` | `vec3` | `readonly` | Context dependent.
+--- `v3d_src_absolute_pos` | `vec3` | `readonly` | Context dependent.
+--- `v3d_src_pos` | `vec3` | `readonly` | Context dependent.
+--- `v3d_src` | `source_format` | `readonly` | Context dependent.
+--- `v3d_dst_absolute_pos` | `{ [string]: vec3 }` | `readonly` | Context dependent.
+--- `v3d_dst_pos` | `{ [string]: vec3 }` | `readonly` | Context dependent.
+--- `v3d_dst` | `image_formats` | `readwrite` | Context dependent.
+--- `v3d_image` | `{ [string]: V3DImage }` | `readonly` | Get an image object by name.
+--- `v3d_image_view` | `{ [string]: V3DImageView }` | `readonly` | Get an image view object by name.
 ---
---- Pipelines are compiled from 'sources', which are just strings containing Lua
---- code. The exception to this is that pipeline source code is run through a
---- templating and macro engine before being compiled. This allows common
---- operations to be optimised by the library.
----
---- 'Uniform variables' are values that are bound to a pipeline and remain
---- constant during its execution. They can be used to pass values in from
---- outside the pipeline, for example passing a constant colour to a pipeline
---- from your code. Uniform variables can be written to and read by the caller
---- but cannot be modified by the pipeline itself. They may have any type, and
---- this is not checked by the pipeline.
----
---- @see v3d.pipeline_write_uniform
---- @see v3d.pipeline_read_uniform
---- @class V3DPipeline
---- Options that the pipeline was created with.
---- @field created_options V3DPipelineOptions
---- Options that the pipeline is using, accounting for default values.
---- @field used_options V3DPipelineOptions
---- TODO
---- @field compiled_sources { [string]: string }
---- TODO
---- @field compiled_source string
---- Table storing uniform values for the pipeline.
---- @field private uniforms table
+--- Example: local p = v3d_constant.palette:lookup(v3d_src.colour)
+--- @param options V3DShaderOptions
+--- @return V3DShader | V3DShaderErrors
+--- @v3d-constructor
+function v3d.shader(options)
+	local raw_code = options.code
+	local constants = options.constants or {}
+
+	if type(raw_code) == 'table' then
+		raw_code = table.concat(raw_code, '\n')
+	end
+
+	local shader_object = _create_instance('V3DShader', options.label)
+	--- @diagnostic disable-next-line: invisible
+	shader_object.shader_constants = constants
+	--- @diagnostic disable-next-line: invisible
+	shader_object.external_variables = {}
+	shader_object.source_format = options.source_format
+	shader_object.face_format = options.face_format
+	shader_object.image_formats = options.image_formats
+	shader_object.uses_shader_constants = {}
+	shader_object.uses_external_variables = {}
+	shader_object.uses_face_offsets = {}
+	shader_object.uses_source_depth = false
+	shader_object.uses_source_absolute_normal_x = false
+	shader_object.uses_source_absolute_normal_y = false
+	shader_object.uses_source_absolute_normal_z = false
+	shader_object.uses_source_absolute_position_x = false
+	shader_object.uses_source_absolute_position_y = false
+	shader_object.uses_source_absolute_position_z = false
+	shader_object.uses_source_position_x = false
+	shader_object.uses_source_position_y = false
+	shader_object.uses_source_position_z = false
+	shader_object.uses_source_offsets = {}
+	shader_object.uses_destination_absolute_position_x = {}
+	shader_object.uses_destination_absolute_position_y = {}
+	shader_object.uses_destination_absolute_position_z = {}
+	shader_object.uses_destination_position_x = {}
+	shader_object.uses_destination_position_y = {}
+	shader_object.uses_destination_position_z = {}
+	shader_object.uses_destination_base_offsets = {}
+	shader_object.uses_images = {}
+	shader_object.uses_image_views = {}
+
+	local code_substitutions = {}
+
+	local variables, parsed_code = _parse_shader(raw_code)
+
+	----------------------------------------------------------------------------
+
+	local errors = {}
+	local error_lookup = {}
+	local function create_error(line, column, length, message)
+		local msg_key = message .. ' (line ' .. line .. ', column ' .. column .. ')'
+		if not error_lookup[msg_key] then
+			table.insert(errors, {
+				message = message,
+				line = line,
+				column = column,
+				length = length,
+			})
+			error_lookup[msg_key] = true
+		end
+	end
+
+	------------------------------------------------------------
+
+	local function insert_if_not_present(t, value)
+		for i = 1, #t do
+			if t[i] == value then
+				return
+			end
+		end
+		table.insert(t, value)
+	end
+
+	local function guard_no_indexing(fn)
+		return function(var)
+			if #var.indices > 0 then
+				create_error(var.line, var.column, #var.name, var.name .. ' cannot be indexed')
+				return
+			end
+
+			fn(var)
+		end
+	end
+
+	local function guard_image_first_index(fn)
+		return function(var)
+			local image_name = var.indices[1]
+			if not image_name then
+				create_error(var.line, var.column, #var.name, var.name .. ' requires an image name')
+				return
+			end
+
+			local image_format = options.image_formats[image_name]
+			if not image_format then
+				create_error(var.line, var.column + #var.name + 1, #image_name, 'image \'' .. image_name .. '\' does not exist')
+				return
+			end
+
+			fn(var, image_name, image_format)
+		end
+	end
+
+	local function simple_xyz_handler(uses_prefix, subst_prefix)
+		return function(var)
+			if #var.indices > 1 then
+				local s = var.name .. '.' .. table.concat(var.indices, '.')
+				create_error(var.line, var.column, #s, s .. ' does not exist')
+				return
+			end
+
+			local referenced_component = var.indices[1]
+			if referenced_component and referenced_component ~= 'x' and referenced_component ~= 'y' and referenced_component ~= 'z' then
+				create_error(var.line, var.column + #var.name + 1, #referenced_component, 'invalid component \'' .. referenced_component .. '\'')
+				return
+			end
+
+			local substitution_parts = {}
+			for _, component in ipairs { 'x', 'y', 'z' } do
+				if not referenced_component or referenced_component == component then
+					shader_object[uses_prefix .. component] = true
+					table.insert(substitution_parts, subst_prefix .. component)
+				end
+			end
+
+			code_substitutions[var.repr] = table.concat(substitution_parts, ', ')
+		end
+	end
+
+	local function image_xyz_handler(uses_prefix, subst_prefix)
+		return guard_image_first_index(function(var, image_name)
+			local referenced_component = var.indices[2]
+
+			if #var.indices > 2 then
+				local length = #table.concat(var.indices, '.') - #image_name - 1 - #referenced_component
+				create_error(var.line, var.column + #var.name + 1 + #image_name + 1 + #referenced_component, length, 'unexpected indices')
+				return
+			end
+
+			if referenced_component and referenced_component ~= 'x' and referenced_component ~= 'y' and referenced_component ~= 'z' then
+				create_error(var.line, var.column + #var.name + 1 + #image_name + 1, #referenced_component, 'invalid component \'' .. referenced_component .. '\'')
+				return
+			end
+
+			local substitution_parts = {}
+
+			for _, component in ipairs { 'x', 'y', 'z' } do
+				if not referenced_component or referenced_component == component then
+					shader_object[uses_prefix .. component] = shader_object[uses_prefix .. component] or {}
+					insert_if_not_present(shader_object[uses_prefix .. component], image_name)
+					table.insert(substitution_parts, subst_prefix .. image_name .. '_' .. component)
+				end
+			end
+
+			code_substitutions[var.repr] = table.concat(substitution_parts, ', ')
+		end)
+	end
+
+	------------------------------------------------------------
+
+	local expansion_handlers = {}
+
+	function expansion_handlers.v3d_constant(var)
+		local shader_constant_name = var.indices[1]
+		if not shader_constant_name then
+			create_error(var.line, var.column, #var.name, var.name .. ' requires a variable name')
+			return
+		end
+
+		local cst = constants[shader_constant_name]
+		local cst_type = type(cst)
+
+		if cst_type == 'nil' or cst_type == 'boolean' or cst_type == 'number' then
+			if var.method then
+				create_error(
+					var.line, var.column + #var.name + 1 + #shader_constant_name + 1,
+					#var.method.name, 'method \'' .. var.method.name .. '\' does not exist on ' .. cst_type .. ' constant')
+				return
+			end
+			code_substitutions[var.repr] = tostring(cst)
+			return
+		elseif cst_type == 'string' then
+			local subst = _v3d_quote_string(cst)
+			if var.method then
+				subst = var.method.pre_line .. 'string.' .. var.method.name .. '(' .. subst .. ', ' .. table.concat(var.method.parameters, ',') .. ')'
+			end
+			code_substitutions[var.repr] = subst
+			return
+		elseif cst_type == 'table' and var.method and cst['embed_' .. var.method.name] then
+			local embed = cst['embed_' .. var.method.name](cst, table.unpack(var.method.parameters))
+				:gsub('$return', var.method.pre_line)
+			code_substitutions[var.repr] = embed
+			return
+		end
+
+		local subst = '_v3d_shader_constant_' .. shader_constant_name
+
+		if var.method then
+			subst = var.method.pre_line .. subst .. ':' .. var.method.name .. '(' .. table.concat(var.method.parameters, ',') .. ')'
+		end
+
+		insert_if_not_present(shader_object.uses_shader_constants, shader_constant_name)
+		code_substitutions[var.repr] = subst
+	end
+
+	function expansion_handlers.v3d_external(var)
+		local external_variable_name = var.indices[1]
+		if not external_variable_name then
+			create_error(var.line, var.column, #var.name, var.name .. ' requires a variable name')
+			return
+		end
+
+		insert_if_not_present(shader_object.uses_external_variables, external_variable_name)
+		code_substitutions[var.repr] = '_v3d_shader_external_' .. external_variable_name
+	end
+
+	function expansion_handlers.v3d_face(var)
+		if not options.face_format then
+			create_error(var.line, var.column, #var.name, var.name .. ' used but face_format not provided')
+			return
+		end
+
+		local lens = v3d.format_lens(options.face_format, var.indices)
+		if not lens then
+			local s = var.name .. '.' .. table.concat(var.indices, '.')
+			create_error(var.line, var.column, #s, s .. ' does not exist')
+			return
+		end
+
+		local size = v3d.format_size(lens.out_format)
+		local substitution_parts = {}
+		for attr = lens.offset, lens.offset + size - 1 do
+			insert_if_not_present(shader_object.uses_face_offsets, attr)
+			table.insert(substitution_parts, '_v3d_shader_face_' .. attr)
+		end
+
+		code_substitutions[var.repr] = table.concat(substitution_parts, ', ')
+	end
+
+	expansion_handlers.v3d_src_depth = guard_no_indexing(function(var)
+		shader_object.uses_source_depth = true
+		code_substitutions[var.repr] = '_v3d_shader_src_depth'
+	end)
+
+	expansion_handlers.v3d_src_absolute_normal = simple_xyz_handler('uses_source_absolute_normal_', '_v3d_shader_src_abs_norm_')
+	expansion_handlers.v3d_src_absolute_pos = simple_xyz_handler('uses_source_absolute_position_', '_v3d_shader_src_abs_pos_')
+	expansion_handlers.v3d_src_pos = simple_xyz_handler('uses_source_position_', '_v3d_shader_src_pos_')
+
+	function expansion_handlers.v3d_src(var)
+		if not options.source_format then
+			create_error(var.line, var.column, #var.name, 'v3d_src used but source_format not provided')
+			return
+		end
+
+		local lens = v3d.format_lens(options.source_format, var.indices)
+		if not lens then
+			local s = 'v3d_src.' .. table.concat(var.indices, '.')
+			create_error(var.line, var.column, #s, s .. ' does not exist')
+			return
+		end
+
+		local size = v3d.format_size(lens.out_format)
+		local substitution_parts = {}
+		for attr = lens.offset, lens.offset + size - 1 do
+			insert_if_not_present(shader_object.uses_source_offsets, attr)
+			table.insert(substitution_parts, '_v3d_shader_src_' .. attr)
+		end
+
+		code_substitutions[var.repr] = table.concat(substitution_parts, ', ')
+	end
+
+	expansion_handlers.v3d_dst_absolute_pos = image_xyz_handler('uses_destination_absolute_position_', '_v3d_shader_dst_abs_pos_')
+	expansion_handlers.v3d_dst_pos = image_xyz_handler('uses_destination_position_', '_v3d_shader_dst_pos_')
+
+	expansion_handlers.v3d_dst = guard_image_first_index(function(var, image_name, image_format)
+		local indices = {}
+		for i = 2, #var.indices do
+			table.insert(indices, var.indices[i])
+		end
+
+		local lens = v3d.format_lens(image_format, indices)
+		if not lens then
+			local s = 'v3d_dst.' .. image_name .. '.' .. table.concat(indices, '.')
+			create_error(var.line, var.column, #s, s .. ' does not exist')
+			return
+		end
+
+		insert_if_not_present(shader_object.uses_destination_base_offsets, image_name)
+		insert_if_not_present(shader_object.uses_images, image_name)
+
+		local size = v3d.format_size(lens.out_format)
+		local substitution_parts = {}
+		for attr = lens.offset, lens.offset + size - 1 do
+			local index_repr = '_v3d_shader_dst_base_offset_' .. image_name .. ' + ' .. (attr + 1)
+			local repr = '_v3d_shader_image_' .. image_name .. '[' .. index_repr .. ']'
+			table.insert(substitution_parts, repr)
+		end
+
+		code_substitutions[var.repr] = table.concat(substitution_parts, ', ')
+	end)
+
+	expansion_handlers.v3d_image = guard_image_first_index(function(var, image_name)
+		if #var.indices > 1 then
+			local length = #table.concat(var.indices, '.') - #image_name
+			create_error(var.line, var.column + #var.name + 1 + #image_name, length, 'unexpected indices')
+			return
+		end
+
+		insert_if_not_present(shader_object.uses_images, image_name)
+		code_substitutions[var.repr] = '_v3d_shader_image_' .. image_name
+	end)
+
+	expansion_handlers.v3d_image_view = guard_image_first_index(function(var, image_name)
+		if #var.indices > 1 then
+			local length = #table.concat(var.indices, '.') - #image_name
+			create_error(var.line, var.column + #var.name + 1 + #image_name, length, 'unexpected indices')
+			return
+		end
+
+		insert_if_not_present(shader_object.uses_image_views, image_name)
+		code_substitutions[var.repr] = '_v3d_shader_image_view_' .. image_name
+	end)
+
+	----------------------------------------------------------------------------
+
+	for i = 1, #variables do
+		local var = variables[i]
+		local fn = expansion_handlers[var.name]
+
+		if fn then
+			fn(var)
+		else
+			create_error(var.line, var.column, #var.name, 'unknown variable expansion \'' .. var.name .. '\'')
+		end
+	end
+
+	if #errors > 0 then
+		local e = _create_instance('V3DShaderErrors')
+		e.options = options
+		e.errors = errors
+		e.code_lines = _v3d_normalise_code_lines(raw_code)
+		return _finalise_instance(e)
+	end
+
+	local code_lines = _v3d_normalise_code_lines(parsed_code
+		:gsub('$%w+', code_substitutions)
+		:gsub('$%w+', code_substitutions)) -- twice to account for method refs embedding weird things
+
+	shader_object.expanded_code = table.concat(code_lines, '\n')
+
+	return _finalise_instance(shader_object)
+end
+
+--- @param shader V3DShader
+--- @param name V3DExternalVariableName
+--- @param value any
+--- @return V3DShader
+function v3d.shader_set_variable(shader, name, value)
+	--- @diagnostic disable-next-line: invisible
+	shader.external_variables[name] = value
+	return shader
+end
+
+--- @param shader V3DShader
+--- @param name V3DExternalVariableName
+--- @return any
+function v3d.shader_get_variable(shader, name)
+	--- @diagnostic disable-next-line: invisible
+	return shader.external_variables[name]
+end
+
+end ----------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Renderer --------------------------------------------------------------------
+do -----------------------------------------------------------------------------
+
+--- A renderer is a compiled, optimised function dedicated to rendering pixels
+--- to one or more images. Renderers are incredibly versatile, supporting 2D or
+--- 3D rasterization with customisable per-pixel behaviour.
+--- @class V3DRenderer
+--- Options that the renderer was created with.
+--- @field created_options V3DRendererOptions
+--- Options that the renderer is using, accounting for default values.
+--- @field used_options V3DRendererOptions
+--- @field pixel_shader V3DShader
+--- @field private compiled_source string
 --- @v3d-abstract
 
 ----------------------------------------------------------------
 
---- @class V3DPipelineSources
---- @field init string | nil
---- @field vertex string | nil
---- @field pixel string | nil
---- @field finish string | nil
---- @v3d-structural
-
---- Miscellaneous options used when creating a pipeline.
---- @class V3DPipelineOptions
---- Sources to compile the pipeline from. This field contains a map of source
---- name to source code.
---- @field sources V3DPipelineSources | nil
---- Formats of the images accessible to the pipeline. This field contains a map
+-- TODO: init_shader, vertex_shader, finish_shader
+--- Miscellaneous options used when creating a renderer.
+--- @class V3DRendererOptions
+--- @field pixel_shader V3DShader
+--- Formats of the images accessible to the renderer. This field contains a map
 --- of image name to image format.
 --- @field image_formats { [string]: V3DFormat }
---- Format of vertex data within geometry passed to this pipeline during
---- rendering.
---- @field vertex_format V3DFormat
---- Format of face data within geometry passed to this pipeline during
---- rendering. If nil, face data will not be accessible from within pipeline
---- source code.
---- @field face_format V3DFormat | nil
 --- Lens pointing to a 3-component/4-component number part of vertices. Must be
 --- applicable to the vertex format.
+--- TODO: apply this to V3DGeometry instead!
 --- @field position_lens V3DLens
 --- Specify a face to cull (not draw), or false to disable face culling.
 --- Defaults to 'back'. This is a technique to improve performance and should
@@ -3539,24 +4231,28 @@ do -----------------------------------------------------------------------------
 --- Whether to reverse the horizontal iteration order when drawing rows of
 --- horizontal pixels. If true, the X value will decrease from right to left as
 --- each row is drawn. Defaults to false.
+--- TODO: not yet implemented
 --- @field reverse_horizontal_iteration boolean | nil
 --- Whether to reverse the vertical iteration order when drawing rows of
 --- horizontal pixels. If true, the Y value will decrease from bottom to top as
 --- each row is drawn. Defaults to false.
+--- TODO: not yet implemented
 --- @field reverse_vertical_iteration boolean | nil
---- If true, the v3d_event macro will be enabled in pipeline sources and timings
---- will be recorded. This may incur a performance penalty depending on the
---- macro's usage. Defaults to false, however v3debug will default this to true.
+--- If true, the v3d_event macro will be enabled in shaders and timings will be
+--- recorded. This may incur a performance penalty depending on the macro's
+--- usage. Defaults to false, however v3debug will default this to true.
 --- @field record_statistics boolean | nil
---- Label to assign to the pipeline.
+--- Label to assign to the renderer.
 --- @field label string | nil
 --- @v3d-structural
+--- Pixel shader must have a source format
+--- @v3d-validate self.pixel_shader.source_format ~= nil
 
 -- TODO: culled_faces?
---- Statistics related to pipeline execution, recorded per-execution.
---- @class V3DPipelineStatistics
+--- Statistics related to renderer execution, recorded per-execution.
+--- @class V3DRendererStatistics
 --- Total durations for each timer, including the time spent in any nested
---- timers. Timer names are defined by the pipeline's source code but include
+--- timers. Timer names are defined by the renderer's source code but include
 --- 'parents', e.g. a nested timer will have a name like 'a/b'.
 --- @field timers { [string]: number }
 --- Number of times an event was recorded.
@@ -3565,153 +4261,62 @@ do -----------------------------------------------------------------------------
 
 ----------------------------------------------------------------
 
---- @alias _V3DPipelineMacroCalls { macro_name: string, parameters: string[] }[]
-
-local function _parse_parameters(s)
-	local params = {}
-	local i = 1
-	local start = 1
-	local in_string = nil
-
-	while i <= #s do
-		local char = s:sub(i, i)
-
-		if char == in_string then
-			in_string = nil
-			i = i + 1
-		elseif in_string then
-			i = select(2, assert(s:find('[^\\\'"]+', i))) + 1
-		elseif char == '\'' or char == '"' then
-			in_string = char
-			i = i + 1
-		elseif char == '\\' then
-			i = i + (in_string and 2 or 1)
-		elseif char == '(' or char == '{' or char == '[' then
-			local close = char == '(' and ')' or char == '{' and '}' or ']'
-			i = select(2, assert(s:find('%b' .. char .. close, i))) + 1
-		elseif char == ',' then
-			table.insert(params, s:sub(start, i - 1))
-			start = i + 1
-			i = i + 1
-		else
-			i = select(2, assert(s:find('[^\\\'"(){}%[%],]+', i))) + 1
-		end
-	end
-
-	if i > start then
-		table.insert(params, s:sub(start))
-	end
-
-	for i = 1, #params do
-		params[i] = params[i]
-			:gsub('^%s+', ''):gsub('%s+$', '')
-			:gsub('^["\'](.*)["\']$', function(content)
-				return content:gsub('\\.', '%1')
-			end)
-	end
-
-	return params
-end
-
---- @param source string
---- @param aliases { [string]: fun(...: string): string }
---- @return string, _V3DPipelineMacroCalls
-local function _process_pipeline_source_macro_calls(source, aliases)
-	local calls = {}
-	local i = 1
-
-	source = '\n' .. source
-
-	repeat
-		local prefix, macro_name, params_str = source:match('(.-)([%w_]*v3d_[%w_]+)(%b())', i)
-		if not prefix then
-			break
-		end
-
-		if macro_name:sub(1, 4) == 'v3d_' then
-			local params = _parse_parameters(params_str:sub(2, -2))
-			local expand_macro_later = true
-
-			if aliases[macro_name] then
-				local ok, aliased_content = pcall(aliases[macro_name], table.unpack(params))
-
-				if not ok then
-					error('error while processing macro ' .. macro_name .. params_str .. ': ' .. aliased_content, 0)
-				end
-
-				source = source:sub(1, i + #prefix - 1)
-				      .. aliased_content
-				      .. source:sub(i + #prefix + #macro_name + #params_str)
-				expand_macro_later = false
-			end
-
-			if expand_macro_later then
-				table.insert(calls, { macro_name = macro_name, parameters = params })
-				source = source:sub(1, i - 1 + #prefix)
-				      .. '{! ' .. macro_name .. params_str .. ' !}'
-				      .. source:sub(i + #prefix + #macro_name + #params_str)
-				i = i + #prefix + 6 + #macro_name + #params_str
-			end
-		else
-			i = i + #prefix + #macro_name
-		end
-	until false
-
-	return source, calls
-end
-
-----------------------------------------------------------------
-
---- Write a value to a uniform variable.
----
---- Returns the shader.
---- @param pipeline V3DPipeline
---- @param name V3DUniformName
---- @param value any
---- @return V3DPipeline
---- @v3d-chainable
---- -- local my_pipeline = TODO()
---- -- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
---- @v3d-example 2
-function v3d.pipeline_write_uniform(pipeline, name, value)
-	--- @diagnostic disable-next-line: invisible
-	pipeline.uniforms[name] = value
-	return pipeline
-end
-
---- Read a value from a uniform variable.
---- @param pipeline V3DPipeline
---- @param name V3DUniformName
---- @return any
---- @v3d-nolog
---- -- local my_pipeline = TODO()
---- -- v3d.pipeline_write_uniform(my_pipeline, 'my_uniform', 42)
---- -- local my_uniform_value = v3d.pipeline_read_uniform(my_pipeline, 'my_uniform')
---- -- assert(my_uniform_value == 42)
---- @v3d-example 2:4
-function v3d.pipeline_read_uniform(pipeline, name)
-	--- @diagnostic disable-next-line: invisible
-	return pipeline.uniforms[name]
-end
-
---- TODO
 -- TODO: validations
--- TODO: examples
---- @param pipeline V3DPipeline
+--- @param renderer V3DRenderer
 --- @param geometry V3DGeometry
 --- @param views { [string]: V3DImageView }
 --- @param transform V3DTransform | nil
 --- @param model_transform V3DTransform | nil
 --- @param viewport V3DImageRegion | nil
---- @return V3DPipelineStatistics
+--- @return V3DRendererStatistics
 --- @v3d-generated
 --- @v3d-constructor
-function v3d.pipeline_render(pipeline, geometry, views, transform, model_transform, viewport)
-	-- Generated at runtime based on pipeline settings.
+function v3d.renderer_render(renderer, geometry, views, transform, model_transform, viewport)
+	-- Generated at runtime based on renderer settings.
 	--- @diagnostic disable-next-line: missing-return
 end
 
-local _PIPELINE_INIT_CONSTANTS = [[
+local _BASE_RENDERER_ENVIRONMENT = {}
+do
+
+function _BASE_RENDERER_ENVIRONMENT.get_event_counter_local_variable(name)
+	return '_v3d_event_counter_' .. name
+end
+
+function _BASE_RENDERER_ENVIRONMENT.get_timer_start_local_variable(name)
+	return '_v3d_timer_start_' .. name:gsub('[^%w_]', '_')
+end
+
+function _BASE_RENDERER_ENVIRONMENT.get_timer_local_variable(name)
+	return '_v3d_timer_total_' .. name:gsub('[^%w_]', '_')
+end
+
+function _BASE_RENDERER_ENVIRONMENT.v3d_event(...)
+	-- TODO
+	return ""
+end
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_MAIN = [[
+local _v3d_create_instance, _v3d_finalise_instance = ...
+return function(_v3d_renderer, _v3d_geometry, _v3d_views, _v3d_transform, _v3d_model_transform, _v3d_viewport)
+	{! start_timer('render') !}
+
+	{! _RENDERER_INIT !}
+
+	local _v3d_vertex_offset = _v3d_geometry.vertex_offset + 1
+	local _v3d_face_offset = 1
+	for _ = 1, _v3d_geometry.n_vertices, 3 do
+		{! _RENDERER_RENDER_FACE !}
+	end
+
+	{! stop_timer('render') !}
+
+	{! _RENDERER_RETURN_STATISTICS !}
+end
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_INIT = [[
+-- Viewport --------------------------------------------------------------------
 local _v3d_viewport_width, _v3d_viewport_height
 local _v3d_viewport_min_x, _v3d_viewport_max_x
 local _v3d_viewport_min_y, _v3d_viewport_max_y
@@ -3744,33 +4349,48 @@ local _v3d_aspect_ratio_reciprocal = _v3d_viewport_height / _v3d_viewport_width 
 local _v3d_aspect_ratio_reciprocal = _v3d_viewport_height / _v3d_viewport_width
 {% end %}
 
-{% for _, image_name in ipairs(_ENV.access_images) do %}
-local {= get_image_local_variable(image_name) =} = _v3d_views.{= image_name =}.image
+-- Image data ------------------------------------------------------------------
+{% for _, image_name in ipairs(_ENV.options.pixel_shader.uses_image_views) do %}
+local _v3d_shader_image_view_{= image_name =} = _v3d_views.{= image_name =}
 {% end %}
 
-{% for _, view_name in ipairs(_ENV.access_view_indices) do %}
+{% for _, image_name in ipairs(_ENV.options.pixel_shader.uses_images) do %}
+local _v3d_shader_image_{= image_name =} = _v3d_views.{= image_name =}.image
+{% end %}
+
+-- Image view base offsets -----------------------------------------------------
+{% for _, view_name in ipairs(_ENV.options.pixel_shader.uses_destination_base_offsets) do %}
 local _v3d_view_init_offset_{= view_name =} = _v3d_views.{= view_name =}.init_offset
 local _v3d_image_width_{= view_name =} = _v3d_views.{= view_name =}.image.width
 {% end %}
-]]
 
--- locals: N(uniforms_accessed)
-local _PIPELINE_INIT_UNIFORMS = [[
-{% for _, name in ipairs(uniforms_accessed) do %}
-local {= get_uniform_local_variable(name) =}
+-- Shader constants ------------------------------------------------------------
+{% for _, name in ipairs(_ENV.options.pixel_shader.uses_shader_constants) do %}
+local _v3d_shader_constant_{= name =}
 {% end %}
-{% if #uniforms_accessed > 0 then %}
+{% if #_ENV.options.pixel_shader.uses_shader_constants > 0 then %}
 do
-	local _v3d_uniforms = _v3d_pipeline.uniforms
-	{% for _, name in ipairs(uniforms_accessed) do %}
-	{= get_uniform_local_variable(name) =} = _v3d_uniforms[{= quote(name) =}]
+	local _v3d_shader_constants = _v3d_renderer.used_options.pixel_shader.shader_constants
+	{% for _, name in ipairs(_ENV.options.pixel_shader.uses_shader_constants) do %}
+		_v3d_shader_constant_{= name =} = _v3d_shader_constants[{= quote(name) =}]
 	{% end %}
 end
 {% end %}
-]]
 
--- locals: 8 + N(event_counters)
-local _PIPELINE_INIT_STATISTICS = [[
+-- External variables ----------------------------------------------------------
+{% for _, name in ipairs(_ENV.options.pixel_shader.uses_external_variables) do %}
+local _v3d_shader_external_{= name =}
+{% end %}
+{% if #_ENV.options.pixel_shader.uses_external_variables > 0 then %}
+do
+	local _v3d_external_variables = _v3d_renderer.used_options.pixel_shader.external_variables
+	{% for _, name in ipairs(_ENV.options.pixel_shader.uses_external_variables) do %}
+	_v3d_shader_external_{= name =} = _v3d_external_variables[{= quote(name) =}]
+	{% end %}
+end
+{% end %}
+
+-- Statistics ------------------------------------------------------------------
 {% if options.record_statistics then %}
 	{% for _, counter_name in ipairs(_ENV.event_counters_updated) do %}
 local {= get_event_counter_local_variable(counter_name) =} = 0
@@ -3784,17 +4404,9 @@ local _v3d_timer_now
 local {= get_timer_local_variable(timer_name) =} = 0
 	{% end %}
 {% end %}
-]]
 
--- TODO
-local _PIPELINE_INIT_IMAGES = [[
--- {% for _, layer in ipairs(fragment_shader.layers_accessed) do %}
--- local _v3d_layer_{= layer.name =} = _v3d_fb.layer_data['{= layer.name =}']
--- {% end %}
-]]
-
-local _PIPELINE_INIT_TRANSFORMS = [[
-{% if _ENV.needs_fragment_world_position then %}
+-- Transforms ------------------------------------------------------------------
+{% if _ENV.needs_source_absolute_position then %}
 local _v3d_model_transform_xx
 local _v3d_model_transform_xy
 local _v3d_model_transform_xz
@@ -3842,23 +4454,182 @@ local _v3d_transform_zz = _v3d_transform[11]
 local _v3d_transform_dz = _v3d_transform[12]
 ]]
 
-local _PIPELINE_INIT_FACE_VERTICES = [[
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_FACE = [[
+{! start_timer('process_vertices') !}
+{! _RENDERER_INIT_FACE_VERTICES !}
+
+{% for _, idx in ipairs(_ENV.options.pixel_shader.uses_face_offsets) do %}
+local _v3d_shader_face_{= idx =} = _v3d_geometry[_v3d_face_offset + {= idx =}]
+{% end %}
+
+{! increment_statistic 'candidate_faces' !}
+
+{% if options.cull_faces then %}
+local _v3d_cull_face
+do
+	local _v3d_d1x = _v3d_transformed_p1x - _v3d_transformed_p0x
+	local _v3d_d1y = _v3d_transformed_p1y - _v3d_transformed_p0y
+	local _v3d_d1z = _v3d_transformed_p1z - _v3d_transformed_p0z
+	local _v3d_d2x = _v3d_transformed_p2x - _v3d_transformed_p0x
+	local _v3d_d2y = _v3d_transformed_p2y - _v3d_transformed_p0y
+	local _v3d_d2z = _v3d_transformed_p2z - _v3d_transformed_p0z
+	local _v3d_cx = _v3d_d1y * _v3d_d2z - _v3d_d1z * _v3d_d2y
+	local _v3d_cy = _v3d_d1z * _v3d_d2x - _v3d_d1x * _v3d_d2z
+	local _v3d_cz = _v3d_d1x * _v3d_d2y - _v3d_d1y * _v3d_d2x
+	{% local cull_face_comparison_operator = options.cull_faces == 'front' and '<=' or '>=' %}
+	_v3d_cull_face = _v3d_cx * _v3d_transformed_p0x + _v3d_cy * _v3d_transformed_p0y + _v3d_cz * _v3d_transformed_p0z {= cull_face_comparison_operator =} 0
+end
+
+if not _v3d_cull_face then
+{% end %}
+
+{! stop_timer('process_vertices') !}
+
+-- TODO: make this split polygons for clipping
+{% local clipping_plane = -0.0001 %}
+if _v3d_transformed_p0z <= {= clipping_plane =} and _v3d_transformed_p1z <= {= clipping_plane =} and _v3d_transformed_p2z <= {= clipping_plane =} then
+	{! start_timer('process_vertices') !}
+	local _v3d_rasterize_p0_w = -1 / _v3d_transformed_p0z
+	local _v3d_rasterize_p0_x = (_v3d_transformed_p0x * _v3d_rasterize_p0_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
+	local _v3d_rasterize_p0_y = (-_v3d_transformed_p0y * _v3d_rasterize_p0_w + 1) * _v3d_viewport_translate_scale_y
+	local _v3d_rasterize_p1_w = -1 / _v3d_transformed_p1z
+	local _v3d_rasterize_p1_x = (_v3d_transformed_p1x * _v3d_rasterize_p1_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
+	local _v3d_rasterize_p1_y = (-_v3d_transformed_p1y * _v3d_rasterize_p1_w + 1) * _v3d_viewport_translate_scale_y
+	local _v3d_rasterize_p2_w = -1 / _v3d_transformed_p2z
+	local _v3d_rasterize_p2_x = (_v3d_transformed_p2x * _v3d_rasterize_p2_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
+	local _v3d_rasterize_p2_y = (-_v3d_transformed_p2y * _v3d_rasterize_p2_w + 1) * _v3d_viewport_translate_scale_y
+
+	{% if needs_source_absolute_position then %}
+	local _v3d_rasterize_p0_wx = _v3d_world_transformed_p0x
+	local _v3d_rasterize_p0_wy = _v3d_world_transformed_p0y
+	local _v3d_rasterize_p0_wz = _v3d_world_transformed_p0z
+	local _v3d_rasterize_p1_wx = _v3d_world_transformed_p1x
+	local _v3d_rasterize_p1_wy = _v3d_world_transformed_p1y
+	local _v3d_rasterize_p1_wz = _v3d_world_transformed_p1z
+	local _v3d_rasterize_p2_wx = _v3d_world_transformed_p2x
+	local _v3d_rasterize_p2_wy = _v3d_world_transformed_p2y
+	local _v3d_rasterize_p2_wz = _v3d_world_transformed_p2z
+	{% end %}
+
+	{% for _, idx in ipairs(_ENV.options.pixel_shader.uses_source_offsets) do %}
+	local _v3d_rasterize_p0_va_{= idx =} = _v3d_geometry[_v3d_vertex_offset + {= idx =}]
+	local _v3d_rasterize_p1_va_{= idx =} = _v3d_geometry[_v3d_vertex_offset + {= idx + options.pixel_shader.source_format:size() =}]
+	local _v3d_rasterize_p2_va_{= idx =} = _v3d_geometry[_v3d_vertex_offset + {= idx + options.pixel_shader.source_format:size() * 2 =}]
+	{% end %}
+
+	{%
+	local values_to_interpolate = {}
+
+	if _ENV.options.pixel_shader.uses_source_position_x then
+		table.insert(values_to_interpolate, {
+			name = 'source_position_x',
+			interpolated_name = '_v3d_shader_src_pos_x',
+			p0_init = '_v3d_p0x',
+			p1_init = '_v3d_p1x',
+			p2_init = '_v3d_p2x',
+		})
+	end
+
+	if _ENV.options.pixel_shader.uses_source_position_y then
+		table.insert(values_to_interpolate, {
+			name = 'source_position_y',
+			interpolated_name = '_v3d_shader_src_pos_y',
+			p0_init = '_v3d_p0y',
+			p1_init = '_v3d_p1y',
+			p2_init = '_v3d_p2y',
+		})
+	end
+
+	if _ENV.options.pixel_shader.uses_source_position_z then
+		table.insert(values_to_interpolate, {
+			name = 'source_position_z',
+			interpolated_name = '_v3d_shader_src_pos_z',
+			p0_init = '_v3d_p0z',
+			p1_init = '_v3d_p1z',
+			p2_init = '_v3d_p2z',
+		})
+	end
+
+	if _ENV.options.pixel_shader.uses_source_absolute_position_x then
+		table.insert(values_to_interpolate, {
+			name = 'source_absolute_position_x',
+			interpolated_name = '_v3d_shader_src_abs_pos_x',
+			p0_init = '_v3d_world_transformed_p0x',
+			p1_init = '_v3d_world_transformed_p1x',
+			p2_init = '_v3d_world_transformed_p2x',
+		})
+	end
+
+	if _ENV.options.pixel_shader.uses_source_absolute_position_y then
+		table.insert(values_to_interpolate, {
+			name = 'source_absolute_position_y',
+			interpolated_name = '_v3d_shader_src_abs_pos_y',
+			p0_init = '_v3d_world_transformed_p0y',
+			p1_init = '_v3d_world_transformed_p1y',
+			p2_init = '_v3d_world_transformed_p2y',
+		})
+	end
+
+	if _ENV.options.pixel_shader.uses_source_absolute_position_z then
+		table.insert(values_to_interpolate, {
+			name = 'source_absolute_position_z',
+			interpolated_name = '_v3d_shader_src_abs_pos_z',
+			p0_init = '_v3d_world_transformed_p0z',
+			p1_init = '_v3d_world_transformed_p1z',
+			p2_init = '_v3d_world_transformed_p2z',
+		})
+	end
+
+	for _, idx in ipairs(_ENV.options.pixel_shader.uses_source_offsets) do
+		table.insert(values_to_interpolate, {
+			name = 'va_' .. idx,
+			interpolated_name = '_v3d_shader_src_' .. idx,
+			p0_init = '_v3d_rasterize_p0_va_' .. idx,
+			p1_init = '_v3d_rasterize_p1_va_' .. idx,
+			p2_init = '_v3d_rasterize_p2_va_' .. idx,
+		})
+	end
+	%}
+
+	{! stop_timer('process_vertices') !}
+
+	{! _RENDERER_RENDER_TRIANGLE !}
+	{! increment_statistic 'drawn_faces' !}
+else
+	{! increment_statistic 'discarded_faces' !}
+end
+
+{% if options.cull_faces then %}
+else
+	{! increment_statistic 'discarded_faces' !}
+end
+{% end %}
+
+_v3d_vertex_offset = _v3d_vertex_offset + {= options.pixel_shader.source_format:size() * 3 =}
+{% if options.pixel_shader.face_format then %}
+_v3d_face_offset = _v3d_face_offset + {= options.pixel_shader.face_format:size() =}
+{% end %}
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_INIT_FACE_VERTICES = [[
 local _v3d_transformed_p0x, _v3d_transformed_p0y, _v3d_transformed_p0z,
       _v3d_transformed_p1x, _v3d_transformed_p1y, _v3d_transformed_p1z,
       _v3d_transformed_p2x, _v3d_transformed_p2y, _v3d_transformed_p2z
 
-{% if _ENV.needs_fragment_world_position then %}
+{% if _ENV.needs_source_absolute_position then %}
 local _v3d_world_transformed_p0x, _v3d_world_transformed_p0y, _v3d_world_transformed_p0z,
       _v3d_world_transformed_p1x, _v3d_world_transformed_p1y, _v3d_world_transformed_p1z,
       _v3d_world_transformed_p2x, _v3d_world_transformed_p2y, _v3d_world_transformed_p2z
 {% end %}
 
-{% if _ENV.needs_face_world_normal then %}
+{% if _ENV.needs_source_absolute_normal then %}
 local _v3d_face_world_normal0, _v3d_face_world_normal1, _v3d_face_world_normal2
 {% end %}
+{% if not _ENV.needs_source_position then %}
 do
+{% end %}
 	{% local position_base_offset = options.position_lens.offset %}
-	{% local vertex_stride = options.vertex_format:size() %}
+	{% local vertex_stride = options.pixel_shader.source_format:size() %}
 	local _v3d_p0x = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset =}]
 	local _v3d_p0y = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset + 1 =}]
 	local _v3d_p0z = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset + 2 =}]
@@ -3868,8 +4639,10 @@ do
 	local _v3d_p2x = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset + vertex_stride * 2 =}]
 	local _v3d_p2y = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset + vertex_stride * 2 + 1 =}]
 	local _v3d_p2z = _v3d_geometry[_v3d_vertex_offset + {= position_base_offset + vertex_stride * 2 + 2 =}]
-
-	{% if _ENV.needs_fragment_world_position then %}
+{% if _ENV.needs_source_position then %}
+do
+{% end %}
+	{% if _ENV.needs_source_absolute_position then %}
 	if _v3d_model_transform then
 		_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
 		_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
@@ -3921,7 +4694,7 @@ do
 	_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
 	{% end %}
 
-	{% if _ENV.needs_face_world_normal then %}
+	{% if _ENV.needs_source_absolute_normal then %}
 	local _v3d_face_normal_d1x = _v3d_world_transformed_p1x - _v3d_world_transformed_p0x
 	local _v3d_face_normal_d1y = _v3d_world_transformed_p1y - _v3d_world_transformed_p0y
 	local _v3d_face_normal_d1z = _v3d_world_transformed_p1z - _v3d_world_transformed_p0z
@@ -3939,7 +4712,152 @@ do
 end
 ]]
 
-local _PIPELINE_RENDER_REGION_SETUP = [[
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_TRIANGLE = [[
+{! start_timer('rasterize') !}
+{! _RENDERER_RENDER_TRIANGLE_SORT_VERTICES !}
+{! _RENDERER_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT !}
+
+local _v3d_row_top_min = math.floor(_v3d_rasterize_p0_y + 0.5)
+local _v3d_row_top_max = math.floor(_v3d_rasterize_p1_y - 0.5)
+local _v3d_row_bottom_min = _v3d_row_top_max + 1
+local _v3d_row_bottom_max = math.ceil(_v3d_rasterize_p2_y - 0.5)
+
+local _v3d_region_dy
+
+_v3d_region_dy = _v3d_rasterize_p1_y - _v3d_rasterize_p0_y
+if _v3d_region_dy > 0 then
+	if _v3d_row_top_min < _v3d_viewport_min_y then _v3d_row_top_min = _v3d_viewport_min_y end
+	if _v3d_row_top_max > _v3d_viewport_max_y then _v3d_row_top_max = _v3d_viewport_max_y end
+
+	{%
+	local flat_triangle_name = 'top'
+	local flat_triangle_top_left = 'p0'
+	local flat_triangle_top_right = 'p0'
+	local flat_triangle_bottom_left = 'pM'
+	local flat_triangle_bottom_right = 'p1'
+	%}
+
+	{! _RENDERER_RENDER_REGION_SETUP !}
+	{! _RENDERER_RENDER_REGION !}
+end
+
+_v3d_region_dy = _v3d_rasterize_p2_y - _v3d_rasterize_p1_y
+if _v3d_region_dy > 0 then
+	if _v3d_row_bottom_min < _v3d_viewport_min_y then _v3d_row_bottom_min = _v3d_viewport_min_y end
+	if _v3d_row_bottom_max > _v3d_viewport_max_y then _v3d_row_bottom_max = _v3d_viewport_max_y end
+
+	{%
+	local flat_triangle_name = 'bottom'
+	local flat_triangle_top_left = 'pM'
+	local flat_triangle_top_right = 'p1'
+	local flat_triangle_bottom_left = 'p2'
+	local flat_triangle_bottom_right = 'p2'
+	%}
+
+	{! _RENDERER_RENDER_REGION_SETUP !}
+	{! _RENDERER_RENDER_REGION !}
+end
+
+{! stop_timer('rasterize') !}
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_TRIANGLE_SORT_VERTICES = [[
+-- Sort vertices by Y value (ascending)
+if _v3d_rasterize_p0_y <= _v3d_rasterize_p1_y then
+	if _v3d_rasterize_p1_y <= _v3d_rasterize_p2_y then
+		-- No swapping required
+	elseif _v3d_rasterize_p0_y <= _v3d_rasterize_p2_y then
+		-- Swap p1 and p2
+		_v3d_rasterize_p1_x, _v3d_rasterize_p2_x = _v3d_rasterize_p2_x, _v3d_rasterize_p1_x
+		_v3d_rasterize_p1_y, _v3d_rasterize_p2_y = _v3d_rasterize_p2_y, _v3d_rasterize_p1_y
+		{% if _ENV.needs_interpolated_depth then %}
+		_v3d_rasterize_p1_w, _v3d_rasterize_p2_w = _v3d_rasterize_p2_w, _v3d_rasterize_p1_w
+		{% end %}
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		{= t.p1_init =}, {= t.p2_init =} = {= t.p2_init =}, {= t.p1_init =}
+		{% end %}
+	else
+		-- Shuffle by 1
+		_v3d_rasterize_p0_x, _v3d_rasterize_p1_x, _v3d_rasterize_p2_x = _v3d_rasterize_p2_x, _v3d_rasterize_p0_x, _v3d_rasterize_p1_x
+		_v3d_rasterize_p0_y, _v3d_rasterize_p1_y, _v3d_rasterize_p2_y = _v3d_rasterize_p2_y, _v3d_rasterize_p0_y, _v3d_rasterize_p1_y
+		{% if _ENV.needs_interpolated_depth then %}
+		_v3d_rasterize_p0_w, _v3d_rasterize_p1_w, _v3d_rasterize_p2_w = _v3d_rasterize_p2_w, _v3d_rasterize_p0_w, _v3d_rasterize_p1_w
+		{% end %}
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		{= t.p0_init =}, {= t.p1_init =}, {= t.p2_init =} = {= t.p2_init =}, {= t.p0_init =}, {= t.p1_init =}
+		{% end %}
+	end
+else
+	if _v3d_rasterize_p0_y <= _v3d_rasterize_p2_y then
+		-- Swap p0 and p1
+		_v3d_rasterize_p0_x, _v3d_rasterize_p1_x = _v3d_rasterize_p1_x, _v3d_rasterize_p0_x
+		_v3d_rasterize_p0_y, _v3d_rasterize_p1_y = _v3d_rasterize_p1_y, _v3d_rasterize_p0_y
+		{% if _ENV.needs_interpolated_depth then %}
+		_v3d_rasterize_p0_w, _v3d_rasterize_p1_w = _v3d_rasterize_p1_w, _v3d_rasterize_p0_w
+		{% end %}
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		{= t.p0_init =}, {= t.p1_init =} = {= t.p1_init =}, {= t.p0_init =}
+		{% end %}
+	elseif _v3d_rasterize_p1_y <= _v3d_rasterize_p2_y then
+		_v3d_rasterize_p0_x, _v3d_rasterize_p1_x, _v3d_rasterize_p2_x = _v3d_rasterize_p1_x, _v3d_rasterize_p2_x, _v3d_rasterize_p0_x
+		_v3d_rasterize_p0_y, _v3d_rasterize_p1_y, _v3d_rasterize_p2_y = _v3d_rasterize_p1_y, _v3d_rasterize_p2_y, _v3d_rasterize_p0_y
+		{% if _ENV.needs_interpolated_depth then %}
+		_v3d_rasterize_p0_w, _v3d_rasterize_p1_w, _v3d_rasterize_p2_w = _v3d_rasterize_p1_w, _v3d_rasterize_p2_w, _v3d_rasterize_p0_w
+		{% end %}
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		{= t.p0_init =}, {= t.p1_init =}, {= t.p2_init =} = {= t.p1_init =}, {= t.p2_init =}, {= t.p0_init =}
+		{% end %}
+	else
+		-- Swap p0 and p2
+		_v3d_rasterize_p0_x, _v3d_rasterize_p2_x = _v3d_rasterize_p2_x, _v3d_rasterize_p0_x
+		_v3d_rasterize_p0_y, _v3d_rasterize_p2_y = _v3d_rasterize_p2_y, _v3d_rasterize_p0_y
+		{% if _ENV.needs_interpolated_depth then %}
+		_v3d_rasterize_p0_w, _v3d_rasterize_p2_w = _v3d_rasterize_p2_w, _v3d_rasterize_p0_w
+		{% end %}
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		{= t.p0_init =}, {= t.p2_init =} = {= t.p2_init =}, {= t.p0_init =}
+		{% end %}
+	end
+end
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT = [[
+local _v3d_rasterize_pM_x
+{% if _ENV.needs_interpolated_depth then %}
+local _v3d_rasterize_pM_w
+{% end %}
+{% for _, t in ipairs(values_to_interpolate) do %}
+local _v3d_rasterize_pM_{= t.name =}
+{% end %}
+
+do
+	local _v3d_midpoint_scalar = (_v3d_rasterize_p1_y - _v3d_rasterize_p0_y) / (_v3d_rasterize_p2_y - _v3d_rasterize_p0_y)
+	local _v3d_midpoint_scalar_inv = 1 - _v3d_midpoint_scalar
+	_v3d_rasterize_pM_x = _v3d_rasterize_p0_x * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_x * _v3d_midpoint_scalar
+
+	{% if _ENV.needs_interpolated_depth then %}
+	_v3d_rasterize_pM_w = _v3d_rasterize_p0_w * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_w * _v3d_midpoint_scalar
+	{% end %}
+
+	{% for _, t in ipairs(values_to_interpolate) do %}
+	_v3d_rasterize_pM_{= t.name =} = ({= t.p0_init =} * _v3d_rasterize_p0_w * _v3d_midpoint_scalar_inv + {= t.p2_init =} * _v3d_rasterize_p2_w * _v3d_midpoint_scalar) / _v3d_rasterize_pM_w
+	{% end %}
+end
+
+if _v3d_rasterize_pM_x > _v3d_rasterize_p1_x then
+	_v3d_rasterize_pM_x, _v3d_rasterize_p1_x = _v3d_rasterize_p1_x, _v3d_rasterize_pM_x
+
+	{% if _ENV.needs_interpolated_depth then %}
+	_v3d_rasterize_pM_w, _v3d_rasterize_p1_w = _v3d_rasterize_p1_w, _v3d_rasterize_pM_w
+	{% end %}
+
+	{% for _, t in ipairs(values_to_interpolate) do %}
+	_v3d_rasterize_pM_{= t.name =}, {= t.p1_init =} = {= t.p1_init =}, _v3d_rasterize_pM_{= t.name =}
+	{% end %}
+end
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_REGION_SETUP = [[
 local _v3d_region_y_correction = _v3d_row_{= flat_triangle_name =}_min + 0.5 - _v3d_rasterize_{= flat_triangle_top_right =}_y
 local _v3d_region_left_dx_dy = (_v3d_rasterize_{= flat_triangle_bottom_left =}_x - _v3d_rasterize_{= flat_triangle_top_left =}_x) / _v3d_region_dy
 local _v3d_region_right_dx_dy = (_v3d_rasterize_{= flat_triangle_bottom_right =}_x - _v3d_rasterize_{= flat_triangle_top_right =}_x) / _v3d_region_dy
@@ -3953,32 +4871,24 @@ local _v3d_region_left_w = _v3d_rasterize_{= flat_triangle_top_left =}_w + _v3d_
 local _v3d_region_right_w = _v3d_rasterize_{= flat_triangle_top_right =}_w + _v3d_region_right_dw_dy * _v3d_region_y_correction
 {% end %}
 
-{% if _ENV.interpolate_world_position then %}
-local _v3d_region_left_dwx_dy = (_v3d_rasterize_{= flat_triangle_bottom_left =}_wx - _v3d_rasterize_{= flat_triangle_top_left =}_wx) / _v3d_region_dy
-local _v3d_region_left_dwy_dy = (_v3d_rasterize_{= flat_triangle_bottom_left =}_wy - _v3d_rasterize_{= flat_triangle_top_left =}_wy) / _v3d_region_dy
-local _v3d_region_left_dwz_dy = (_v3d_rasterize_{= flat_triangle_bottom_left =}_wz - _v3d_rasterize_{= flat_triangle_top_left =}_wz) / _v3d_region_dy
-local _v3d_region_right_dwx_dy = (_v3d_rasterize_{= flat_triangle_bottom_right =}_wx - _v3d_rasterize_{= flat_triangle_top_right =}_wx) / _v3d_region_dy
-local _v3d_region_right_dwy_dy = (_v3d_rasterize_{= flat_triangle_bottom_right =}_wy - _v3d_rasterize_{= flat_triangle_top_right =}_wy) / _v3d_region_dy
-local _v3d_region_right_dwz_dy = (_v3d_rasterize_{= flat_triangle_bottom_right =}_wz - _v3d_rasterize_{= flat_triangle_top_right =}_wz) / _v3d_region_dy
-local _v3d_region_left_wx = _v3d_rasterize_{= flat_triangle_top_left =}_wx + _v3d_region_left_dwx_dy * _v3d_region_y_correction
-local _v3d_region_left_wy = _v3d_rasterize_{= flat_triangle_top_left =}_wy + _v3d_region_left_dwy_dy * _v3d_region_y_correction
-local _v3d_region_left_wz = _v3d_rasterize_{= flat_triangle_top_left =}_wz + _v3d_region_left_dwz_dy * _v3d_region_y_correction
-local _v3d_region_right_wx = _v3d_rasterize_{= flat_triangle_top_right =}_wx + _v3d_region_right_dwx_dy * _v3d_region_y_correction
-local _v3d_region_right_wy = _v3d_rasterize_{= flat_triangle_top_right =}_wy + _v3d_region_right_dwy_dy * _v3d_region_y_correction
-local _v3d_region_right_wz = _v3d_rasterize_{= flat_triangle_top_right =}_wz + _v3d_region_right_dwz_dy * _v3d_region_y_correction
-{% end %}
-
-{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-local _v3d_region_left_va_d{= idx =}w_dy = (_v3d_rasterize_{= flat_triangle_bottom_left =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_bottom_left =}_w - _v3d_rasterize_{= flat_triangle_top_left =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_top_left =}_w) / _v3d_region_dy
-local _v3d_region_right_va_d{= idx =}w_dy = (_v3d_rasterize_{= flat_triangle_bottom_right =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_bottom_right =}_w - _v3d_rasterize_{= flat_triangle_top_right =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_top_right =}_w) / _v3d_region_dy
-local _v3d_region_left_va_{= idx =}w = _v3d_rasterize_{= flat_triangle_top_left =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_top_left =}_w + _v3d_region_left_va_d{= idx =}w_dy * _v3d_region_y_correction
-local _v3d_region_right_va_{= idx =}w = _v3d_rasterize_{= flat_triangle_top_right =}_va_{= idx =} * _v3d_rasterize_{= flat_triangle_top_right =}_w + _v3d_region_right_va_d{= idx =}w_dy * _v3d_region_y_correction
+{% for _, t in ipairs(values_to_interpolate) do %}
+{%
+local function get_var(point)
+	if point == 'pM' then
+		return '_v3d_rasterize_pM_' .. t.name
+	else
+		return t[point .. '_init']
+	end
+end
+%}
+local _v3d_region_left_dVwdy_{= t.name =} = ({= get_var(flat_triangle_bottom_left) =} * _v3d_rasterize_{= flat_triangle_bottom_left =}_w - {= get_var(flat_triangle_top_left) =} * _v3d_rasterize_{= flat_triangle_top_left =}_w) / _v3d_region_dy
+local _v3d_region_right_dVwdy_{= t.name =} = ({= get_var(flat_triangle_bottom_right) =} * _v3d_rasterize_{= flat_triangle_bottom_right =}_w - {= get_var(flat_triangle_top_right) =} * _v3d_rasterize_{= flat_triangle_top_right =}_w) / _v3d_region_dy
+local _v3d_region_left_Vw_{= t.name =} = {= get_var(flat_triangle_top_left) =} * _v3d_rasterize_{= flat_triangle_top_left =}_w + _v3d_region_left_dVwdy_{= t.name =} * _v3d_region_y_correction
+local _v3d_region_right_Vw_{= t.name =} = {= get_var(flat_triangle_top_right) =} * _v3d_rasterize_{= flat_triangle_top_right =}_w + _v3d_region_right_dVwdy_{= t.name =} * _v3d_region_y_correction
 {% end %}
 ]]
 
-local _PIPELINE_RENDER_REGION = [[
-{! _PIPELINE_RENDER_REGION_SETUP !}
-
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_REGION = [[
 for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_name =}_max do
 	local _v3d_row_min_column = math.ceil(_v3d_region_left_x)
 	local _v3d_row_max_column = math.ceil(_v3d_region_right_x)
@@ -3988,38 +4898,26 @@ for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_
 
 	{% if _ENV.needs_interpolated_depth then %}
 	local _v3d_row_x_correction = _v3d_row_min_column - _v3d_region_left_x
-	local _v3d_row_dx = _v3d_region_right_x - _v3d_region_left_x
-	local _v3d_row_dw_dx = (_v3d_region_right_w - _v3d_region_left_w) / _v3d_row_dx
-	local _v3d_row_w = _v3d_region_left_w + _v3d_row_dw_dx * _v3d_row_x_correction
+	local _v3d_row_dx_inv = 1 / (_v3d_region_right_x - _v3d_region_left_x + 1)
+	-- TODO: if _v3d_row_min_column == _v3d_row_max_column then _v3d_row_dx_inv = 1 end
+	local _v3d_row_dw_dx = (_v3d_region_right_w - _v3d_region_left_w) * _v3d_row_dx_inv
+	local _v3d_shader_src_depth = _v3d_region_left_w + _v3d_row_dw_dx * _v3d_row_x_correction
 	{% end %}
 
-	{% if _ENV.interpolate_world_position then %}
-	local _v3d_row_dwx = (_v3d_region_right_wx - _v3d_region_left_wx) / _v3d_row_dx
-	local _v3d_row_dwy = (_v3d_region_right_wy - _v3d_region_left_wy) / _v3d_row_dx
-	local _v3d_row_dwz = (_v3d_region_right_wz - _v3d_region_left_wz) / _v3d_row_dx
-	local _v3d_row_wx = _v3d_region_left_wx + _v3d_row_dwx * _v3d_row_x_correction
-	local _v3d_row_wy = _v3d_region_left_wy + _v3d_row_dwy * _v3d_row_x_correction
-	local _v3d_row_wz = _v3d_region_left_wz + _v3d_row_dwz * _v3d_row_x_correction
+	{% for _, t in ipairs(values_to_interpolate) do %}
+	local _v3d_row_dVwdx_{= t.name =} = (_v3d_region_right_Vw_{= t.name =} - _v3d_region_left_Vw_{= t.name =}) * _v3d_row_dx_inv
+	local _v3d_row_Vw_{= t.name =} = _v3d_region_left_Vw_{= t.name =} + _v3d_row_dVwdx_{= t.name =} * _v3d_row_x_correction
 	{% end %}
 
-	{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-	local _v3d_row_va_d{= idx =}w_dx = (_v3d_region_right_va_{= idx =}w - _v3d_region_left_va_{= idx =}w) / _v3d_row_dx
-	local _v3d_row_va_{= idx =}w = _v3d_region_left_va_{= idx =}w + _v3d_row_va_d{= idx =}w_dx * _v3d_row_x_correction
-	{% end %}
-
-	{% for _, view_name in ipairs(_ENV.access_view_indices) do %}
-	local _v3d_view_base_index_{= view_name =} = _v3d_view_init_offset_{= view_name =} + (_v3d_image_width_{= view_name =} * _v3d_row + _v3d_row_min_column) * {= options.image_formats[view_name]:size() =}
+	{% for _, view_name in ipairs(_ENV.options.pixel_shader.uses_destination_base_offsets) do %}
+	local _v3d_shader_dst_base_offset_{= view_name =} = _v3d_view_init_offset_{= view_name =} + (_v3d_image_width_{= view_name =} * _v3d_row + _v3d_row_min_column) * {= options.image_formats[view_name]:size() =}
 	{% end %}
 
 	-- TODO
 	for _v3d_x = _v3d_row_min_column, _v3d_row_max_column do
-		-- TODO: world position
-
-		{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-		local {= get_interpolated_vertex_index_local_variable(idx) =} = _v3d_row_va_{= idx =}w / _v3d_row_w
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		local {= t.interpolated_name =} = _v3d_row_Vw_{= t.name =} / _v3d_shader_src_depth
 		{% end %}
-
-		-- TODO: {= fragment_shader.is_called_is_fragment_discarded and 'local _v3d_builtin_fragment_discarded = false' or '' =}
 
 		{! increment_statistic 'candidate_fragments' !}
 
@@ -4027,18 +4925,16 @@ for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_
 		{! PIXEL_SOURCE_EMBED !}
 		--#pipeline_source_end pixel
 
-		{% for _, view_name in ipairs(access_view_indices) do %}
-		_v3d_view_base_index_{= view_name =} = _v3d_view_base_index_{= view_name =} + {= options.image_formats[view_name]:size() =}
+		{% for _, view_name in ipairs(options.pixel_shader.uses_destination_base_offsets) do %}
+		_v3d_shader_dst_base_offset_{= view_name =} = _v3d_shader_dst_base_offset_{= view_name =} + {= options.image_formats[view_name]:size() =}
 		{% end %}
 
 		{% if _ENV.needs_interpolated_depth then %}
-		_v3d_row_w = _v3d_row_w + _v3d_row_dw_dx
+		_v3d_shader_src_depth = _v3d_shader_src_depth + _v3d_row_dw_dx
 		{% end %}
 
-		-- TODO: world position
-
-		{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-		_v3d_row_va_{= idx =}w = _v3d_row_va_{= idx =}w + _v3d_row_va_d{= idx =}w_dx
+		{% for _, t in ipairs(values_to_interpolate) do %}
+		_v3d_row_Vw_{= t.name =} = _v3d_row_Vw_{= t.name =} + _v3d_row_dVwdx_{= t.name =}
 		{% end %}
 	end
 
@@ -4050,274 +4946,29 @@ for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_
 	_v3d_region_right_w = _v3d_region_right_w + _v3d_region_right_dw_dy
 	{% end %}
 
-	-- TODO: world position
-
-	{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-	_v3d_region_left_va_{= idx =}w = _v3d_region_left_va_{= idx =}w + _v3d_region_left_va_d{= idx =}w_dy
-	_v3d_region_right_va_{= idx =}w = _v3d_region_right_va_{= idx =}w + _v3d_region_right_va_d{= idx =}w_dy
+	{% for _, t in ipairs(values_to_interpolate) do %}
+	_v3d_region_left_Vw_{= t.name =} = _v3d_region_left_Vw_{= t.name =} + _v3d_region_left_dVwdy_{= t.name =}
+	_v3d_region_right_Vw_{= t.name =} = _v3d_region_right_Vw_{= t.name =} + _v3d_region_right_dVwdy_{= t.name =}
 	{% end %}
 end
 ]]
 
-local _PIPELINE_RENDER_TRIANGLE_SORT_VERTICES = [[
-{%
-local to_swap = { '_v3d_rasterize_pN_x', '_v3d_rasterize_pN_y' }
-
-if _ENV.needs_interpolated_depth then
-	table.insert(to_swap, '_v3d_rasterize_pN_w')
-end
-
-if _ENV.interpolate_world_position then
-	table.insert(to_swap, '_v3d_rasterize_pN_wx')
-	table.insert(to_swap, '_v3d_rasterize_pN_wy')
-	table.insert(to_swap, '_v3d_rasterize_pN_wz')
-end
-
-for _, idx in ipairs(_ENV.interpolate_vertex_indices) do
-	table.insert(to_swap, get_vertex_index_local_variable('N', idx))
-end
-
-local function test_and_swap(a, b)
-	local result = 'if _v3d_rasterize_pA_y > _v3d_rasterize_pB_y then\n'
-
-	for i = 1, #to_swap do
-		local sA = to_swap[i]:gsub('N', 'A')
-		local sB = to_swap[i]:gsub('N', 'B')
-		result = result .. '\t' .. sA .. ', ' .. sB .. ' = ' .. sB .. ', ' .. sA .. '\n'
-	end
-
-	return (result .. 'end'):gsub('A', a):gsub('B', b)
-end
-%}
-
-{= test_and_swap(0, 1) =}
-{= test_and_swap(1, 2) =}
-{= test_and_swap(0, 1) =}
-]]
-
-local _PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT = [[
-local _v3d_rasterize_pM_x
-{% if _ENV.needs_interpolated_depth then %}
-local _v3d_rasterize_pM_w
-{% end %}
-{% if _ENV.interpolate_world_position then %}
-local _v3d_rasterize_pM_wx
-local _v3d_rasterize_pM_wy
-local _v3d_rasterize_pM_wz
-{% end %}
-{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-local {= get_vertex_index_local_variable('M', idx) =}
-{% end %}
-
-do
-	local _v3d_midpoint_scalar = (_v3d_rasterize_p1_y - _v3d_rasterize_p0_y) / (_v3d_rasterize_p2_y - _v3d_rasterize_p0_y)
-	local _v3d_midpoint_scalar_inv = 1 - _v3d_midpoint_scalar
-	_v3d_rasterize_pM_x = _v3d_rasterize_p0_x * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_x * _v3d_midpoint_scalar
-
-	{% if _ENV.needs_interpolated_depth then %}
-	_v3d_rasterize_pM_w = _v3d_rasterize_p0_w * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_w * _v3d_midpoint_scalar
-	{% end %}
-
-	{% if _ENV.interpolate_world_position then %}
-	_v3d_rasterize_pM_wx = _v3d_rasterize_p0_wx * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_wx * _v3d_midpoint_scalar
-	_v3d_rasterize_pM_wy = _v3d_rasterize_p0_wy * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_wy * _v3d_midpoint_scalar
-	_v3d_rasterize_pM_wz = _v3d_rasterize_p0_wz * _v3d_midpoint_scalar_inv + _v3d_rasterize_p2_wz * _v3d_midpoint_scalar
-	{% end %}
-
-	{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-		{% local mid_name = get_vertex_index_local_variable('M', idx) %}
-		{% local p0_name = get_vertex_index_local_variable(0, idx) %}
-		{% local p2_name = get_vertex_index_local_variable(2, idx) %}
-	{= mid_name =} = ({= p0_name =} * _v3d_rasterize_p0_w * _v3d_midpoint_scalar_inv + {= p2_name =} * _v3d_rasterize_p2_w * _v3d_midpoint_scalar) / _v3d_rasterize_pM_w
-	{% end %}
-end
-
-if _v3d_rasterize_pM_x > _v3d_rasterize_p1_x then
-	_v3d_rasterize_pM_x, _v3d_rasterize_p1_x = _v3d_rasterize_p1_x, _v3d_rasterize_pM_x
-
-	{% if _ENV.needs_interpolated_depth then %}
-	_v3d_rasterize_pM_w, _v3d_rasterize_p1_w = _v3d_rasterize_p1_w, _v3d_rasterize_pM_w
-	{% end %}
-
-	{% if _ENV.interpolate_world_position then %}
-	_v3d_rasterize_pM_wx, _v3d_rasterize_p1_wx = _v3d_rasterize_p1_wx, _v3d_rasterize_pM_wx
-	_v3d_rasterize_pM_wy, _v3d_rasterize_p1_wy = _v3d_rasterize_p1_wy, _v3d_rasterize_pM_wy
-	_v3d_rasterize_pM_wz, _v3d_rasterize_p1_wz = _v3d_rasterize_p1_wz, _v3d_rasterize_pM_wz
-	{% end %}
-
-	{% for _, idx in ipairs(_ENV.interpolate_vertex_indices) do %}
-		{% local mid_name = get_vertex_index_local_variable('M', idx) %}
-		{% local p1_name = get_vertex_index_local_variable(1, idx) %}
-	{= mid_name =}, {= p1_name =} = {= p1_name =}, {= mid_name =}
-	{% end %}
-end
-]]
-
--- TODO
-local _PIPELINE_RENDER_TRIANGLE = [[
-{! start_timer('rasterize') !}
-{! _PIPELINE_RENDER_TRIANGLE_SORT_VERTICES !}
-{! _PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT !}
-
--- TODO
--- {% for _, attr in ipairs(fragment_shader.face_attribute_max_pixel_deltas) do %}
--- local _v3d_face_attribute_max_pixel_delta_${attr.name}${attr.component}
--- {% end %}
-
--- TODO
--- {% if #fragment_shader.face_attribute_max_pixel_deltas > 0 then %}
--- do
--- 	local dx_0_1 = _v3d_rasterize_p1_x - _v3d_rasterize_p0_x
--- 	local dx_0_2 = _v3d_rasterize_p2_x - _v3d_rasterize_p0_x
--- 	local dx_1_2 = _v3d_rasterize_p2_x - _v3d_rasterize_p1_x
--- 	local dy_0_1 = _v3d_rasterize_p1_y - _v3d_rasterize_p0_y
--- 	local dy_0_2 = _v3d_rasterize_p2_y - _v3d_rasterize_p0_y
--- 	local dy_1_2 = _v3d_rasterize_p2_y - _v3d_rasterize_p1_y
--- 	local len_0_1 = _v3d_math_sqrt(dx_0_1 * dx_0_1 + dy_0_1 * dy_0_1)
--- 	local len_0_2 = _v3d_math_sqrt(dx_0_2 * dx_0_2 + dy_0_2 * dy_0_2)
--- 	local len_1_2 = _v3d_math_sqrt(dx_1_2 * dx_1_2 + dy_1_2 * dy_1_2)
-
--- 	{% for _, attr in ipairs(fragment_shader.face_attribute_max_pixel_deltas) do %}
--- 	local d_attr_${attr.name}${attr.component}_0_1 = _v3d_rasterize_p1_va_${attr.name}${attr.component} - _v3d_rasterize_p0_va_${attr.name}${attr.component}
--- 	local d_attr_${attr.name}${attr.component}_0_2 = _v3d_rasterize_p2_va_${attr.name}${attr.component} - _v3d_rasterize_p0_va_${attr.name}${attr.component}
--- 	local d_attr_${attr.name}${attr.component}_1_2 = _v3d_rasterize_p2_va_${attr.name}${attr.component} - _v3d_rasterize_p1_va_${attr.name}${attr.component}
--- 	_v3d_face_attribute_max_pixel_delta_${attr.name}${attr.component} = _v3d_math_min(
--- 		len_0_1 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_0_1),
--- 		len_0_2 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_0_2),
--- 		len_1_2 / _v3d_math_abs(d_attr_${attr.name}${attr.component}_1_2)
--- 	)
--- 	{% end %}
--- end
--- {% end %}
-
-local _v3d_row_top_min = math.floor(_v3d_rasterize_p0_y + 0.5)
-local _v3d_row_top_max = math.floor(_v3d_rasterize_p1_y - 0.5)
-local _v3d_row_bottom_min = _v3d_row_top_max + 1
-local _v3d_row_bottom_max = math.ceil(_v3d_rasterize_p2_y - 0.5)
-
-if _v3d_row_top_min < _v3d_viewport_min_y then _v3d_row_top_min = _v3d_viewport_min_y end
-if _v3d_row_bottom_min < _v3d_viewport_min_y then _v3d_row_bottom_min = _v3d_viewport_min_y end
-if _v3d_row_top_max > _v3d_viewport_max_y then _v3d_row_top_max = _v3d_viewport_max_y end
-if _v3d_row_bottom_max > _v3d_viewport_max_y then _v3d_row_bottom_max = _v3d_viewport_max_y end
-
-local _v3d_region_dy
-
-_v3d_region_dy = _v3d_rasterize_p1_y - _v3d_rasterize_p0_y
-if _v3d_region_dy > 0 then
-	{%
-	local flat_triangle_name = 'top'
-	local flat_triangle_top_left = 'p0'
-	local flat_triangle_top_right = 'p0'
-	local flat_triangle_bottom_left = 'pM'
-	local flat_triangle_bottom_right = 'p1'
-	%}
-
-	{! _PIPELINE_RENDER_REGION !}
-end
-
-_v3d_region_dy = _v3d_rasterize_p2_y - _v3d_rasterize_p1_y
-if _v3d_region_dy > 0 then
-	{%
-	local flat_triangle_name = 'bottom'
-	local flat_triangle_top_left = 'pM'
-	local flat_triangle_top_right = 'p1'
-	local flat_triangle_bottom_left = 'p2'
-	local flat_triangle_bottom_right = 'p2'
-	%}
-
-	{! _PIPELINE_RENDER_REGION !}
-end
-
-{! stop_timer('rasterize') !}
-]]
-
--- TODO
--- uses environment: interpolate_vertex_indices, interpolate_world_position, needs_interpolated_depth, needs_fragment_world_position, needs_face_world_normal
--- uses utility: increment_statistic
-local _PIPELINE_RENDER_FACE = [[
-{! start_timer('process_vertices') !}
-{! _PIPELINE_INIT_FACE_VERTICES !}
-
-{% for _, idx in ipairs(_ENV.access_face_indices) do %}
-local {= get_face_attribute_local_variable(idx) =} = _v3d_geometry[_v3d_face_offset + {= idx =}]
-{% end %}
-
-{! increment_statistic 'candidate_faces' !}
-
-{% if options.cull_faces then %}
-local _v3d_cull_face
-do
-	local _v3d_d1x = _v3d_transformed_p1x - _v3d_transformed_p0x
-	local _v3d_d1y = _v3d_transformed_p1y - _v3d_transformed_p0y
-	local _v3d_d1z = _v3d_transformed_p1z - _v3d_transformed_p0z
-	local _v3d_d2x = _v3d_transformed_p2x - _v3d_transformed_p0x
-	local _v3d_d2y = _v3d_transformed_p2y - _v3d_transformed_p0y
-	local _v3d_d2z = _v3d_transformed_p2z - _v3d_transformed_p0z
-	local _v3d_cx = _v3d_d1y * _v3d_d2z - _v3d_d1z * _v3d_d2y
-	local _v3d_cy = _v3d_d1z * _v3d_d2x - _v3d_d1x * _v3d_d2z
-	local _v3d_cz = _v3d_d1x * _v3d_d2y - _v3d_d1y * _v3d_d2x
-	{% local cull_face_comparison_operator = options.cull_faces == 'front' and '<=' or '>=' %}
-	_v3d_cull_face = _v3d_cx * _v3d_transformed_p0x + _v3d_cy * _v3d_transformed_p0y + _v3d_cz * _v3d_transformed_p0z {= cull_face_comparison_operator =} 0
-end
-
-if not _v3d_cull_face then
-{% end %}
-
-{! stop_timer('process_vertices') !}
-
--- TODO: make this split polygons for clipping
-{% local clipping_plane = 0.0001 %}
-if _v3d_transformed_p0z <= {= clipping_plane =} and _v3d_transformed_p1z <= {= clipping_plane =} and _v3d_transformed_p2z <= {= clipping_plane =} then
-	{! start_timer('process_vertices') !}
-	local _v3d_rasterize_p0_w = -1 / _v3d_transformed_p0z
-	local _v3d_rasterize_p0_x = (_v3d_transformed_p0x * _v3d_rasterize_p0_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
-	local _v3d_rasterize_p0_y = (-_v3d_transformed_p0y * _v3d_rasterize_p0_w + 1) * _v3d_viewport_translate_scale_y
-	local _v3d_rasterize_p1_w = -1 / _v3d_transformed_p1z
-	local _v3d_rasterize_p1_x = (_v3d_transformed_p1x * _v3d_rasterize_p1_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
-	local _v3d_rasterize_p1_y = (-_v3d_transformed_p1y * _v3d_rasterize_p1_w + 1) * _v3d_viewport_translate_scale_y
-	local _v3d_rasterize_p2_w = -1 / _v3d_transformed_p2z
-	local _v3d_rasterize_p2_x = (_v3d_transformed_p2x * _v3d_rasterize_p2_w * _v3d_aspect_ratio_reciprocal + 1) * _v3d_viewport_translate_scale_x
-	local _v3d_rasterize_p2_y = (-_v3d_transformed_p2y * _v3d_rasterize_p2_w + 1) * _v3d_viewport_translate_scale_y
-
-	{% if interpolate_world_position then %}
-	local _v3d_rasterize_p0_wx = _v3d_world_transformed_p0x
-	local _v3d_rasterize_p0_wy = _v3d_world_transformed_p0y
-	local _v3d_rasterize_p0_wz = _v3d_world_transformed_p0z
-	local _v3d_rasterize_p1_wx = _v3d_world_transformed_p1x
-	local _v3d_rasterize_p1_wy = _v3d_world_transformed_p1y
-	local _v3d_rasterize_p1_wz = _v3d_world_transformed_p1z
-	local _v3d_rasterize_p2_wx = _v3d_world_transformed_p2x
-	local _v3d_rasterize_p2_wy = _v3d_world_transformed_p2y
-	local _v3d_rasterize_p2_wz = _v3d_world_transformed_p2z
-	{% end %}
-
-	{% for _, idx in ipairs(interpolate_vertex_indices) do %}
-	local {= get_vertex_index_local_variable(0, idx) =} = _v3d_geometry[_v3d_vertex_offset + {= idx =}]
-	local {= get_vertex_index_local_variable(1, idx) =} = _v3d_geometry[_v3d_vertex_offset + {= idx + options.vertex_format:size() =}]
-	local {= get_vertex_index_local_variable(2, idx) =} = _v3d_geometry[_v3d_vertex_offset + {= idx + options.vertex_format:size() * 2 =}]
-	{% end %}
-
-	{! stop_timer('process_vertices') !}
-
-	{! _PIPELINE_RENDER_TRIANGLE !}
-	{! increment_statistic 'drawn_faces' !}
-else
-	{! increment_statistic 'discarded_faces' !}
-end
-
-{% if options.cull_faces then %}
-else
-	{! increment_statistic 'discarded_faces' !}
-end
-{% end %}
-
-_v3d_vertex_offset = _v3d_vertex_offset + {= options.vertex_format:size() * 3 =}
-{% if options.face_format then %}
-_v3d_face_offset = _v3d_face_offset + {= options.face_format:size() =}
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RETURN_STATISTICS = [[
+-- _v3d_create_instance, _v3d_finalise_instance
+{% if options.record_statistics then %}
+	local _v3d_return_statistics = _v3d_create_instance('V3DRendererStatistics')
+	_v3d_return_statistics.timers = {! _RENDERER_RETURN_STATISTICS_TOTAL_TIMER_VALUE !}
+	_v3d_return_statistics.events = {! _RENDERER_RETURN_STATISTICS_EVENT_VALUE !}
+	return _v3d_finalise_instance(_v3d_return_statistics)
+{% else %}
+	return {
+		timers = {! _RENDERER_RETURN_STATISTICS_TOTAL_TIMER_VALUE !},
+		events = {! _RENDERER_RETURN_STATISTICS_EVENT_VALUE !},
+	}
 {% end %}
 ]]
 
-local _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE = [[
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RETURN_STATISTICS_TOTAL_TIMER_VALUE = [[
 {
 	{% for _, timer_name in ipairs(_ENV.timers_updated) do %}
 		{% if options.record_statistics then %}
@@ -4329,7 +4980,7 @@ local _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE = [[
 }
 ]]
 
-local _PIPELINE_RETURN_STATISTICS_EVENT_VALUE = [[
+_BASE_RENDERER_ENVIRONMENT._RENDERER_RETURN_STATISTICS_EVENT_VALUE = [[
 {
 {% for _, counter_name in ipairs(_ENV.event_counters_updated) do %}
 	{% if options.record_statistics then %}
@@ -4340,70 +4991,20 @@ local _PIPELINE_RETURN_STATISTICS_EVENT_VALUE = [[
 {% end %}
 }
 ]]
-
-local _PIPELINE_RETURN_STATISTICS = [[
--- _v3d_create_instance, _v3d_finalise_instance
-{% if options.record_statistics then %}
-	local _v3d_return_statistics = _v3d_create_instance('V3DPipelineStatistics')
-	_v3d_return_statistics.timers = {! _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE !}
-	_v3d_return_statistics.events = {! _PIPELINE_RETURN_STATISTICS_EVENT_VALUE !}
-	return _v3d_finalise_instance(_v3d_return_statistics)
-{% else %}
-	return {
-		timers = {! _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE !},
-		events = {! _PIPELINE_RETURN_STATISTICS_EVENT_VALUE !},
-	}
-{% end %}
-]]
-
-local _PIPELINE_RENDER_MAIN = [[
-local _v3d_create_instance, _v3d_finalise_instance = ...
-return function(_v3d_pipeline, _v3d_geometry, _v3d_views, _v3d_transform, _v3d_model_transform, _v3d_viewport)
-	{! start_timer('render') !}
-
-	{! _PIPELINE_INIT_CONSTANTS !}
-	{! _PIPELINE_INIT_UNIFORMS !}
-	{! _PIPELINE_INIT_STATISTICS !}
-	{! _PIPELINE_INIT_IMAGES !}
-	{! _PIPELINE_INIT_TRANSFORMS !}
-
-	local _v3d_vertex_offset = _v3d_geometry.vertex_offset + 1
-	local _v3d_face_offset = 1
-
-	for _ = 1, _v3d_geometry.n_vertices, 3 do
-		{! _PIPELINE_RENDER_FACE !}
-	end
-
-	{! stop_timer('render') !}
-
-	{! _PIPELINE_RETURN_STATISTICS !}
 end
-]]
 
-local DEFAULT_PIPELINE_PIXEL_SOURCE = [[
-v3d_set_pixel_flat(colour, 2 ^ v3d_face_flat('index'))
-]]
-
---- TODO
---- @param options V3DPipelineOptions
---- @return V3DPipeline
---- @v3d-constructor
 -- TODO: validations
 -- TODO: examples
-function v3d.compile_pipeline(options)
-	local pipeline = _create_instance('V3DPipeline', options.label)
-
-	local clock_function_str = ccemux and 'ccemux.nanoTime() / 1000000000' or 'os.clock()'
+--- TODO
+--- @param options V3DRendererOptions
+--- @return V3DRenderer
+--- @v3d-constructor
+function v3d.compile_renderer(options)
+	local renderer = _create_instance('V3DRenderer', options.label)
 
 	local actual_options = {}
-	actual_options.sources = {}
-	actual_options.sources.init = options.sources and options.sources.init or ""
-	actual_options.sources.finish = options.sources and options.sources.finish or ""
-	actual_options.sources.vertex = options.sources and options.sources.vertex or ""
-	actual_options.sources.pixel = options.sources and options.sources.pixel or DEFAULT_PIPELINE_PIXEL_SOURCE
+	actual_options.pixel_shader = options.pixel_shader
 	actual_options.image_formats = options.image_formats
-	actual_options.vertex_format = options.vertex_format
-	actual_options.face_format = options.face_format or nil
 	actual_options.position_lens = options.position_lens
 	actual_options.cull_faces = options.cull_faces or 'back'
 	actual_options.pixel_aspect_ratio = options.pixel_aspect_ratio or 1
@@ -4414,285 +5015,40 @@ function v3d.compile_pipeline(options)
 	actual_options.label = options.label
 
 	--- @diagnostic disable-next-line: invisible
-	pipeline.uniforms = {}
-	pipeline.created_options = options
-	pipeline.used_options = actual_options
-	-- TODO: pipeline.compiled_sources
-	-- TODO: pipeline.compiled_source
+	renderer.created_options = options
+	renderer.used_options = actual_options
+	renderer.pixel_shader = actual_options.pixel_shader
+
+	----------------------------------------------------------------------------
+
+	local clock_function_str = ccemux and 'ccemux.nanoTime() / 1000000000' or 'os.clock()'
 
 	local _environment = {}
-	_environment.options = actual_options
-	_environment._PIPELINE_INIT_CONSTANTS = _PIPELINE_INIT_CONSTANTS
-	_environment._PIPELINE_INIT_UNIFORMS = _PIPELINE_INIT_UNIFORMS
-	_environment._PIPELINE_INIT_STATISTICS = _PIPELINE_INIT_STATISTICS
-	_environment._PIPELINE_INIT_IMAGES = _PIPELINE_INIT_IMAGES
-	_environment._PIPELINE_INIT_TRANSFORMS = _PIPELINE_INIT_TRANSFORMS
-	_environment._PIPELINE_INIT_FACE_VERTICES = _PIPELINE_INIT_FACE_VERTICES
-	_environment._PIPELINE_RENDER_REGION_SETUP = _PIPELINE_RENDER_REGION_SETUP
-	_environment._PIPELINE_RENDER_REGION = _PIPELINE_RENDER_REGION
-	_environment._PIPELINE_RENDER_TRIANGLE_SORT_VERTICES = _PIPELINE_RENDER_TRIANGLE_SORT_VERTICES
-	_environment._PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT = _PIPELINE_RENDER_TRIANGLE_CALCULATE_FLAT_MIDPOINT
-	_environment._PIPELINE_RENDER_TRIANGLE = _PIPELINE_RENDER_TRIANGLE
-	_environment._PIPELINE_RENDER_FACE = _PIPELINE_RENDER_FACE
-	_environment._PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE = _PIPELINE_RETURN_STATISTICS_TOTAL_TIMER_VALUE
-	_environment._PIPELINE_RETURN_STATISTICS_EVENT_VALUE = _PIPELINE_RETURN_STATISTICS_EVENT_VALUE
-	_environment._PIPELINE_RETURN_STATISTICS = _PIPELINE_RETURN_STATISTICS
+	for k, v in pairs(_BASE_RENDERER_ENVIRONMENT) do
+		_environment[k] = v
+	end
 
-	_environment.uniforms_accessed = {}
-	_environment.access_images = {}
-	_environment.access_view_indices = {}
-	_environment.access_face_indices = { set = {} }
-	_environment.interpolate_vertex_indices = { set = {} }
+	_environment.options = actual_options
+
+	_environment.access_image_view_base_offsets = {}
 	_environment.event_counters_updated = {}
 	_environment.timers_updated = {}
-	_environment.interpolate_world_position = false
-	_environment.needs_fragment_world_position = false
-	_environment.needs_face_world_normal = false
-	_environment.needs_interpolated_depth = false
+	_environment.needs_source_position = actual_options.pixel_shader.uses_source_position_x
+	                                  or actual_options.pixel_shader.uses_source_position_y
+	                                  or actual_options.pixel_shader.uses_source_position_z
+	_environment.needs_source_absolute_normal = actual_options.pixel_shader.uses_source_absolute_normal_x
+	                                         or actual_options.pixel_shader.uses_source_absolute_normal_y
+	                                         or actual_options.pixel_shader.uses_source_absolute_normal_z
+	_environment.needs_source_absolute_position = actual_options.pixel_shader.uses_source_absolute_position_x
+	                                           or actual_options.pixel_shader.uses_source_absolute_position_y
+	                                           or actual_options.pixel_shader.uses_source_absolute_position_z
+	                                           or _environment.needs_source_absolute_normal
+	_environment.needs_interpolated_depth = actual_options.pixel_shader.uses_source_depth
+	                                     or _environment.needs_source_position
+	                                     or _environment.needs_source_absolute_normal
+	                                     or _environment.needs_source_absolute_position
+	                                     or #actual_options.pixel_shader.uses_source_offsets > 0
 	_environment.timer_stack = {}
-
-	local function TODO() error('TODO') end
-
-	----------------------------------------------------------------------------
-
-	--- @diagnostic disable: return-type-mismatch
-	--- @diagnostic disable: unused-local
-	--- @diagnostic disable: missing-return-value
-
-	--- @v3d-macro -- TODO
-	function _environment.v3d_uniform(name)
-		if not _environment.uniforms_accessed[name] then
-			_environment.uniforms_accessed[name] = true
-			table.insert(_environment.uniforms_accessed, name)
-		end
-
-		return _environment.get_uniform_local_variable(name)
-	end
-
-	--- Record an event. This only has an effect when the pipeline has event
-	--- recording enabled.
-	--- @param name string
-	--- @param count integer | nil
-	--- @return nil
-	function _environment.v3d_event(name, count)
-		if not actual_options.record_statistics then
-			return ''
-		end
-
-		if not _environment.event_counters_updated[name] then
-			_environment.event_counters_updated[name] = true
-			table.insert(_environment.event_counters_updated, name)
-		end
-
-		local varname = _environment.get_event_counter_local_variable(name)
-		return varname .. ' = ' .. varname .. ' + ' .. tostring(count or 1)
-	end
-
-	--- Return whether the depth represented by `a` is closer than the depth
-	--- represented by `b`.
-	--- @param a number
-	--- @param b number
-	--- @return boolean
-	function _environment.v3d_compare_depth(a, b)
-		return '(' .. a .. ' > ' .. b .. ')'
-	end
-
-	-- TODO: local w, h, d, fmt = v3d_image(image, 'whdf')
-	-- allow rx, ry, rz, rw, rh, rd too?
-	--- Return a named image object being used in this pipeline's execution.
-	--- TODO: Note: v3d optimises accessing image fields if they immediately follow this
-	---       macro invocation. For example:
-	--- ```lua
-	--- local width = v3d_image('my_image').width -- optimised
-	--- local image = v3d_image('my_image')
-	--- local width = image.width -- not optimised
-	--- ```
-	--- @param name string
-	--- @return V3DImage
-	function _environment.v3d_image(name)
-		if not _environment.access_images[name] then
-			_environment.access_images[name] = true
-			table.insert(_environment.access_images, name)
-		end
-
-		return _environment.get_image_local_variable(name)
-	end
-	--- @param name string
-	--- @return V3DImageView
-	function _environment.v3d_image_view(name)
-		return '_v3d_views[\'' .. name .. '\']'
-	end
-
-	-- plus something for views?
-
-	----------------------------------------------------------------
-
-	-- --- Return one or more position values of the current pixel.
-	-- --- @param xyzuvw string
-	-- --- @param reference_image string | nil
-	-- --- @return integer ...
-	-- function _environment.v3d_pixel_position(xyzuvw, reference_image)
-	-- 	if not absolute then
-	-- 		return 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw .. ', relative)'
-	-- 	end
-
-	-- 	if #xyzuvw > 1 then
-	-- 		local t = {}
-	-- 		for i = 1, #xyzuvw do
-	-- 			table.insert(t, 'v3d_pixel_position(' .. lens .. ', ' .. xyzuvw:sub(i, i) .. ', ' .. absolute .. ')')
-	-- 		end
-	-- 		return table.concat(t, ', ')
-	-- 	end
-
-	-- 	assert(xyzuvw == 'x' or xyzuvw == 'y' or xyzuvw == 'z' or xyzuvw == 'u' or xyzuvw == 'v' or xyzuvw == 'w')
-	-- 	assert(not absolute or absolute == 'absolute' or absolute == 'relative')
-	-- 	return MACRO_EXPAND_LATER
-	-- end
-
-	--- @param lens string
-	--- @return integer
-	function _environment.v3d_pixel_index(lens)
-		-- TODO
-		local view_name, rest = lens:match '^([%w_]+)%.?(.*)$'
-
-		if not _environment.access_view_indices[view_name] then
-			_environment.access_view_indices[view_name] = true
-			table.insert(_environment.access_view_indices, view_name)
-		end
-
-		local l = v3d.format_lens(options.image_formats[view_name], rest)
-		return l.offset .. ' + _v3d_view_base_index_' .. view_name
-	end
-
-	--- @param lens string
-	--- @return any
-	function _environment.v3d_pixel(lens)
-		return TODO()
-	end
-
-	--- @param lens string
-	--- @return any ...
-	function _environment.v3d_pixel_flat(lens)
-		local view_name, rest = lens:match '^([%w_]+)%.?(.*)$'
-		local elements = {}
-		local l = v3d.format_lens(options.image_formats[view_name], rest)
-
-		for i = 1, v3d.format_size(l.out_format) do
-			table.insert(elements, 'v3d_image(\'' .. view_name .. '\')[' .. (i - 1) .. ' + v3d_pixel_index(' .. lens .. ')]')
-		end
-
-		return table.concat(elements, ', ')
-	end
-
-	--- @param lens string
-	--- @param value any
-	--- @return nil
-	function _environment.v3d_set_pixel(lens, value)
-		return TODO()
-	end
-
-	--- @param lens string
-	--- @param ... any
-	--- @return nil
-	function _environment.v3d_set_pixel_flat(lens, ...)
-		local values = { ... }
-		local view_name, rest = lens:match '^([%w_]+)%.?(.*)$'
-		local l = v3d.format_lens(options.image_formats[view_name], rest)
-		local lines = {}
-
-		for i = 1, v3d.format_size(l.out_format) do
-			table.insert(lines, 'v3d_image(\'' .. view_name .. '\')[' .. (i - 1) .. ' + v3d_pixel_index(' .. lens .. ')] = ' .. values[i])
-		end
-
-		return table.concat(lines, '\n')
-	end
-
-	-- TODO: methods for getting offsets and getting/setting values at those offsets
-
-	--- @param lens string
-	--- @return any
-	function _environment.v3d_face(lens)
-		TODO()
-	end
-
-	--- @param lens string
-	--- @return any
-	function _environment.v3d_face_flat(lens)
-		-- TODO: validate lens
-		local l = v3d.format_lens(actual_options.face_format, lens)
-		local indices = {}
-
-		for i = 0, v3d.format_size(l.out_format) - 1 do
-			local index = l.offset + i
-			if not _environment.access_face_indices.set[index] then
-				_environment.access_face_indices.set[index] = true
-				table.insert(_environment.access_face_indices, index)
-			end
-			table.insert(indices, _environment.get_face_attribute_local_variable(index))
-		end
-
-		return table.concat(indices, ', ')
-	end
-
-	--- @param lens string
-	--- @return any
-	function _environment.v3d_vertex(lens)
-		return TODO()
-	end
-
-	--- @param lens string
-	--- @return any
-	function _environment.v3d_vertex_flat(lens)
-		-- TODO: validate lens
-		local l = v3d.format_lens(actual_options.vertex_format, lens)
-		local indices = {}
-
-		for i = 0, v3d.format_size(l.out_format) - 1 do
-			local index = l.offset + i
-			if not _environment.interpolate_vertex_indices.set[index] then
-				_environment.needs_interpolated_depth = true
-				_environment.interpolate_vertex_indices.set[index] = true
-				table.insert(_environment.interpolate_vertex_indices, index)
-			end
-			table.insert(indices, _environment.get_interpolated_vertex_index_local_variable(index))
-		end
-
-		return table.concat(indices, ', ')
-	end
-
-	--- @return number
-	function _environment.v3d_vertex_depth(lens)
-		_environment.needs_interpolated_depth = true
-		return '_v3d_row_w'
-	end
-
-	--- TODO
-	function _environment.v3d_vertex_world_position()
-		return TODO()
-	end
-
-	--- TODO
-	--- @return number, number, number
-	function _environment.v3d_vertex_world_position_flat()
-		_environment.interpolate_world_position = true
-		_environment.needs_fragment_world_position = false
-		_environment.needs_interpolated_depth = true
-
-		return '_v3d_row_wx', '_v3d_row_wy', '_v3d_row_wz'
-	end
-
-	--- TODO
-	--- @return number, number, number
-	function _environment.v3d_face_world_normal()
-		_environment.needs_face_world_normal = true
-		return '_v3d_face_world_normal0', '_v3d_face_world_normal1', '_v3d_face_world_normal2'
-	end
-
-	--- @diagnostic enable: return-type-mismatch
-	--- @diagnostic enable: unused-local
-	--- @diagnostic enable: missing-return-value
-
-	----------------------------------------------------------------------------
 
 	function _environment.start_timer(name)
 		if not actual_options.record_statistics then
@@ -4730,38 +5086,6 @@ function v3d.compile_pipeline(options)
 		return timer_name .. ' = ' .. timer_name .. ' + (' .. clock_function_str .. ' - ' .. timer_start_name .. ')'
 	end
 
-	function _environment.get_event_counter_local_variable(name)
-		return '_v3d_event_counter_' .. name
-	end
-
-	function _environment.get_timer_start_local_variable(name)
-		return '_v3d_timer_start_' .. name:gsub('[^%w_]', '_')
-	end
-
-	function _environment.get_timer_local_variable(name)
-		return '_v3d_timer_total_' .. name:gsub('[^%w_]', '_')
-	end
-
-	function _environment.get_uniform_local_variable(name)
-		return '_v3d_uniforms_' .. name
-	end
-
-	function _environment.get_image_local_variable(image_name)
-		return '_v3d_image_' .. image_name
-	end
-
-	function _environment.get_vertex_index_local_variable(vertex, index)
-		return '_v3d_rasterize_p' .. vertex .. '_va_' .. index
-	end
-
-	function _environment.get_interpolated_vertex_index_local_variable(index)
-		return '_v3d_va_interpolated_' .. index
-	end
-
-	function _environment.get_face_attribute_local_variable(index)
-		return '_v3d_fa_' .. index
-	end
-
 	function _environment.increment_statistic(name)
 		if not actual_options.record_statistics then
 			return ''
@@ -4770,27 +5094,33 @@ function v3d.compile_pipeline(options)
 		return '{! v3d_event(\'' .. name .. '\') !}'
 	end
 
-	local pixel_source = _v3d_apply_template(actual_options.sources.pixel, _environment)
-	pixel_source = _process_pipeline_source_macro_calls(pixel_source, _environment)
+	----------------------------------------------------------------------------
+
+	local pixel_source = _v3d_apply_template(actual_options.pixel_shader.expanded_code, _environment)
 
 	_environment.PIXEL_SOURCE_EMBED = pixel_source
 
-	local content = _v3d_apply_template(_PIPELINE_RENDER_MAIN, _environment)
-	content = _v3d_optimise_globals(content, true)
+	local compiled_source = _v3d_apply_template(_environment._RENDERER_RENDER_MAIN, _environment)
+	compiled_source = _v3d_optimise_globals(compiled_source, true)
+	compiled_source = _v3d_optimise_maths(compiled_source)
 
-	local f, err = load(content, '=render', nil, _ENV)
+	local f, err = load(compiled_source, '=render', nil, _ENV)
 	if f then
 		--- @diagnostic disable-next-line: inject-field
-		pipeline.render = f(_create_instance, _finalise_instance)
+		renderer.render = f(_create_instance, _finalise_instance)
 	else
-		_v3d_contextual_error(err, content)
+		_v3d_contextual_error(err, compiled_source)
 	end
 
-	local h = assert(io.open('/v3d/artifacts/pipeline.lua', 'w'))
-	h:write(content)
+	-- TODO: remove this, add functionality to v3debug
+	local h = assert(io.open('/v3d/artifacts/renderer.lua', 'w'))
+	h:write(compiled_source)
 	h:close()
 
-	return _finalise_instance(pipeline)
+	--- @diagnostic disable-next-line: invisible
+	renderer.compiled_source = compiled_source
+
+	return _finalise_instance(renderer)
 end
 
 end ----------------------------------------------------------------------------
@@ -4802,7 +5132,9 @@ do -----------------------------------------------------------------------------
 --- Sampler wrapping determines what happens to image coordinates that lie
 --- outside the 0-1 inclusive range.
 ---
---- * `clamp`: Coordinates are clamped to the 0-1 inclusive range.
+--- * `clamp`: Coordinates are clamped to the 0-1 inclusive range, e.g. a
+---            coordinate of -0.3 would become 0, and a coordinate of 1.3 would
+---            become 1.
 --- * `repeat`: Coordinates repeat mod 1, e.g. a coordinate of 1.3 would be the
 ---             same as a coordinate of 0.3.
 --- * `mirror`: Like `repeat` but mirrors the coordinates every other repeat,
@@ -4888,14 +5220,18 @@ do -----------------------------------------------------------------------------
 --- Format of the sampler. Images sampled with this sampler must have a format
 --- compatible with the sampler's format.
 --- @field format V3DFormat
+--- Lens within the format to sample. This allows sampling specific parts of an
+--- image, such as the red channel of an RGB image. Defaults to the format's
+--- default lens, therefore sampling all the data.
+--- @field lens V3DLens | nil
+--- Interpolation mode for the sampler. Defaults to `nearest`.
+---
+--- @see V3DSamplerInterpolation
+--- @field interpolate V3DSamplerInterpolation | nil
 --- Wrapping mode for the U coordinate. Defaults to `clamp`.
 ---
 --- @see V3DSamplerWrap
 --- @field wrap_u V3DSamplerWrap | nil
---- Interpolation mode for the U coordinate. Defaults to `nearest`.
----
---- @see V3DSamplerInterpolation
---- @field interpolate_u V3DSamplerInterpolation | nil
 --- Label for the sampler. This is used for debugging purposes.
 --- @field label string | nil
 --- @v3d-structural
@@ -4911,10 +5247,6 @@ do -----------------------------------------------------------------------------
 ---
 --- @see V3DSamplerWrap
 --- @field wrap_v V3DSamplerWrap | nil
---- Interpolation mode for the V coordinate. Defaults to `nearest`.
----
---- @see V3DSamplerInterpolation
---- @field interpolate_v V3DSamplerInterpolation | nil
 --- @v3d-structural
 
 ----------------------------------------------------------------
@@ -4928,99 +5260,111 @@ do -----------------------------------------------------------------------------
 ---
 --- @see V3DSamplerWrap
 --- @field wrap_w V3DSamplerWrap | nil
---- Interpolation mode for the W coordinate. Defaults to `nearest`.
----
---- @see V3DSamplerInterpolation
---- @field interpolate_w V3DSamplerInterpolation | nil
 --- @v3d-structural
 
 ----------------------------------------------------------------
 
-local _SAMPLER1D_TEMPLATE = [[
-return function(sampler, image, u)
-	local image_width = image.width
-	local image_width2 = image_width + image_width
-
-	{% if options.interpolate_u == 'nearest' then %}
-		{% if options.wrap_u == 'clamp' then %}
-			local x = math.floor(u * image_width)
-			if x < 0 then x = 0
-			elseif x >= image_width then x = image_width - 1 end
-		{% elseif options.wrap_u == 'repeat' then %}
-			local umod1 = u % 1
-			if umod1 == 0 then
-				u = u % 2
-			else
-				u = umod1
-			end
-			local x = math.floor(u * image_width)
-			if x == image_width then x = image_width - 1 end
-		{% elseif options.wrap_u == 'mirror' then %}
-			local x = math.floor((u % 2) * image_width)
-			if x >= image_width then
-				x = image_width2 - x - 1
-			end
-		{% end %}
-
-		return
-		{% for i = 1, components do %}
-			{% if i > 1 then %}, {% end %}
-			image[${i} + x * ${components}]
-		{% end %}
-	{% elseif options.interpolate_u == 'linear' then %}
-		{% if options.wrap_u == 'clamp' then %}
-			local x = u * (image_width - 1)
-
-			if x <= 0 then
-				return
-				{% for i = 1, components do %}
-					{% if i > 1 then %}, {% end %}
-					image[${i}]
-				{% end %}
-			elseif x >= image_width - 1 then
-				local last_pixel = (image_width - 1) * ${components}
-				return
-				{% for i = 1, components do %}
-					{% if i > 1 then %}, {% end %}
-					image[last_pixel + ${i}]
-				{% end %}
-			end
-
-			local x0 = math.floor(x)
-			local x1 = x0 + 1
-			local xt1 = x - x0
-			local xt0 = 1 - xt1
-		{% elseif options.wrap_u == 'repeat' then %}
-			u = u % 1
-
-			local x = u * (image_width - 1)
-			local x0 = math.floor(x)
-			local x1 = x0 + 1
-			local xt1 = x - x0
-			local xt0 = 1 - xt1
-
-			x0 = x0 % image_width
-			x1 = x1 % image_width
-		{% elseif options.wrap_u == 'mirror' then %}
-			u = u % 2
-
-			local x = u * (image_width - 1)
-			local x0 = math.floor(x)
-			local x1 = x0 + 1
-			local xt1 = x - x0
-			local xt0 = 1 - xt1
-
-			x0 = x0 % image_width
-			x1 = x1 % image_width
-		{% end %}
-
-		return
-		{% for i = 1, components do %}
-			{% if i > 1 then %}, {% end %}
-			image[${i} + x0 * ${components}] * xt0 + image[${i} + x1 * ${components}] * xt1
-		{% end %}
-	{% end %}
+local function _wrap_nearest_to_code(wrap, vT, vS, vM)
+	if wrap == 'clamp' then
+		return table.concat({
+			'local ' .. vT .. ' = math.floor(' .. vS .. ' * ' .. vM .. ')',
+			'if ' .. vT .. ' < 0 then ' .. vT .. ' = 0',
+			'elseif ' .. vT .. ' >= ' .. vM .. ' then ' .. vT .. ' = ' .. vM .. ' - 1',
+			'end',
+		}, '\n')
+	elseif wrap == 'repeat' then
+		return table.concat({
+			'local ' .. vS .. 'mod1 = ' .. vS .. ' % 1',
+			'if ' .. vS .. 'mod1 == 0 then ' .. vS .. ' = ' .. vS .. ' % 2 -- prevent ' .. vS .. '=1 wrapping to 0',
+			'else               ' .. vS .. ' = ' .. vS .. 'mod1',
+			'end',
+			'local ' .. vT .. ' = math.floor(' .. vS .. ' * ' .. vM .. ')',
+			'if ' .. vT .. ' >= ' .. vM .. ' then ' .. vT .. ' = ' .. vM .. ' - 1 end',
+		}, '\n')
+	elseif wrap == 'mirror' then
+		return table.concat({
+			'local ' .. vM .. '2 = ' .. vM .. ' + ' .. vM,
+			'local ' .. vT .. ' = math.floor((' .. vS .. ' % 2) * ' .. vM .. ')',
+			'if ' .. vT .. ' >= ' .. vM .. ' then',
+			'	' .. vT .. ' = ' .. vM .. '2 - ' .. vT .. ' - 1',
+			'end',
+		}, '\n')
+	end
 end
+
+local function _wrap_linear_to_code(wrap, vT, vS, vM)
+	if wrap == 'clamp' then
+		return table.concat({
+			'if ' .. vS .. ' < 0 then ' .. vS .. ' = 0',
+			'elseif ' .. vS .. ' > 1 then ' .. vS .. ' = 1 end',
+			'local ' .. vT .. ' = ' .. vS .. ' * (' .. vM .. ' - 1)',
+			'local ' .. vT .. '0 = math.floor(' .. vT .. ')',
+			'local ' .. vT .. '1 = ' .. vT .. '0 + 1',
+			'if ' .. vT .. '1 < 0 then ' .. vT .. '1 = 0',
+			'elseif ' .. vT .. '1 >= ' .. vM .. ' then ' .. vT .. '1 = ' .. vM .. ' - 1 end',
+			'local ' .. vT .. 't1 = ' .. vT .. ' - ' .. vT .. '0',
+			'local ' .. vT .. 't0 = 1 - ' .. vT .. 't1',
+		}, '\n')
+	elseif wrap == 'repeat' then
+		return table.concat({
+			'' .. vS .. ' = ' .. vS .. ' % 1',
+			'',
+			'local ' .. vT .. ' = ' .. vS .. ' * (' .. vM .. ' - 1)',
+			'local ' .. vT .. '0 = math.floor(' .. vT .. ')',
+			'local ' .. vT .. '1 = ' .. vT .. '0 + 1',
+			'if ' .. vT .. '1 == ' .. vM .. ' - 1 then ' .. vT .. '1 = 0 end',
+			'local ' .. vT .. 't1 = ' .. vT .. ' - ' .. vT .. '0',
+			'local ' .. vT .. 't0 = 1 - ' .. vT .. 't1',
+			'',
+			vT .. '0 = ' .. vT .. '0 % ' .. vM,
+			'' .. vT .. '1 = ' .. vT .. '1 % ' .. vM,
+		}, '\n')
+	elseif wrap == 'mirror' then
+		-- TODO: pretty sure this is broken...
+		return table.concat({
+			'local ' .. vM .. '2 = ' .. vM .. ' + ' .. vM,
+			'local ' .. vT .. ' = ' .. vS .. ' * ' .. vM .. ' % ' .. vM .. '2',
+			'local ' .. vT .. '0 = math.floor(' .. vT .. ')',
+			'local ' .. vT .. '1 = (' .. vT .. '0 + 1) % ' .. vM .. '2',
+			'local ' .. vT .. 't1 = (' .. vT .. ' - ' .. vT .. '0) % 1',
+			'local ' .. vT .. 't0 = 1 - ' .. vT .. 't1',
+			'',
+			'if ' .. vT .. '0 >= ' .. vM .. ' then ' .. vT .. '0 = ' .. vM .. ' - (' .. vT .. '0 % ' .. vM .. ') - 1 end',
+			'if ' .. vT .. '1 >= ' .. vM .. ' then ' .. vT .. '1 = ' .. vM .. ' - (' .. vT .. '1 % ' .. vM .. ') - 1 end',
+		}, '\n')
+	end
+end
+
+----------------------------------------------------------------
+
+local _SAMPLER1D_TEMPLATE_NEAREST = [[
+	local _v3d_sampler_image_width = $image.width
+
+	{! _wrap_nearest_to_code(options.wrap_u, '_v3d_sampler_x', '$u', '_v3d_sampler_image_width') !}
+
+	{!
+	local c = {}
+	for i = first_component_offset + 1, first_component_offset + n_components do
+		table.insert(c, '$image[' .. i .. ' + _v3d_sampler_x * ' .. n_components .. ']')
+	end
+	return '$return ' .. table.concat(c, ', ')
+	!}
+]]
+
+local _SAMPLER1D_TEMPLATE_LINEAR = [[
+	local _v3d_sampler_image_width = $image.width
+
+	{! _wrap_linear_to_code(options.wrap_u, '_v3d_sampler_x', '$u', '_v3d_sampler_image_width') !}
+
+	{!
+	local c = {}
+	for i = first_component_offset + 1, first_component_offset + n_components do
+		local x0 = '$image[' .. i .. ' + _v3d_sampler_x0 * ' .. n_components .. ']'
+		local x1 = '$image[' .. i .. ' + _v3d_sampler_x1 * ' .. n_components .. ']'
+		table.insert(c, x0 .. ' * _v3d_sampler_xt0 + ' .. x1 .. ' * _v3d_sampler_xt1')
+	end
+	return '$return ' .. table.concat(c, ', ')
+	!}
 ]]
 
 --- Create a 1D sampler.
@@ -5045,33 +5389,143 @@ function v3d.create_sampler1D(options)
 	options = options or {}
 	sampler.options = {
 		format = options.format,
+		lens = options.lens or v3d.format_lens(options.format),
+		interpolate = options.interpolate or 'nearest',
 		wrap_u = options.wrap_u or 'clamp',
-		interpolate_u = options.interpolate_u or 'nearest',
 	}
 	local environment = {
-		components = v3d.format_size(options.format),
+		first_component_offset = sampler.options.lens.offset,
+		n_components = v3d.format_size(sampler.options.lens.out_format),
 		options = sampler.options,
-		v3d = v3d,
+		_wrap_nearest_to_code = _wrap_nearest_to_code,
+		_wrap_linear_to_code = _wrap_linear_to_code,
 	}
-	sampler.compiled_sampler = _v3d_optimise_globals(_v3d_apply_template(_SAMPLER1D_TEMPLATE, environment), true)
+	local template
+
+	if sampler.options.interpolate == 'nearest' then
+		template = _SAMPLER1D_TEMPLATE_NEAREST
+	elseif sampler.options.interpolate == 'linear' then
+		template = _SAMPLER1D_TEMPLATE_LINEAR
+	else
+		_v3d_internal_error('Invalid interpolation mode: ' .. sampler.options.interpolate)
+	end
+
+	template = 'return function(sampler, image, u)\n' .. template .. '\nend'
+
+	local compiled_sampler = _v3d_apply_template(template, environment)
+	compiled_sampler = compiled_sampler:gsub('$image', 'image')
+	compiled_sampler = compiled_sampler:gsub('$u', 'u')
+	compiled_sampler = compiled_sampler:gsub('$return', 'return')
+	compiled_sampler = _v3d_optimise_globals(compiled_sampler, true)
+	compiled_sampler = _v3d_optimise_maths(compiled_sampler)
+	compiled_sampler = table.concat(_v3d_normalise_code_lines(compiled_sampler), '\n')
+
+	sampler.compiled_sampler = compiled_sampler
 	--- @diagnostic disable-next-line: inject-field
-	sampler.sample = assert(load(sampler.compiled_sampler))()
+	sampler.sample = assert(load(compiled_sampler))()
 	return _finalise_instance(sampler)
 end
 
 ----------------------------------------------------------------
 
--- TODO:
--- --- @param options V3DSampler2DOptions
--- --- @return V3DSampler2D
--- --- @v3d-nomethod
--- function v3d.create_sampler2D(options)
--- 	local sampler = _create_instance('V3DSampler2D', options.label)
--- 	sampler.options = options
--- 	--- @diagnostic disable-next-line: invisible
--- 	sampler.components = v3d.format_size(options.format)
--- 	return sampler
--- end
+local _SAMPLER2D_TEMPLATE_NEAREST = [[
+	local _v3d_sampler_image_width = $image.width
+	local _v3d_sampler_image_height = $image.height
+
+	{! _wrap_nearest_to_code(options.wrap_u, '_v3d_sampler_x', '$u', '_v3d_sampler_image_width') !}
+	{! _wrap_nearest_to_code(options.wrap_v, '_v3d_sampler_y', '$v', '_v3d_sampler_image_height') !}
+
+	{!
+	local c = {}
+	for i = first_component_offset + 1, first_component_offset + n_components do
+		table.insert(c, '$image[' .. i .. ' + (_v3d_sampler_x + _v3d_sampler_y * _v3d_sampler_image_width) * ' .. n_components .. ']')
+	end
+	return '$return ' .. table.concat(c, ', ')
+	!}
+]]
+
+local _SAMPLER2D_TEMPLATE_LINEAR = [[
+	local _v3d_sampler_image_width = $image.width
+	local _v3d_sampler_image_height = $image.height
+
+	{! _wrap_linear_to_code(options.wrap_u, '_v3d_sampler_x', '$u', '_v3d_sampler_image_width') !}
+	{! _wrap_linear_to_code(options.wrap_v, '_v3d_sampler_y', '$v', '_v3d_sampler_image_height') !}
+
+	{!
+	local c = {}
+	for i = first_component_offset + 1, first_component_offset + n_components do
+		local x0y0 = '$image[' .. i .. ' + (_v3d_sampler_x0 + _v3d_sampler_y0 * _v3d_sampler_image_width) * ' .. n_components .. ']'
+		local x1y0 = '$image[' .. i .. ' + (_v3d_sampler_x1 + _v3d_sampler_y0 * _v3d_sampler_image_width) * ' .. n_components .. ']'
+		local x0y1 = '$image[' .. i .. ' + (_v3d_sampler_x0 + _v3d_sampler_y1 * _v3d_sampler_image_width) * ' .. n_components .. ']'
+		local x1y1 = '$image[' .. i .. ' + (_v3d_sampler_x1 + _v3d_sampler_y1 * _v3d_sampler_image_width) * ' .. n_components .. ']'
+		local y0 = '(' .. x0y0 .. ' * _v3d_sampler_xt0 + ' .. x1y0 .. ' * _v3d_sampler_xt1)'
+		local y1 = '(' .. x0y1 .. ' * _v3d_sampler_xt0 + ' .. x1y1 .. ' * _v3d_sampler_xt1)'
+		table.insert(c, y0 .. ' * _v3d_sampler_yt0 + ' .. y1 .. ' * _v3d_sampler_yt1')
+	end
+	return '$return ' .. table.concat(c, ', ')
+	!}
+]]
+
+--- Create a 2D sampler.
+---
+--- @see V3DSampler2D
+--- @param options V3DSampler2DOptions
+--- @return V3DSampler2D
+--- @v3d-nomethod
+--- @v3d-constructor
+--- local my_sampler = v3d.create_sampler2D {
+--- 	format = v3d.uinteger(),
+--- }
+--- @v3d-example
+--- local my_sampler = v3d.create_sampler2D {
+--- 	format = v3d.number(),
+--- 	wrap_u = 'repeat',
+--- 	interpolate_v = 'linear',
+--- }
+--- @v3d-example
+function v3d.create_sampler2D(options)
+	local sampler = _create_instance('V3DSampler2D', options.label)
+	options = options or {}
+	sampler.options = {
+		format = options.format,
+		lens = options.lens or v3d.format_lens(options.format),
+		interpolate = options.interpolate or 'nearest',
+		wrap_u = options.wrap_u or 'clamp',
+		wrap_v = options.wrap_v or 'clamp',
+	}
+	local environment = {
+		first_component_offset = sampler.options.lens.offset,
+		n_components = v3d.format_size(sampler.options.lens.out_format),
+		options = sampler.options,
+		_wrap_nearest_to_code = _wrap_nearest_to_code,
+		_wrap_linear_to_code = _wrap_linear_to_code,
+	}
+
+	local template
+	if sampler.options.interpolate == 'nearest' then
+		template = _SAMPLER2D_TEMPLATE_NEAREST
+	elseif sampler.options.interpolate == 'linear' then
+		template = _SAMPLER2D_TEMPLATE_LINEAR
+	else
+		_v3d_internal_error('Invalid interpolation mode: ' .. sampler.options.interpolate)
+	end
+
+	template = 'return function(sampler, image, u, v)\n' .. template .. '\nend'
+
+	local compiled_sampler = _v3d_apply_template(template, environment)
+	compiled_sampler = compiled_sampler:gsub('$image', 'image')
+	compiled_sampler = compiled_sampler:gsub('$u', 'u')
+	compiled_sampler = compiled_sampler:gsub('$v', 'v')
+	compiled_sampler = compiled_sampler:gsub('$return', 'return')
+	compiled_sampler = _v3d_optimise_globals(compiled_sampler, true)
+	compiled_sampler = _v3d_optimise_maths(compiled_sampler)
+	compiled_sampler = table.concat(_v3d_normalise_code_lines(compiled_sampler), '\n')
+
+	sampler.compiled_sampler = compiled_sampler
+	--- @diagnostic disable-next-line: inject-field
+	sampler.sample = assert(load(compiled_sampler))()
+	return _finalise_instance(sampler)
+end
 
 ----------------------------------------------------------------
 
@@ -5086,6 +5540,72 @@ end
 -- 	sampler.components = v3d.format_size(options.format)
 -- 	return sampler
 -- end
+
+----------------------------------------------------------------
+
+--- @param sampler V3DSampler1D
+--- @param image_var string
+--- @param u_var string
+--- @return string
+--- @v3d-nolog
+--- @v3d-advanced
+function v3d.sampler1d_embed_sample(sampler, image_var, u_var)
+	local environment = {
+		first_component_offset = sampler.options.lens.offset,
+		n_components = v3d.format_size(sampler.options.lens.out_format),
+		options = sampler.options,
+		_wrap_nearest_to_code = _wrap_nearest_to_code,
+		_wrap_linear_to_code = _wrap_linear_to_code,
+	}
+
+	local template
+	if sampler.options.interpolate == 'nearest' then
+		template = _SAMPLER1D_TEMPLATE_NEAREST
+	elseif sampler.options.interpolate == 'linear' then
+		template = _SAMPLER1D_TEMPLATE_LINEAR
+	else
+		_v3d_internal_error('Invalid interpolation mode: ' .. sampler.options.interpolate)
+	end
+
+	local compiled_sampler = _v3d_apply_template(template, environment)
+	compiled_sampler = table.concat(_v3d_normalise_code_lines(compiled_sampler), '\n')
+	compiled_sampler = compiled_sampler:gsub('$image', image_var)
+	compiled_sampler = compiled_sampler:gsub('$u', u_var)
+
+	return _finalise_instance(compiled_sampler)
+end
+
+--- @param sampler V3DSampler2D
+--- @param image_var string
+--- @param u_var string
+--- @param v_var string
+--- @return string
+function v3d.sampler2d_embed_sample(sampler, image_var, u_var, v_var)
+	local environment = {
+		first_component_offset = sampler.options.lens.offset,
+		n_components = v3d.format_size(sampler.options.lens.out_format),
+		options = sampler.options,
+		_wrap_nearest_to_code = _wrap_nearest_to_code,
+		_wrap_linear_to_code = _wrap_linear_to_code,
+	}
+
+	local template
+	if sampler.options.interpolate == 'nearest' then
+		template = _SAMPLER2D_TEMPLATE_NEAREST
+	elseif sampler.options.interpolate == 'linear' then
+		template = _SAMPLER2D_TEMPLATE_LINEAR
+	else
+		_v3d_internal_error('Invalid interpolation mode: ' .. sampler.options.interpolate)
+	end
+
+	local compiled_sampler = _v3d_apply_template(template, environment)
+	compiled_sampler = table.concat(_v3d_normalise_code_lines(compiled_sampler), '\n')
+	compiled_sampler = compiled_sampler:gsub('$image', image_var)
+	compiled_sampler = compiled_sampler:gsub('$u', u_var)
+	compiled_sampler = compiled_sampler:gsub('$v', v_var)
+
+	return _finalise_instance(compiled_sampler)
+end
 
 ----------------------------------------------------------------
 
@@ -5143,20 +5663,20 @@ end
 --- @v3d-example 6
 function v3d.sampler1d_sample(sampler, image, u) end
 
--- --- @param sampler V3DSampler2D
--- --- @param image V3DImage
--- --- @param u number
--- --- @param v number
--- --- @return any ...
--- function v3d.sampler2d_sample(sampler, image, u, v) end
+--- @param sampler V3DSampler2D
+--- @param image V3DImage
+--- @param u number
+--- @param v number
+--- @return any ...
+function v3d.sampler2d_sample(sampler, image, u, v) end
 
--- --- @param sampler V3DSampler3D
--- --- @param image V3DImage
--- --- @param u number
--- --- @param v number
--- --- @param w number
--- --- @return any ...
--- function v3d.sampler3d_sample(sampler, image, u, v, w) end
+--- @param sampler V3DSampler3D
+--- @param image V3DImage
+--- @param u number
+--- @param v number
+--- @param w number
+--- @return any ...
+function v3d.sampler3d_sample(sampler, image, u, v, w) end
 
 end ----------------------------------------------------------------------------
 
