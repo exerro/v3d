@@ -69,8 +69,19 @@ local function _v3d_internal_error(message)
 end
 
 local function _v3d_contextual_error(message, context)
-	local h = assert(io.open('v3d/artifacts/contextual_error.txt', 'w'))
+	local traceback
+	pcall(function()
+		traceback = debug and debug.traceback and debug.traceback()
+	end)
+	local h
+	if fs and fs.isDir('v3d/artifacts') then
+		h = assert(io.open('v3d/artifacts/contextual_error.txt', 'w'))
+	else
+		h = assert(io.open('.v3d_contextual_error.txt', 'w'))
+	end
 	h:write(message)
+	h:write('\n')
+	h:write(traceback)
 	h:write('\n')
 	h:write('Context:\n')
 	h:write(context)
@@ -3267,9 +3278,9 @@ end
 --- @v3d-nolog
 --- @v3d-mt concat
 --- The other builder's vertex format must be compatible with this one's.
---- @v3d-validate v3d.format_is_compatible(other.vertex_format, builder.vertex_format)
+--- @v3d-validate v3d.format_is_compatible_with(other.vertex_format, builder.vertex_format)
 --- The other builder's face format must be compatible with this one's.
---- @v3d-validate v3d.format_is_compatible(other.face_format, builder.face_format)
+--- @v3d-validate v3d.format_is_compatible_with(other.face_format, builder.face_format)
 function v3d.geometry_builder_concat(builder, other)
 	--- @diagnostic disable-next-line: invisible
 	local vertices = builder.vertices
@@ -4208,16 +4219,13 @@ do -----------------------------------------------------------------------------
 ----------------------------------------------------------------
 
 -- TODO: init_shader, vertex_shader, finish_shader
+-- TODO: validations
 --- Miscellaneous options used when creating a renderer.
 --- @class V3DRendererOptions
 --- @field pixel_shader V3DShader
---- Formats of the images accessible to the renderer. This field contains a map
---- of image name to image format.
---- @field image_formats { [string]: V3DFormat }
 --- Lens pointing to a 3-component/4-component number part of vertices. Must be
 --- applicable to the vertex format.
---- TODO: apply this to V3DGeometry instead!
---- @field position_lens V3DLens
+--- @field position_lens V3DLens | nil
 --- Specify a face to cull (not draw), or false to disable face culling.
 --- Defaults to 'back'. This is a technique to improve performance and should
 --- only be changed from the default when doing something weird. For example, to
@@ -4322,7 +4330,7 @@ local _v3d_viewport_min_x, _v3d_viewport_max_x
 local _v3d_viewport_min_y, _v3d_viewport_max_y
 
 do
-	{% local any_image_name = next(options.image_formats) %}
+	{% local any_image_name = next(_ENV.options.pixel_shader.image_formats) %}
 	local any_view = _v3d_views[{= quote(any_image_name) =}]
 	if _v3d_viewport then
 		_v3d_viewport_width = _v3d_viewport.width
@@ -4643,55 +4651,9 @@ do
 do
 {% end %}
 	{% if _ENV.needs_source_absolute_position then %}
-	if _v3d_model_transform then
-		_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
-		_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
-		_v3d_world_transformed_p0z = _v3d_model_transform_zx * _v3d_p0x + _v3d_model_transform_zy * _v3d_p0y + _v3d_model_transform_zz * _v3d_p0z + _v3d_model_transform_dz
-
-		_v3d_world_transformed_p1x = _v3d_model_transform_xx * _v3d_p1x + _v3d_model_transform_xy * _v3d_p1y + _v3d_model_transform_xz * _v3d_p1z + _v3d_model_transform_dx
-		_v3d_world_transformed_p1y = _v3d_model_transform_yx * _v3d_p1x + _v3d_model_transform_yy * _v3d_p1y + _v3d_model_transform_yz * _v3d_p1z + _v3d_model_transform_dy
-		_v3d_world_transformed_p1z = _v3d_model_transform_zx * _v3d_p1x + _v3d_model_transform_zy * _v3d_p1y + _v3d_model_transform_zz * _v3d_p1z + _v3d_model_transform_dz
-
-		_v3d_world_transformed_p2x = _v3d_model_transform_xx * _v3d_p2x + _v3d_model_transform_xy * _v3d_p2y + _v3d_model_transform_xz * _v3d_p2z + _v3d_model_transform_dx
-		_v3d_world_transformed_p2y = _v3d_model_transform_yx * _v3d_p2x + _v3d_model_transform_yy * _v3d_p2y + _v3d_model_transform_yz * _v3d_p2z + _v3d_model_transform_dy
-		_v3d_world_transformed_p2z = _v3d_model_transform_zx * _v3d_p2x + _v3d_model_transform_zy * _v3d_p2y + _v3d_model_transform_zz * _v3d_p2z + _v3d_model_transform_dz
-	else
-		_v3d_world_transformed_p0x = _v3d_p0x
-		_v3d_world_transformed_p0y = _v3d_p0y
-		_v3d_world_transformed_p0z = _v3d_p0z
-
-		_v3d_world_transformed_p1x = _v3d_p1x
-		_v3d_world_transformed_p1y = _v3d_p1y
-		_v3d_world_transformed_p1z = _v3d_p1z
-
-		_v3d_world_transformed_p2x = _v3d_p2x
-		_v3d_world_transformed_p2y = _v3d_p2y
-		_v3d_world_transformed_p2z = _v3d_p2z
-	end
-
-	_v3d_transformed_p0x = _v3d_transform_xx * _v3d_world_transformed_p0x + _v3d_transform_xy * _v3d_world_transformed_p0y + _v3d_transform_xz * _v3d_world_transformed_p0z + _v3d_transform_dx
-	_v3d_transformed_p0y = _v3d_transform_yx * _v3d_world_transformed_p0x + _v3d_transform_yy * _v3d_world_transformed_p0y + _v3d_transform_yz * _v3d_world_transformed_p0z + _v3d_transform_dy
-	_v3d_transformed_p0z = _v3d_transform_zx * _v3d_world_transformed_p0x + _v3d_transform_zy * _v3d_world_transformed_p0y + _v3d_transform_zz * _v3d_world_transformed_p0z + _v3d_transform_dz
-
-	_v3d_transformed_p1x = _v3d_transform_xx * _v3d_world_transformed_p1x + _v3d_transform_xy * _v3d_world_transformed_p1y + _v3d_transform_xz * _v3d_world_transformed_p1z + _v3d_transform_dx
-	_v3d_transformed_p1y = _v3d_transform_yx * _v3d_world_transformed_p1x + _v3d_transform_yy * _v3d_world_transformed_p1y + _v3d_transform_yz * _v3d_world_transformed_p1z + _v3d_transform_dy
-	_v3d_transformed_p1z = _v3d_transform_zx * _v3d_world_transformed_p1x + _v3d_transform_zy * _v3d_world_transformed_p1y + _v3d_transform_zz * _v3d_world_transformed_p1z + _v3d_transform_dz
-
-	_v3d_transformed_p2x = _v3d_transform_xx * _v3d_world_transformed_p2x + _v3d_transform_xy * _v3d_world_transformed_p2y + _v3d_transform_xz * _v3d_world_transformed_p2z + _v3d_transform_dx
-	_v3d_transformed_p2y = _v3d_transform_yx * _v3d_world_transformed_p2x + _v3d_transform_yy * _v3d_world_transformed_p2y + _v3d_transform_yz * _v3d_world_transformed_p2z + _v3d_transform_dy
-	_v3d_transformed_p2z = _v3d_transform_zx * _v3d_world_transformed_p2x + _v3d_transform_zy * _v3d_world_transformed_p2y + _v3d_transform_zz * _v3d_world_transformed_p2z + _v3d_transform_dz
+	{! _RENDERER_INIT_FACE_VERTICES_WITH_ABSOLUTE_POSITION !}
 	{% else %}
-	_v3d_transformed_p0x = _v3d_transform_xx * _v3d_p0x + _v3d_transform_xy * _v3d_p0y + _v3d_transform_xz * _v3d_p0z + _v3d_transform_dx
-	_v3d_transformed_p0y = _v3d_transform_yx * _v3d_p0x + _v3d_transform_yy * _v3d_p0y + _v3d_transform_yz * _v3d_p0z + _v3d_transform_dy
-	_v3d_transformed_p0z = _v3d_transform_zx * _v3d_p0x + _v3d_transform_zy * _v3d_p0y + _v3d_transform_zz * _v3d_p0z + _v3d_transform_dz
-
-	_v3d_transformed_p1x = _v3d_transform_xx * _v3d_p1x + _v3d_transform_xy * _v3d_p1y + _v3d_transform_xz * _v3d_p1z + _v3d_transform_dx
-	_v3d_transformed_p1y = _v3d_transform_yx * _v3d_p1x + _v3d_transform_yy * _v3d_p1y + _v3d_transform_yz * _v3d_p1z + _v3d_transform_dy
-	_v3d_transformed_p1z = _v3d_transform_zx * _v3d_p1x + _v3d_transform_zy * _v3d_p1y + _v3d_transform_zz * _v3d_p1z + _v3d_transform_dz
-
-	_v3d_transformed_p2x = _v3d_transform_xx * _v3d_p2x + _v3d_transform_xy * _v3d_p2y + _v3d_transform_xz * _v3d_p2z + _v3d_transform_dx
-	_v3d_transformed_p2y = _v3d_transform_yx * _v3d_p2x + _v3d_transform_yy * _v3d_p2y + _v3d_transform_yz * _v3d_p2z + _v3d_transform_dy
-	_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
+	{! _RENDERER_INIT_FACE_VERTICES_WITHOUT_ABSOLUTE_POSITION !}
 	{% end %}
 
 	{% if _ENV.needs_source_absolute_normal then %}
@@ -4710,6 +4672,60 @@ do
 	_v3d_face_world_normal2 = _v3d_face_world_normal2 * _v3d_face_normal_divisor
 	{% end %}
 end
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_INIT_FACE_VERTICES_WITH_ABSOLUTE_POSITION = [[
+if _v3d_model_transform then
+	_v3d_world_transformed_p0x = _v3d_model_transform_xx * _v3d_p0x + _v3d_model_transform_xy * _v3d_p0y + _v3d_model_transform_xz * _v3d_p0z + _v3d_model_transform_dx
+	_v3d_world_transformed_p0y = _v3d_model_transform_yx * _v3d_p0x + _v3d_model_transform_yy * _v3d_p0y + _v3d_model_transform_yz * _v3d_p0z + _v3d_model_transform_dy
+	_v3d_world_transformed_p0z = _v3d_model_transform_zx * _v3d_p0x + _v3d_model_transform_zy * _v3d_p0y + _v3d_model_transform_zz * _v3d_p0z + _v3d_model_transform_dz
+
+	_v3d_world_transformed_p1x = _v3d_model_transform_xx * _v3d_p1x + _v3d_model_transform_xy * _v3d_p1y + _v3d_model_transform_xz * _v3d_p1z + _v3d_model_transform_dx
+	_v3d_world_transformed_p1y = _v3d_model_transform_yx * _v3d_p1x + _v3d_model_transform_yy * _v3d_p1y + _v3d_model_transform_yz * _v3d_p1z + _v3d_model_transform_dy
+	_v3d_world_transformed_p1z = _v3d_model_transform_zx * _v3d_p1x + _v3d_model_transform_zy * _v3d_p1y + _v3d_model_transform_zz * _v3d_p1z + _v3d_model_transform_dz
+
+	_v3d_world_transformed_p2x = _v3d_model_transform_xx * _v3d_p2x + _v3d_model_transform_xy * _v3d_p2y + _v3d_model_transform_xz * _v3d_p2z + _v3d_model_transform_dx
+	_v3d_world_transformed_p2y = _v3d_model_transform_yx * _v3d_p2x + _v3d_model_transform_yy * _v3d_p2y + _v3d_model_transform_yz * _v3d_p2z + _v3d_model_transform_dy
+	_v3d_world_transformed_p2z = _v3d_model_transform_zx * _v3d_p2x + _v3d_model_transform_zy * _v3d_p2y + _v3d_model_transform_zz * _v3d_p2z + _v3d_model_transform_dz
+else
+	_v3d_world_transformed_p0x = _v3d_p0x
+	_v3d_world_transformed_p0y = _v3d_p0y
+	_v3d_world_transformed_p0z = _v3d_p0z
+
+	_v3d_world_transformed_p1x = _v3d_p1x
+	_v3d_world_transformed_p1y = _v3d_p1y
+	_v3d_world_transformed_p1z = _v3d_p1z
+
+	_v3d_world_transformed_p2x = _v3d_p2x
+	_v3d_world_transformed_p2y = _v3d_p2y
+	_v3d_world_transformed_p2z = _v3d_p2z
+end
+
+_v3d_transformed_p0x = _v3d_transform_xx * _v3d_world_transformed_p0x + _v3d_transform_xy * _v3d_world_transformed_p0y + _v3d_transform_xz * _v3d_world_transformed_p0z + _v3d_transform_dx
+_v3d_transformed_p0y = _v3d_transform_yx * _v3d_world_transformed_p0x + _v3d_transform_yy * _v3d_world_transformed_p0y + _v3d_transform_yz * _v3d_world_transformed_p0z + _v3d_transform_dy
+_v3d_transformed_p0z = _v3d_transform_zx * _v3d_world_transformed_p0x + _v3d_transform_zy * _v3d_world_transformed_p0y + _v3d_transform_zz * _v3d_world_transformed_p0z + _v3d_transform_dz
+
+_v3d_transformed_p1x = _v3d_transform_xx * _v3d_world_transformed_p1x + _v3d_transform_xy * _v3d_world_transformed_p1y + _v3d_transform_xz * _v3d_world_transformed_p1z + _v3d_transform_dx
+_v3d_transformed_p1y = _v3d_transform_yx * _v3d_world_transformed_p1x + _v3d_transform_yy * _v3d_world_transformed_p1y + _v3d_transform_yz * _v3d_world_transformed_p1z + _v3d_transform_dy
+_v3d_transformed_p1z = _v3d_transform_zx * _v3d_world_transformed_p1x + _v3d_transform_zy * _v3d_world_transformed_p1y + _v3d_transform_zz * _v3d_world_transformed_p1z + _v3d_transform_dz
+
+_v3d_transformed_p2x = _v3d_transform_xx * _v3d_world_transformed_p2x + _v3d_transform_xy * _v3d_world_transformed_p2y + _v3d_transform_xz * _v3d_world_transformed_p2z + _v3d_transform_dx
+_v3d_transformed_p2y = _v3d_transform_yx * _v3d_world_transformed_p2x + _v3d_transform_yy * _v3d_world_transformed_p2y + _v3d_transform_yz * _v3d_world_transformed_p2z + _v3d_transform_dy
+_v3d_transformed_p2z = _v3d_transform_zx * _v3d_world_transformed_p2x + _v3d_transform_zy * _v3d_world_transformed_p2y + _v3d_transform_zz * _v3d_world_transformed_p2z + _v3d_transform_dz
+]]
+
+_BASE_RENDERER_ENVIRONMENT._RENDERER_INIT_FACE_VERTICES_WITHOUT_ABSOLUTE_POSITION = [[
+_v3d_transformed_p0x = _v3d_transform_xx * _v3d_p0x + _v3d_transform_xy * _v3d_p0y + _v3d_transform_xz * _v3d_p0z + _v3d_transform_dx
+_v3d_transformed_p0y = _v3d_transform_yx * _v3d_p0x + _v3d_transform_yy * _v3d_p0y + _v3d_transform_yz * _v3d_p0z + _v3d_transform_dy
+_v3d_transformed_p0z = _v3d_transform_zx * _v3d_p0x + _v3d_transform_zy * _v3d_p0y + _v3d_transform_zz * _v3d_p0z + _v3d_transform_dz
+
+_v3d_transformed_p1x = _v3d_transform_xx * _v3d_p1x + _v3d_transform_xy * _v3d_p1y + _v3d_transform_xz * _v3d_p1z + _v3d_transform_dx
+_v3d_transformed_p1y = _v3d_transform_yx * _v3d_p1x + _v3d_transform_yy * _v3d_p1y + _v3d_transform_yz * _v3d_p1z + _v3d_transform_dy
+_v3d_transformed_p1z = _v3d_transform_zx * _v3d_p1x + _v3d_transform_zy * _v3d_p1y + _v3d_transform_zz * _v3d_p1z + _v3d_transform_dz
+
+_v3d_transformed_p2x = _v3d_transform_xx * _v3d_p2x + _v3d_transform_xy * _v3d_p2y + _v3d_transform_xz * _v3d_p2z + _v3d_transform_dx
+_v3d_transformed_p2y = _v3d_transform_yx * _v3d_p2x + _v3d_transform_yy * _v3d_p2y + _v3d_transform_yz * _v3d_p2z + _v3d_transform_dy
+_v3d_transformed_p2z = _v3d_transform_zx * _v3d_p2x + _v3d_transform_zy * _v3d_p2y + _v3d_transform_zz * _v3d_p2z + _v3d_transform_dz
 ]]
 
 _BASE_RENDERER_ENVIRONMENT._RENDERER_RENDER_TRIANGLE = [[
@@ -4910,7 +4926,7 @@ for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_
 	{% end %}
 
 	{% for _, view_name in ipairs(_ENV.options.pixel_shader.uses_destination_base_offsets) do %}
-	local _v3d_shader_dst_base_offset_{= view_name =} = _v3d_view_init_offset_{= view_name =} + (_v3d_image_width_{= view_name =} * _v3d_row + _v3d_row_min_column) * {= options.image_formats[view_name]:size() =}
+	local _v3d_shader_dst_base_offset_{= view_name =} = _v3d_view_init_offset_{= view_name =} + (_v3d_image_width_{= view_name =} * _v3d_row + _v3d_row_min_column) * {= _ENV.options.pixel_shader.image_formats[view_name]:size() =}
 	{% end %}
 
 	-- TODO
@@ -4926,7 +4942,7 @@ for _v3d_row = _v3d_row_{= flat_triangle_name =}_min, _v3d_row_{= flat_triangle_
 		--#pipeline_source_end pixel
 
 		{% for _, view_name in ipairs(options.pixel_shader.uses_destination_base_offsets) do %}
-		_v3d_shader_dst_base_offset_{= view_name =} = _v3d_shader_dst_base_offset_{= view_name =} + {= options.image_formats[view_name]:size() =}
+		_v3d_shader_dst_base_offset_{= view_name =} = _v3d_shader_dst_base_offset_{= view_name =} + {= _ENV.options.pixel_shader.image_formats[view_name]:size() =}
 		{% end %}
 
 		{% if _ENV.needs_interpolated_depth then %}
@@ -5004,8 +5020,7 @@ function v3d.compile_renderer(options)
 
 	local actual_options = {}
 	actual_options.pixel_shader = options.pixel_shader
-	actual_options.image_formats = options.image_formats
-	actual_options.position_lens = options.position_lens
+	actual_options.position_lens = options.position_lens or v3d.format_lens(options.pixel_shader.source_format, 'position')
 	actual_options.cull_faces = options.cull_faces or 'back'
 	actual_options.pixel_aspect_ratio = options.pixel_aspect_ratio or 1
 	actual_options.reverse_horizontal_iteration = options.reverse_horizontal_iteration or false

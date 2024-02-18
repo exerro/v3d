@@ -30,28 +30,21 @@ local image_views = {
 	depth = v3d.image_view(depth_image),
 }
 
-local renderer = v3d.compile_renderer {
-	pixel_shader = v3d.shader {
-		source_format = geometry.vertex_format,
-		image_formats = {
-			colour = colour_image.format,
-			depth = depth_image.format,
-		},
-		code = [[
-			if v3d_src_depth > v3d_dst.depth then
-				local x = v3d_src.position.x
-				v3d_dst.colour = math.max(0, math.min(255, math.floor(10 + x * 10)))
-				v3d_dst.depth = v3d_src_depth
-			end
-		]],
-	},
-	position_lens = v3d.format_lens(geometry.vertex_format, '.position'),
+local pixel_shader = v3d.shader {
+	source_format = geometry.vertex_format,
 	image_formats = {
 		colour = colour_image.format,
 		depth = depth_image.format,
 	},
-	record_statistics = true,
+	code = [[
+		if v3d_src_depth > v3d_dst.depth then
+			local x = v3d_src.position.x
+			v3d_dst.colour = math.max(0, math.min(255, math.floor(10 + x * 10)))
+			v3d_dst.depth = v3d_src_depth
+		end
+	]],
 }
+local renderer = v3d.compile_renderer { pixel_shader = pixel_shader }
 
 local frame_time = os.clock()
 while true do

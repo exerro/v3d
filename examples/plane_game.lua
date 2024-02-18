@@ -98,7 +98,6 @@ v3d.image_view_unbuffer_from(terrain_texture_view, terrain_buffer)
 -- 			},
 -- 		},
 -- 	},
--- 	position_lens = v3d.format_lens(test_geometry.vertex_format, '.position'),
 -- 	image_formats = {
 -- 		colour = colour_image.format,
 -- 	},
@@ -108,49 +107,42 @@ v3d.image_view_unbuffer_from(terrain_texture_view, terrain_buffer)
 -- os.pullEvent 'mouse_click'
 -- do return end
 
-local terrain_renderer = v3d.compile_renderer {
-	pixel_shader = v3d.shader {
-		source_format = terrain_vertex_format,
-		face_format = terrain_face_format,
-		image_formats = {
-			colour = colour_image.format,
-			depth = depth_image.format,
-		},
-		code = [[
-			if v3d_src_depth > v3d_dst.depth then
-				local mountain_threshold = v3d_constant.MOUNTAIN_SCALER / 3 + v3d_src.mountainness
-				if v3d_src_absolute_pos.y > mountain_threshold then
-					local mountain_scalar = 1 / (v3d_constant.MOUNTAIN_SCALER - mountain_threshold)
-					v3d_dst.colour = 2 ^ math.max(0, math.min(11, math.floor(9 + (v3d_src_absolute_pos.y - mountain_threshold) * mountain_scalar * 5)))
-				else
-					local x, y = v3d_src_absolute_pos.x, v3d_src_absolute_pos.z
-					local s = 8
-					x = x / s -- + v3d_src.mountainness / 4
-					y = y / s -- * (1 + v3d_src.mountainness / 32)
-					local noise = v3d_constant.terrain_sampler:sample(v3d_constant.terrain_texture, x, y)
-					v3d_dst.colour = 2 ^ math.max(0, math.min(5, math.floor(noise * 5 + 0.5)))
-				end
-				v3d_dst.depth = v3d_src_depth
-			end
-		]],
-		constants = {
-			MOUNTAIN_SCALER = MOUNTAIN_SCALER,
-			terrain_texture = terrain_texture,
-			terrain_sampler = v3d.create_sampler2D {
-				format = terrain_texture.format,
-				interpolate = 'linear',
-				wrap_u = 'mirror',
-				wrap_v = 'mirror',
-			},
-		},
-	},
-	position_lens = v3d.format_lens(terrain_vertex_format, '.position'),
+local pixel_shader = v3d.shader {
+	source_format = terrain_vertex_format,
+	face_format = terrain_face_format,
 	image_formats = {
 		colour = colour_image.format,
 		depth = depth_image.format,
 	},
-	record_statistics = true,
+	code = [[
+		if v3d_src_depth > v3d_dst.depth then
+			local mountain_threshold = v3d_constant.MOUNTAIN_SCALER / 3 + v3d_src.mountainness
+			if v3d_src_absolute_pos.y > mountain_threshold then
+				local mountain_scalar = 1 / (v3d_constant.MOUNTAIN_SCALER - mountain_threshold)
+				v3d_dst.colour = 2 ^ math.max(0, math.min(11, math.floor(9 + (v3d_src_absolute_pos.y - mountain_threshold) * mountain_scalar * 5)))
+			else
+				local x, y = v3d_src_absolute_pos.x, v3d_src_absolute_pos.z
+				local s = 8
+				x = x / s -- + v3d_src.mountainness / 4
+				y = y / s -- * (1 + v3d_src.mountainness / 32)
+				local noise = v3d_constant.terrain_sampler:sample(v3d_constant.terrain_texture, x, y)
+				v3d_dst.colour = 2 ^ math.max(0, math.min(5, math.floor(noise * 5 + 0.5)))
+			end
+			v3d_dst.depth = v3d_src_depth
+		end
+	]],
+	constants = {
+		MOUNTAIN_SCALER = MOUNTAIN_SCALER,
+		terrain_texture = terrain_texture,
+		terrain_sampler = v3d.create_sampler2D {
+			format = terrain_texture.format,
+			interpolate = 'nearest',
+			wrap_u = 'mirror',
+			wrap_v = 'mirror',
+		},
+	},
 }
+local terrain_renderer = v3d.compile_renderer { pixel_shader = pixel_shader }
 local chunks = {}
 
 -- set up game state
@@ -391,17 +383,11 @@ local function handle_event(event, ...)
 	end
 end
 
-local ok, err = pcall(function()
-	while running do
-		--- @diagnostic disable-next-line: undefined-field
-		handle_event(os.pullEventRaw())
-	end
-end)
+while running do
+	--- @diagnostic disable-next-line: undefined-field
+	handle_event(os.pullEventRaw())
+end
 
 for i = 0, 15 do
 	term.setPaletteColour(2 ^ i, table.unpack(initial_palette[i + 1]))
-end
-
-if not ok then
-	error(err)
 end
