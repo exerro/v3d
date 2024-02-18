@@ -2,28 +2,14 @@
 --- @type V3D
 local v3d = require 'v3d'
 
-local geometry = v3d.geometry_builder_build(v3d.debug_cuboid())
-
+local geometry = v3d.debug_cuboid():build()
+local image_views = v3d.create_fullscreen_image_views()
 local camera = v3d.camera { z = 1 }
-
 local model_transform = v3d.translate(0, 0, -1) * v3d.rotate_y(math.pi * 0.3)
-
-local term_width, term_height = term.getSize()
-local image_width, image_height = term_width * 2, term_height * 3
-local colour_image = v3d.create_image(v3d.uinteger(), image_width, image_height, 1, colours.black)
-local depth_image = v3d.create_image(v3d.number(), image_width, image_height, 1, 0)
-
-local image_views = {
-	colour = v3d.image_view(colour_image),
-	depth = v3d.image_view(depth_image),
-}
 
 local pixel_shader = v3d.shader {
 	source_format = geometry.vertex_format,
-	image_formats = {
-		colour = colour_image.format,
-		depth = depth_image.format,
-	},
+	image_formats = v3d.image_formats_of(image_views),
 	code = [[
 		if v3d_src_depth > v3d_dst.depth then
 			v3d_dst.colour = colours.white
@@ -33,5 +19,5 @@ local pixel_shader = v3d.shader {
 }
 local renderer = v3d.compile_renderer { pixel_shader = pixel_shader }
 
-v3d.renderer_render(renderer, geometry, image_views, camera, model_transform)
-v3d.image_view_present_term_subpixel(image_views.colour, term)
+renderer:render(geometry, image_views, camera, model_transform)
+image_views.colour:present_term_subpixel(term)

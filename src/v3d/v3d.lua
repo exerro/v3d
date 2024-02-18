@@ -3392,198 +3392,6 @@ function v3d.geometry_to_builder(geometry)
 	return _finalise_instance(b)
 end
 
-----------------------------------------------------------------
-
---- @class V3DDebugCuboidOptions
---- X coordinate of the cuboid's centre. Defaults to 0.
---- @field x number | nil
---- Y coordinate of the cuboid's centre. Defaults to 0.
---- @field y number | nil
---- Z coordinate of the cuboid's centre. Defaults to 0.
---- @field z number | nil
---- Width of the cuboid. Defaults to 1.
---- @field width number | nil
---- Height of the cuboid. Defaults to 1.
---- @field height number | nil
---- Depth of the cuboid. Defaults to 1.
---- @field depth number | nil
---- Whether to include normals in the geometry. Defaults to false. If set to
---- 'vertex', the normals will be stored only in the vertex data. If set to
---- 'face', the normals will be stored only in the face data.
---- @field include_normals 'vertex' | 'face' | boolean | nil
---- @field include_uvs boolean | nil
---- Whether to include indices in the geometry. Defaults to false. If set to
---- 'vertex', the indices will be stored only in the vertex data. If set to
---- 'face', the indices will be stored only in the face data.
---- @field include_indices 'vertex' | 'face' | boolean | nil
---- Whether to include face names in the geometry. Defaults to false.
---- @field include_face_name boolean | nil
---- Whether to include polygon (triangle) indices in the geometry. Defaults to
---- false.
---- @field include_poly_index boolean | nil
---- Width must not be negative.
---- @v3d-validate self.width == nil or self.width >= 0
---- Height must not be negative.
---- @v3d-validate self.height == nil or self.height >= 0
---- Depth must not be negative.
---- @v3d-validate self.depth == nil or self.depth >= 0
---- @v3d-structural
-
---- Create a debug cuboid geometry builder.
----
---- Its vertex format will be a struct containing the following fields (if enabled
---- according to options):
---- * `position`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }`
---- * `normal`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }` (only if `include_normals` is true or 'vertex')
---- * `index`: `v3d.uinteger()` (only if `include_indices` is true or 'vertex')
----
---- Its face format will be a struct containing the following fields (if enabled
---- according to options):
---- * `normal`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }` (only if `include_normals` is true or 'face')
---- * `index`: `v3d.uinteger()` (only if `include_indices` is true or 'face')
---- * `name`: `v3d.string()` (only if `include_face_name` is true)
---- * `poly_index`: `v3d.uinteger()` (only if `include_poly_index` is true)
---- @param options V3DDebugCuboidOptions | nil
---- @return V3DGeometryBuilder
---- @v3d-constructor
---- @v3d-nolog
-function v3d.debug_cuboid(options)
-	options = options or {}
-
-	local vec3 = v3d.struct {
-		x = v3d.number(),
-		y = v3d.number(),
-		z = v3d.number(),
-	}
-	local vertex_format = v3d.struct {
-		position = vec3,
-		normal = (options.include_normals == true or options.include_normals == 'vertex') and vec3 or nil,
-		uv = (options.include_uvs == true) and v3d.struct { u = v3d.number(), v = v3d.number() } or nil,
-		index = (options.include_indices == true or options.include_indices == 'vertex') and v3d.uinteger() or nil,
-	}
-
-	local face_format = v3d.struct {
-		normal = (options.include_normals == true or options.include_normals == 'face') and vec3 or nil,
-		index = (options.include_indices == true or options.include_indices == 'face') and v3d.uinteger() or nil,
-		name = options.include_face_name and v3d.string() or nil,
-		poly_index = options.include_poly_index and v3d.uinteger() or nil,
-	}
-
-	local builder = v3d.create_geometry_builder(vertex_format, face_format)
-
-	local x = options.x or 0
-	local y = options.y or 0
-	local z = options.z or 0
-	local w = options.width or 1
-	local h = options.height or 1
-	local d = options.depth or 1
-
-	local function _add_face(name, normal, index, poly_index)
-		local face = {}
-
-		if options.include_face_name then
-			face.name = name
-		end
-		if options.include_normals == true or options.include_normals == 'face' then
-			face.normal = normal
-		end
-		if options.include_indices == true or options.include_indices == 'face' then
-			face.index = index
-		end
-		if options.include_poly_index then
-			face.poly_index = poly_index
-		end
-
-		v3d.geometry_builder_add_face(builder, face)
-	end
-
-	local function _add_vertex(x, y, z, normal, u, v, index)
-		local vertex = {
-			position = { x = x, y = y, z = z },
-		}
-
-		if options.include_normals == true or options.include_normals == 'vertex' then
-			vertex.normal = normal
-		end
-		if options.include_uvs == true then
-			vertex.uv = { u = u, v = v }
-		end
-		if options.include_indices == true or options.include_indices == 'vertex' then
-			vertex.index = index
-		end
-
-		v3d.geometry_builder_add_vertex(builder, vertex)
-	end
-
-	local front_normal = { x = 0, y = 0, z = 1 }
-	local front_index = 0
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 0)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, front_normal, 0, 1, 1)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 2)
-	_add_face('front', front_normal, front_index, 0)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 3)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, front_normal, 1, 0, 4)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 5)
-	_add_face('front', front_normal, front_index, 1)
-
-	local back_normal = { x = 0, y = 0, z = -1 }
-	local back_index = 1
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 6)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, back_normal, 0, 0, 7)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 8)
-	_add_face('back', back_normal, back_index, 2)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 9)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, back_normal, 1, 1, 10)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 11)
-	_add_face('back', back_normal, back_index, 3)
-
-	local left_normal = { x = -1, y = 0, z = 0 }
-	local left_index = 2
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 12)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, left_normal, 0, 1, 13)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 14)
-	_add_face('left', left_normal, left_index, 4)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 15)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, left_normal, 1, 0, 16)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 17)
-	_add_face('left', left_normal, left_index, 5)
-
-	local right_normal = { x = 1, y = 0, z = 0 }
-	local right_index = 3
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 18)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, right_normal, 0, 1, 19)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 20)
-	_add_face('right', right_normal, right_index, 6)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 21)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, right_normal, 1, 0, 22)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 23)
-	_add_face('right', right_normal, right_index, 7)
-
-	local top_normal = { x = 0, y = 1, z = 0 }
-	local top_index = 4
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 24)
-	_add_vertex(x - w / 2, y + h / 2, z + d / 2, top_normal, 0, 1, 25)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 26)
-	_add_face('top', top_normal, top_index, 8)
-	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 27)
-	_add_vertex(x + w / 2, y + h / 2, z - d / 2, top_normal, 1, 0, 28)
-	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 29)
-	_add_face('top', top_normal, top_index, 9)
-
-	local bottom_normal = { x = 0, y = -1, z = 0 }
-	local bottom_index = 5
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 30)
-	_add_vertex(x - w / 2, y - h / 2, z - d / 2, bottom_normal, 0, 1, 31)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 32)
-	_add_face('bottom', bottom_normal, bottom_index, 10)
-	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 33)
-	_add_vertex(x + w / 2, y - h / 2, z + d / 2, bottom_normal, 1, 0, 34)
-	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 35)
-	_add_face('bottom', bottom_normal, bottom_index, 11)
-
-	return builder
-end
-
 end ----------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
@@ -5695,8 +5503,308 @@ function v3d.sampler3d_sample(sampler, image, u, v, w) end
 
 end ----------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- Support ---------------------------------------------------------------------
+do -----------------------------------------------------------------------------
+
+--- Create a 3D vector format (a struct containing `x`, `y`, and `z` number
+--- fields).
+--- @return V3DFormat
+--- @v3d-nolog
+--- @v3d-constructor
+--- local my_format = v3d.vec3_format()
+--- @v3d-example
+function v3d.vec3_format()
+	return v3d.struct {
+		x = v3d.number(),
+		y = v3d.number(),
+		z = v3d.number(),
+	}
+end
+
+--- Create a UV format (a struct containing `u` and `v` number fields).
+--- @return V3DFormat
+--- @v3d-nolog
+--- @v3d-constructor
+--- local my_format = v3d.uv_format()
+--- @v3d-example
+function v3d.uv_format()
+	return v3d.struct {
+		u = v3d.number(),
+		v = v3d.number(),
+	}
+end
+
+----------------------------------------------------------------
+
+--- @class V3DCreateFullscreenImagesOptions
+--- Colour mode | Description
+--- -|-
+--- `rgb` | The colour image will have an RGB format, where each component varies from 0 to 1.
+--- `palette` | The colour image will have a palette format, where each component is an index into the terminal's palette between 0 and 255.
+--- `palette_exp` | Similar to `palette` but with exponential indices. This is the default and is compatible with the CC `colours` library.
+--- @field colour_mode 'rgb' | 'palette' | 'palette_exp' | nil
+--- @field size_mode 'graphics' | 'subpixel' | 'standard' | 'highest_supported' | nil
+--- @v3d-structural
+
+--- Create a set of colour & depth images and image views.
+--- @param options V3DCreateFullscreenImagesOptions | nil
+--- @param term CCTermObject | nil
+--- @return { colour: V3DImageView, depth: V3DImageView }
+--- Graphics mode must be supported if `size_mode` is set to 'graphics'
+--- @v3d-validate not options or options.size_mode ~= 'graphics' or (term or _ENV.term)['getGraphicsMode']
+function v3d.create_fullscreen_image_views(options, term)
+	options = options or {}
+	term = term or _ENV.term
+
+	local colour_mode = options.colour_mode or 'palette_exp'
+	local size_mode = options.size_mode or 'subpixel'
+	if size_mode == 'highest_supported' then
+		if term['getGraphicsMode'] then
+			size_mode = 'graphics'
+		else
+			size_mode = 'subpixel'
+		end
+	end
+
+	local get_size_param = nil
+	if size_mode == 'graphics' then
+		get_size_param = 1
+	end
+
+	local term_width, term_height = term['getSize'](get_size_param)
+	local image_width, image_height = term_width, term_height
+	if size_mode == 'subpixel' then
+		image_width = term_width * 2
+		image_height = term_height * 3
+	end
+
+	local colour_format, colour_default_value
+	if colour_mode == 'rgb' then
+		colour_format = v3d.struct {
+			r = v3d.number(),
+			g = v3d.number(),
+			b = v3d.number(),
+		}
+		colour_default_value = { r = 0, g = 0, b = 0 }
+	elseif colour_mode == 'palette' then
+		colour_format = v3d.uinteger()
+		colour_default_value = 15
+	elseif colour_mode == 'palette_exp' then
+		colour_format = v3d.uinteger()
+		colour_default_value = colours.black
+	end
+
+	local colour_image = v3d.create_image(colour_format, image_width, image_height, 1, colour_default_value)
+	local depth_image = v3d.create_image(v3d.number(), image_width, image_height, 1, 0)
+
+	return {
+		colour = v3d.image_view(colour_image),
+		depth = v3d.image_view(depth_image),
+	}
+end
+
+--- @param images { [string]: V3DImageView | V3DImage }
+--- @return { [string]: V3DFormat }
+function v3d.image_formats_of(images)
+	local formats = {}
+	for k, v in pairs(images) do
+		formats[k] = v.image and v.image.format or v.format
+	end
+	return formats
+end
+
+----------------------------------------------------------------
+
+--- @class V3DDebugCuboidOptions
+--- X coordinate of the cuboid's centre. Defaults to 0.
+--- @field x number | nil
+--- Y coordinate of the cuboid's centre. Defaults to 0.
+--- @field y number | nil
+--- Z coordinate of the cuboid's centre. Defaults to 0.
+--- @field z number | nil
+--- Width of the cuboid. Defaults to 1.
+--- @field width number | nil
+--- Height of the cuboid. Defaults to 1.
+--- @field height number | nil
+--- Depth of the cuboid. Defaults to 1.
+--- @field depth number | nil
+--- Whether to include normals in the geometry. Defaults to false. If set to
+--- 'vertex', the normals will be stored only in the vertex data. If set to
+--- 'face', the normals will be stored only in the face data.
+--- @field include_normals 'vertex' | 'face' | boolean | nil
+--- @field include_uvs boolean | nil
+--- Whether to include indices in the geometry. Defaults to false. If set to
+--- 'vertex', the indices will be stored only in the vertex data. If set to
+--- 'face', the indices will be stored only in the face data.
+--- @field include_indices 'vertex' | 'face' | boolean | nil
+--- Whether to include face names in the geometry. Defaults to false.
+--- @field include_face_name boolean | nil
+--- Whether to include polygon (triangle) indices in the geometry. Defaults to
+--- false.
+--- @field include_poly_index boolean | nil
+--- Width must not be negative.
+--- @v3d-validate self.width == nil or self.width >= 0
+--- Height must not be negative.
+--- @v3d-validate self.height == nil or self.height >= 0
+--- Depth must not be negative.
+--- @v3d-validate self.depth == nil or self.depth >= 0
+--- @v3d-structural
+
+--- Create a debug cuboid geometry builder.
+---
+--- Its vertex format will be a struct containing the following fields (if enabled
+--- according to options):
+--- * `position`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }`
+--- * `normal`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }` (only if `include_normals` is true or 'vertex')
+--- * `index`: `v3d.uinteger()` (only if `include_indices` is true or 'vertex')
+---
+--- Its face format will be a struct containing the following fields (if enabled
+--- according to options):
+--- * `normal`: `v3d.struct { x = v3d.number(), y = v3d.number(), z = v3d.number() }` (only if `include_normals` is true or 'face')
+--- * `index`: `v3d.uinteger()` (only if `include_indices` is true or 'face')
+--- * `name`: `v3d.string()` (only if `include_face_name` is true)
+--- * `poly_index`: `v3d.uinteger()` (only if `include_poly_index` is true)
+--- @param options V3DDebugCuboidOptions | nil
+--- @return V3DGeometryBuilder
+--- @v3d-constructor
+--- @v3d-nolog
+function v3d.debug_cuboid(options)
+	options = options or {}
+
+	local vec3 = v3d.vec3_format()
+	local vertex_format = v3d.struct {
+		position = vec3,
+		normal = (options.include_normals == true or options.include_normals == 'vertex') and vec3 or nil,
+		uv = (options.include_uvs == true) and v3d.uv_format() or nil,
+		index = (options.include_indices == true or options.include_indices == 'vertex') and v3d.uinteger() or nil,
+	}
+
+	local face_format = v3d.struct {
+		normal = (options.include_normals == true or options.include_normals == 'face') and vec3 or nil,
+		index = (options.include_indices == true or options.include_indices == 'face') and v3d.uinteger() or nil,
+		name = options.include_face_name and v3d.string() or nil,
+		poly_index = options.include_poly_index and v3d.uinteger() or nil,
+	}
+
+	local builder = v3d.create_geometry_builder(vertex_format, face_format)
+
+	local x = options.x or 0
+	local y = options.y or 0
+	local z = options.z or 0
+	local w = options.width or 1
+	local h = options.height or 1
+	local d = options.depth or 1
+
+	local function _add_face(name, normal, index, poly_index)
+		local face = {}
+
+		if options.include_face_name then
+			face.name = name
+		end
+		if options.include_normals == true or options.include_normals == 'face' then
+			face.normal = normal
+		end
+		if options.include_indices == true or options.include_indices == 'face' then
+			face.index = index
+		end
+		if options.include_poly_index then
+			face.poly_index = poly_index
+		end
+
+		v3d.geometry_builder_add_face(builder, face)
+	end
+
+	local function _add_vertex(x, y, z, normal, u, v, index)
+		local vertex = {
+			position = { x = x, y = y, z = z },
+		}
+
+		if options.include_normals == true or options.include_normals == 'vertex' then
+			vertex.normal = normal
+		end
+		if options.include_uvs == true then
+			vertex.uv = { u = u, v = v }
+		end
+		if options.include_indices == true or options.include_indices == 'vertex' then
+			vertex.index = index
+		end
+
+		v3d.geometry_builder_add_vertex(builder, vertex)
+	end
+
+	local front_normal = { x = 0, y = 0, z = 1 }
+	local front_index = 0
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 0)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, front_normal, 0, 1, 1)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 2)
+	_add_face('front', front_normal, front_index, 0)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, front_normal, 1, 1, 3)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, front_normal, 1, 0, 4)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, front_normal, 0, 0, 5)
+	_add_face('front', front_normal, front_index, 1)
+
+	local back_normal = { x = 0, y = 0, z = -1 }
+	local back_index = 1
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 6)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, back_normal, 0, 0, 7)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 8)
+	_add_face('back', back_normal, back_index, 2)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, back_normal, 0, 1, 9)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, back_normal, 1, 1, 10)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, back_normal, 1, 0, 11)
+	_add_face('back', back_normal, back_index, 3)
+
+	local left_normal = { x = -1, y = 0, z = 0 }
+	local left_index = 2
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 12)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, left_normal, 0, 1, 13)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 14)
+	_add_face('left', left_normal, left_index, 4)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, left_normal, 1, 1, 15)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, left_normal, 1, 0, 16)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, left_normal, 0, 0, 17)
+	_add_face('left', left_normal, left_index, 5)
+
+	local right_normal = { x = 1, y = 0, z = 0 }
+	local right_index = 3
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 18)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, right_normal, 0, 1, 19)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 20)
+	_add_face('right', right_normal, right_index, 6)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, right_normal, 1, 1, 21)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, right_normal, 1, 0, 22)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, right_normal, 0, 0, 23)
+	_add_face('right', right_normal, right_index, 7)
+
+	local top_normal = { x = 0, y = 1, z = 0 }
+	local top_index = 4
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 24)
+	_add_vertex(x - w / 2, y + h / 2, z + d / 2, top_normal, 0, 1, 25)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 26)
+	_add_face('top', top_normal, top_index, 8)
+	_add_vertex(x + w / 2, y + h / 2, z + d / 2, top_normal, 1, 1, 27)
+	_add_vertex(x + w / 2, y + h / 2, z - d / 2, top_normal, 1, 0, 28)
+	_add_vertex(x - w / 2, y + h / 2, z - d / 2, top_normal, 0, 0, 29)
+	_add_face('top', top_normal, top_index, 9)
+
+	local bottom_normal = { x = 0, y = -1, z = 0 }
+	local bottom_index = 5
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 30)
+	_add_vertex(x - w / 2, y - h / 2, z - d / 2, bottom_normal, 0, 1, 31)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 32)
+	_add_face('bottom', bottom_normal, bottom_index, 10)
+	_add_vertex(x + w / 2, y - h / 2, z - d / 2, bottom_normal, 1, 1, 33)
+	_add_vertex(x + w / 2, y - h / 2, z + d / 2, bottom_normal, 1, 0, 34)
+	_add_vertex(x - w / 2, y - h / 2, z + d / 2, bottom_normal, 0, 0, 35)
+	_add_face('bottom', bottom_normal, bottom_index, 11)
+
+	return builder
+end
+
+end ----------------------------------------------------------------------------
+
 -- TODO: palette/rgb
--- TODO: util/support
 
 -- #gen-type-methods
 -- #gen-type-instances
