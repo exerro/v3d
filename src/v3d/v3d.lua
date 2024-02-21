@@ -6,6 +6,8 @@ local math_cos = math.cos
 local math_pi = math.pi
 local math_sin = math.sin
 local math_tan = math.tan
+local math_max = math.max
+local math_min = math.min
 
 --- The V3D library.
 --- @class V3D
@@ -2236,6 +2238,8 @@ end
 --- @field setCursorPos function
 --- Standard `blit` function.
 --- @field blit function
+--- Standard `setPaletteColour` function.
+--- @field setPaletteColour function
 --- @v3d-structural
 
 --- An extension of the normal ComputerCraft terminal which adds extra graphics
@@ -5204,7 +5208,7 @@ local _SAMPLER1D_TEMPLATE_LINEAR = [[
 --- local my_sampler = v3d.create_sampler1D {
 --- 	format = v3d.number(),
 --- 	wrap_u = 'repeat',
---- 	interpolate_u = 'linear',
+--- 	interpolate = 'linear',
 --- }
 --- @v3d-example
 function v3d.create_sampler1D(options)
@@ -5454,7 +5458,7 @@ end
 --- @v3d-nolog
 --- Image format must be compatible with the sampler format
 --- @v3d-validate v3d.format_is_compatible_with(image.format, sampler.options.format)
---- local my_sampler = v3d.create_sampler1D { format = v3d.number(), interpolate_u = 'linear' }
+--- local my_sampler = v3d.create_sampler1D { format = v3d.number(), interpolate = 'linear' }
 --- local my_image = v3d.create_image(v3d.number(), 2, 1, 1, 0)
 --- v3d.image_view_set_pixel(v3d.image_view(my_image), 1, 0, 0, 10)
 ---
@@ -5462,7 +5466,7 @@ end
 --- assert(math.abs(single_value - 5) < 0.0001)
 --- @v3d-example 5
 --- local rgb_format = v3d.struct { r = v3d.number(), g = v3d.number(), b = v3d.number() }
---- local my_sampler = v3d.create_sampler1D { format = rgb_format, interpolate_u = 'linear' }
+--- local my_sampler = v3d.create_sampler1D { format = rgb_format, interpolate = 'linear' }
 --- local my_rgb_image = v3d.create_image(rgb_format, 2, 1, 1)
 --- v3d.image_view_set_pixel(v3d.image_view(my_rgb_image), 1, 0, 0, { r = 10, g = 20, b = 30 })
 ---
@@ -5474,7 +5478,7 @@ end
 --- assert(math.abs(b - 30) < 0.0001)
 --- @v3d-example 8
 --- local rgba_format = v3d.struct { r = v3d.number(), g = v3d.number(), b = v3d.number(), a = v3d.number() }
---- local my_sampler = v3d.create_sampler1D { format = rgba_format, interpolate_u = 'linear' }
+--- local my_sampler = v3d.create_sampler1D { format = rgba_format, interpolate = 'linear' }
 --- local my_rgba_image = v3d.create_image(rgba_format, 2, 1, 1)
 --- v3d.image_view_set_pixel(v3d.image_view(my_rgba_image), 1, 0, 0, { r = 10, g = 20, b = 30, a = 1 })
 ---
@@ -5500,6 +5504,348 @@ function v3d.sampler2d_sample(sampler, image, u, v) end
 --- @param w number
 --- @return any ...
 function v3d.sampler3d_sample(sampler, image, u, v, w) end
+
+end ----------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Palettes --------------------------------------------------------------------
+do -----------------------------------------------------------------------------
+
+--- @class V3DPalette
+--- Number of distinct colours this palette represents.
+--- @field n_colours integer
+--- @field private colour_tables number[][]
+--- @field private colours_flat number[]
+
+--- @param palette V3DPalette
+--- @param index integer
+--- @param exponential boolean
+--- @return { [1]: number, [2]: number, [3]: number }
+--- @v3d-nolog
+function v3d.palette_get_colour_rgb(palette, index, exponential)
+	if exponential then
+		index = math.floor(math.log(index + 0.5, 2))
+	end
+	--- @diagnostic disable-next-line: invisible
+	return palette.colour_tables[index + 1]
+end
+
+--- @param palette V3DPalette
+--- @param red number
+--- @param green number
+--- @param blue number
+--- @return integer index
+--- @v3d-generated
+--- @v3d-nolog
+function v3d.palette_lookup(palette, red, green, blue)
+	-- Generated at runtime based on the specific palette used.
+	--- @diagnostic disable-next-line: missing-return
+end
+
+--- @param palette V3DPalette
+--- @param term CCTermObject
+--- @param exponential boolean
+--- @return V3DPalette
+--- @v3d-chainable
+function v3d.palette_use(palette, term, exponential)
+	--- @diagnostic disable-next-line: invisible
+	local colours_flat = palette.colours_flat
+	local term_setPaletteColour = term.setPaletteColour
+	for n = 1, palette.n_colours do
+		local idx = n * 3
+		local r, g, b = colours_flat[idx - 2], colours_flat[idx - 1], colours_flat[idx]
+		local palette_index = n - 1
+		if exponential then
+			palette_index = 2 ^ palette_index
+		end
+		term_setPaletteColour(palette_index, r, g, b)
+	end
+	return palette
+end
+
+----------------------------------------------------------------
+
+local function _setup_palette(palette, colour_tables)
+	local colours_flat = {}
+
+	palette.n_colours = #colour_tables
+	palette.colour_tables = colour_tables
+	palette.colours_flat = colours_flat
+
+	for i = 1, palette.n_colours do
+		local colour = colour_tables[i]
+		colours_flat[i * 3 - 2] = colour[1]
+		colours_flat[i * 3 - 1] = colour[2]
+		colours_flat[i * 3] = colour[3]
+	end
+end
+
+----------------------------------------------------------------
+
+-- TODO: rect bounds
+--- @class V3DRGBGridPaletteOptions
+--- @field red_divisions integer | nil
+--- @field green_divisions integer | nil
+--- @field blue_divisions integer | nil
+--- @field red_exp number | nil
+--- @field green_exp number | nil
+--- @field blue_exp number | nil
+--- @field red_range number | nil
+--- @field green_range number | nil
+--- @field blue_range number | nil
+--- @field red_bias number | nil
+--- @field green_bias number | nil
+--- @field blue_bias number | nil
+--- @field label string | nil
+--- @v3d-structural
+
+--- @param options V3DRGBGridPaletteOptions | nil
+--- @return V3DPalette
+--- @v3d-constructor
+function v3d.create_rgb_grid_palette(options)
+	options = options or {}
+
+	local palette = _create_instance('V3DPalette', options.label or 'RGB Grid')
+	local colour_tables = {}
+
+	local red_divisions = options.red_divisions or 3
+	local green_divisions = options.green_divisions or 2
+	local blue_divisions = options.blue_divisions or 2
+	local red_exp = options.red_exp or 1
+	local green_exp = options.green_exp or 1
+	local blue_exp = options.blue_exp or 1
+
+	local red_range = options.red_range or 1
+	local green_range = options.green_range or 1
+	local blue_range = options.blue_range or 1
+	local red_offset = (1 - red_range) * (options.red_bias or 0.5)
+	local green_offset = (1 - green_range) * (options.green_bias or 0.5)
+	local blue_offset = (1 - blue_range) * (options.blue_bias or 0.5)
+
+	for red_index = 0, red_divisions - 1 do
+		for green_index = 0, green_divisions - 1 do
+			for b_index = 0, blue_divisions - 1 do
+				local red = red_index / (red_divisions - 1)
+				local green = green_index / (green_divisions - 1)
+				local blue = b_index / (blue_divisions - 1)
+
+				red = red ^ red_exp
+				green = green ^ green_exp
+				blue = blue ^ blue_exp
+
+				red = red * red_range + red_offset
+				green = green * green_range + green_offset
+				blue = blue * blue_range + blue_offset
+
+				table.insert(colour_tables, { red, green, blue })
+			end
+		end
+	end
+
+	_setup_palette(palette, colour_tables)
+
+	local red_exp_inv = 1 / red_exp
+	local green_exp_inv = 1 / green_exp
+	local blue_exp_inv = 1 / blue_exp
+	local red_range_inv = 1 / red_range
+	local green_range_inv = 1 / green_range
+	local blue_range_inv = 1 / blue_range
+
+	--- @diagnostic disable-next-line: inject-field
+	palette.lookup = function(_, r, g, b)
+		local red = (r - red_offset) * red_range_inv
+		local green = (g - green_offset) * green_range_inv
+		local blue = (b - blue_offset) * blue_range_inv
+
+		if red < 0 then red = 0 end
+		if green < 0 then green = 0 end
+		if blue < 0 then blue = 0 end
+
+		local red_index = red ^ red_exp_inv * (red_divisions - 1)
+		local green_index = green ^ green_exp_inv * (green_divisions - 1)
+		local blue_index = blue ^ blue_exp_inv * (blue_divisions - 1)
+
+		red_index = math.min(red_divisions - 1, math.floor(red_index + 0.5))
+		green_index = math.min(green_divisions - 1, math.floor(green_index + 0.5))
+		blue_index = math.min(blue_divisions - 1, math.floor(blue_index + 0.5))
+
+		return red_index * green_divisions * blue_divisions + green_index * blue_divisions + blue_index
+	end
+
+	return _finalise_instance(palette)
+end
+
+----------------------------------------------------------------
+
+local function _hsl_to_rgb_component(p, q, t)
+	if t < 0 then t = t + 1 end
+	if t > 1 then t = t - 1 end
+	if t < .16667 then return p + (q - p) * 6 * t end
+	if t < .5 then return q end
+	if t < .66667 then return p + (q - p) * (.66667 - t) * 6 end
+	return p
+end
+
+--- Convert HSL to RGB. All values are between 0 and 1 inclusive.
+--- @param h number
+--- @param s number
+--- @param l number
+--- @return number r, number g, number b
+--- @v3d-nolog
+function v3d.hsl_to_rgb(h, s, l)
+	if s == 0 then return l, l, l end
+	local q = l < .5 and l * (1 + s) or l + s - l * s
+	local p = 2 * l - q
+	return _hsl_to_rgb_component(p, q, h + .33334), _hsl_to_rgb_component(p, q, h), _hsl_to_rgb_component(p, q, h - .33334)
+end
+
+--- Convert RGB to HSL. All values are between 0 and 1 inclusive.
+--- @param r number
+--- @param g number
+--- @param b number
+--- @return number h, number s, number l
+--- @v3d-nolog
+function v3d.rgb_to_hsl(r, g, b)
+	local max, min = math_max(r, g, b), math_min(r, g, b)
+	local k = max + min
+	local h = k / 2
+	if max == min then return 0, 0, h end
+	local s, l = h, h
+	local d = max - min
+	s = l > .5 and d / (2 - k) or d / k
+	if max == r then h = (g - b) / d + (g < b and 6 or 0)
+	elseif max == g then h = (b - r) / d + 2
+	elseif max == b then h = (r - g) / d + 4
+	end
+	return h * .16667, s, l
+end
+
+local _rgb_to_hsl = v3d.rgb_to_hsl
+local _hsl_to_rgb = v3d.hsl_to_rgb
+
+----------------------------------------------------------------
+
+--- @class V3DHSLGridPaletteOptions
+--- @field hue_divisions integer | nil
+--- @field saturation_divisions integer | nil
+--- @field lightness_divisions integer | nil
+--- @field hue_exp number | nil
+--- @field saturation_exp number | nil
+--- @field lightness_exp number | nil
+--- @field hue_range number | nil
+--- @field saturation_range number | nil
+--- @field lightness_range number | nil
+--- @field hue_bias number | nil
+--- @field saturation_bias number | nil
+--- @field lightness_bias number | nil
+--- @field label string | nil
+--- Hue divisions must be at least 1.
+--- @v3d-validate not options or not options.hue_divisions or options.hue_divisions >= 1
+--- Saturation divisions must be at least 1.
+--- @v3d-validate not options or not options.saturation_divisions or options.saturation_divisions >= 1
+--- Lightness divisions must be at least 1.
+--- @v3d-validate not options or not options.lightness_divisions or options.lightness_divisions >= 1
+--- Hue range must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.hue_range or (options.hue_range >= 0 and options.hue_range <= 1)
+--- Saturation range must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.saturation_range or (options.saturation_range >= 0 and options.saturation_range <= 1)
+--- Lightness range must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.lightness_range or (options.lightness_range >= 0 and options.lightness_range <= 1)
+--- Hue bias must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.hue_bias or (options.hue_bias >= 0 and options.hue_bias <= 1)
+--- Saturation bias must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.saturation_bias or (options.saturation_bias >= 0 and options.saturation_bias <= 1)
+--- Lightness bias must be between 0 and 1 inclusive.
+--- @v3d-validate not options or not options.lightness_bias or (options.lightness_bias >= 0 and options.lightness_bias <= 1)
+--- @v3d-structural
+
+--- @param options V3DHSLGridPaletteOptions | nil
+--- @return V3DPalette
+--- @v3d-constructor
+function v3d.create_hsl_grid_palette(options)
+	options = options or {}
+
+	local palette = _create_instance('V3DPalette', options.label or 'HSL Grid')
+	local colour_tables = {}
+
+	local hue_divisions = options.hue_divisions or 4
+	local saturation_divisions = options.saturation_divisions or 2
+	local lightness_divisions = options.lightness_divisions or 2
+	local hue_exp = options.hue_exp or 1
+	local saturation_exp = options.saturation_exp or 1
+	local lightness_exp = options.lightness_exp or 2
+
+	local hue_range = options.hue_range or (hue_divisions - 1) / hue_divisions
+	local saturation_range = options.saturation_range or (saturation_divisions - 1) / saturation_divisions
+	local lightness_range = options.lightness_range or (lightness_divisions - 1) / lightness_divisions
+	local hue_offset = (1 - hue_range) * (options.hue_bias or 0.5)
+	local saturation_offset = (1 - saturation_range) * (options.saturation_bias or 0.5)
+	local lightness_offset = (1 - lightness_range) * (options.lightness_bias or 0.5)
+
+	table.insert(colour_tables, { 0, 0, 0 })
+	table.insert(colour_tables, { 1, 1, 1 })
+
+	for h = 0, hue_divisions - 1 do
+		for s = 0, saturation_divisions - 1 do
+			for l = 0, lightness_divisions - 1 do
+				local hue = h / (hue_divisions - 1)
+				local saturation = s / (saturation_divisions - 1)
+				local lightness = l / (lightness_divisions - 1)
+
+				hue = hue ^ hue_exp
+				saturation = saturation ^ saturation_exp
+				lightness = lightness ^ lightness_exp
+
+				hue = hue * hue_range + hue_offset
+				saturation = saturation * saturation_range + saturation_offset
+				lightness = lightness * lightness_range + lightness_offset
+
+				local r, g, b = _hsl_to_rgb(hue, saturation, lightness)
+				table.insert(colour_tables, { r, g, b })
+			end
+		end
+	end
+
+	_setup_palette(palette, colour_tables)
+
+	local hue_exp_inv = 1 / hue_exp
+	local saturation_exp_inv = 1 / saturation_exp
+	local lightness_exp_inv = 1 / lightness_exp
+	local hue_range_inv = 1 / hue_range
+	local saturation_range_inv = 1 / saturation_range
+	local lightness_range_inv = 1 / lightness_range
+
+	--- @diagnostic disable-next-line: inject-field
+	palette.lookup = function(self, r, g, b)
+		local h, s, l = _rgb_to_hsl(r, g, b)
+
+		if l + l < hue_offset then
+			return 0
+		elseif l > hue_offset * 1.5 + hue_range then
+			return 1
+		end
+
+		local hue = (h - hue_offset) * hue_range_inv
+		local saturation = (s - saturation_offset) * saturation_range_inv
+		local lightness = (l - lightness_offset) * lightness_range_inv
+
+		if hue < 0 then hue = 0 end
+		if saturation < 0 then saturation = 0 end
+		if lightness < 0 then lightness = 0 end
+
+		local hue_index = hue ^ hue_exp_inv * (hue_divisions - 1)
+		local saturation_index = saturation ^ saturation_exp_inv * (saturation_divisions - 1)
+		local lightness_index = lightness ^ lightness_exp_inv * (lightness_divisions - 1)
+
+		hue_index = math.min(hue_divisions - 1, math.floor(hue_index + 0.5))
+		saturation_index = math.min(saturation_divisions - 1, math.floor(saturation_index + 0.5))
+		lightness_index = math.min(lightness_divisions - 1, math.floor(lightness_index + 0.5))
+
+		return hue_index * saturation_divisions * lightness_divisions + saturation_index * lightness_divisions + lightness_index + 2
+	end
+
+	return _finalise_instance(palette)
+end
 
 end ----------------------------------------------------------------------------
 
@@ -5537,7 +5883,7 @@ end
 
 ----------------------------------------------------------------
 
---- @class V3DCreateFullscreenImagesOptions
+--- @class V3DCreateFullscreenImageViewsOptions
 --- Colour mode | Description
 --- -|-
 --- `rgb` | The colour image will have an RGB format, where each component varies from 0 to 1.
@@ -5547,10 +5893,15 @@ end
 --- @field size_mode 'graphics' | 'subpixel' | 'standard' | 'highest_supported' | nil
 --- @v3d-structural
 
+--- @class V3DCreateFullscreenImageViews
+--- @field colour V3DImageView
+--- @field depth V3DImageView
+--- @v3d-structural
+
 --- Create a set of colour & depth images and image views.
---- @param options V3DCreateFullscreenImagesOptions | nil
+--- @param options V3DCreateFullscreenImageViewsOptions | nil
 --- @param term CCTermObject | nil
---- @return { colour: V3DImageView, depth: V3DImageView }
+--- @return V3DCreateFullscreenImageViews
 --- Graphics mode must be supported if `size_mode` is set to 'graphics'
 --- @v3d-validate not options or options.size_mode ~= 'graphics' or (term or _ENV.term)['getGraphicsMode']
 function v3d.create_fullscreen_image_views(options, term)

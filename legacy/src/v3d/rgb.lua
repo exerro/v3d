@@ -9,79 +9,6 @@ v3d.rgb = {}
 --[[ v3d.Palette ]]-------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-do
-	--- TODO
-	--- @class v3d.rgb.Palette
-	--- @field private n_colours integer
-	--- @field private colours number[]
-	v3d.rgb.Palette = {}
-
-	--- TODO: remove palette from these names!
-	--- @return integer
-	--- @nodiscard
-	function v3d.rgb.Palette:count()
-		return self.n_colours
-	end
-
-	--- Return the red, green, and blue components of the specified palette
-	--- index. The palette index should be an integer ranging between 1 and the
-	--- number of colours in this palette.
-	--- @param palette_index integer
-	--- @return number red, number blue, number green
-	--- @nodiscard
-	function v3d.rgb.Palette:get_colour(palette_index)
-		local idx = palette_index * 3
-		local colours = self.colours
-
-		return colours[idx - 2], colours[idx - 1], colours[idx]
-	end
-
-	--- Return all the palette colours flattened into a single table. Colours
-	--- are laid out sequentially, i.e. `r1, g1, b1, r2, g2, b2, ...`. The order
-	--- of colours within this table will always match palette indices, i.e.
-	--- palette index 2 will always begin at index 4 in this table, palette
-	--- index 3 will always begin at index 7 in this table, and so on (3i - 2).
-	--- @return number[]
-	--- @nodiscard
-	function v3d.rgb.Palette:get_all_colours()
-		return self.colours
-	end
-
-	--- We programmatically assign these functions (see create_palette below) so
-	--- we don't need to define it here.
-	--- @diagnostic disable missing-return
-
-	--- @param red number
-	--- @param green number
-	--- @param blue number
-	--- @return integer palette_index, number red, number green, number blue
-	--- @nodiscard
-	function v3d.rgb.Palette:lookup_closest(red, green, blue) end
-
-	--- @param in_self string
-	--- @param in_red string
-	--- @param in_green string
-	--- @param in_blue string
-	--- @param out_palette_index string | nil
-	--- @param out_red string | nil
-	--- @param out_green string | nil
-	--- @param out_blue string | nil
-	--- @return string code, { name: string, value: string, global: boolean }[] cache
-	--- @nodiscard
-	function v3d.rgb.Palette:embed_lookup_algorithm(
-		in_self,
-		in_red,
-		in_green,
-		in_blue,
-		out_palette_index,
-		out_red,
-		out_green,
-		out_blue
-	) end
-
-	--- @diagnostic enable missing-return
-end
-
 --------------------------------------------------------------------------------
 --[[ Palette types ]]-----------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -384,9 +311,9 @@ do
 						blue = -blue
 					end
 
-					if red]] .. (math.abs(red_plane - 1) > 0.001 and ' * ' .. red_plane or '') .. [[ 
-					 + green]] .. (math.abs(green_plane - 1) > 0.001 and ' * ' .. green_plane or '') .. [[ 
-					 + blue]] .. (math.abs(blue_plane - 1) > 0.001 and ' * ' .. blue_plane or '') .. [[ 
+					if red]] .. (math.abs(red_plane - 1) > 0.001 and ' * ' .. red_plane or '') .. [[
+					 + green]] .. (math.abs(green_plane - 1) > 0.001 and ' * ' .. green_plane or '') .. [[
+					 + blue]] .. (math.abs(blue_plane - 1) > 0.001 and ' * ' .. blue_plane or '') .. [[
 					 > ]] .. (red_plane * red_plane + green_plane * green_plane + blue_plane * blue_plane) / scale .. [[ then
 						]] .. out_palette_index .. [[ = ]] .. out_palette_index .. [[ + 8
 					end
@@ -714,7 +641,7 @@ do
 					local best_tree = nil
 
 					local fringe_n = 1
-					v3d_palette_var_fringe_trees[fringe_n] = ]] .. in_self .. [[ 
+					v3d_palette_var_fringe_trees[fringe_n] = ]] .. in_self .. [[
 					v3d_palette_var_fringe_min_distance_squared[fringe_n] = 0
 
 					while fringe_n > 0 do

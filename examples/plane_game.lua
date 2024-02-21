@@ -46,8 +46,10 @@ local PLANE_CAMERA_UP_DISTANCE = 1
 local PLANE_CAMERA_X_ROTATION_DELTA = math.atan(PLANE_CAMERA_UP_DISTANCE / PLANE_CAMERA_FORWARD_DISTANCE)
 
 -- set up graphics state
-term.setGraphicsMode(1)
-local screen_width, screen_height = term.getSize(1)
+-- term.setGraphicsMode(1)
+local screen_width, screen_height = term.getSize()
+screen_width = screen_width * 2
+screen_height = screen_height * 3
 local colour_image = v3d.create_image(v3d.uinteger(), screen_width, screen_height, 1, colours.black)
 local depth_image = v3d.create_image(v3d.number(), screen_width, screen_height, 1, 0)
 local image_views = {
@@ -270,11 +272,11 @@ local function draw()
 		v3d.renderer_render(terrain_renderer, visible_chunks[i], image_views, transform)
 		n = n + visible_chunks[i].n_faces
 	end
-	print('n_faces', n)
 	v3d.exit_debug_region('render')
 
 	v3d.enter_debug_region('present')
-	v3d.image_view_present_graphics(image_views.colour, term.native(), true)
+	-- v3d.image_view_present_graphics(image_views.colour, term.native(), true)
+	v3d.image_view_present_term_subpixel(image_views.colour, term.native())
 	v3d.exit_debug_region('present')
 end
 

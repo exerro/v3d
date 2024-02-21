@@ -134,7 +134,9 @@ for i = 1, 1005 do
 	v3d.enter_debug_region 'present'
 	-- v3d.image_view_present_term_subpixel(v3d.image_view(colour_image), term.current())
 	-- v3d.image_view_present_graphics(v3d.image_view(colour_image), term.current(), true)
+	term.setFrozen(true)
 	v3d.image_view_present_graphics(v3d.image_view(colour_image), term.current(), false)
+	term.setFrozen(false)
 	-- v3d.exit_debug_region 'present'
 
 	-- local _, button = os.pullEvent 'mouse_click'
