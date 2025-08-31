@@ -1043,7 +1043,6 @@ local EQUALITY_OPERATOR_PRECEDENCE = 3
 local AND_OPERATOR_PRECEDENCE = 2
 local OR_OPERATOR_PRECEDENCE = 1
 
-
 --- @type function(parser: ParseCtx, lookup_name: function(Token): ValueType) -> ValueType
 local parse_type
 do
@@ -1051,16 +1050,12 @@ do
 		if parser:consume("nil") then
 			return vsl_types.NIL_TYPE
 		elseif parser:consume("bool") or parser:consume("boolean") then
-			--- @type ValueType
 			return vsl_types.BOOLEAN_TYPE
 		elseif parser:consume("integer") then
-			--- @type ValueType
 			return vsl_types.INTEGER_TYPE
 		elseif parser:consume("number") then
-			--- @type ValueType
 			return vsl_types.NUMBER_TYPE
 		elseif parser:consume("string") then
-			--- @type ValueType
 			return vsl_types.STRING_TYPE
 		elseif parser:consume("dynamic") then
 			return vsl_types.DYNAMIC_TYPE
@@ -1068,8 +1063,12 @@ do
 			parser:expect("<")
 			local element = parse_type(parser, lookup_name)
 			parser:expect(">")
-			--- @type TypeBuffer
 			return vsl_types.buffer_type(element)
+		elseif parser:consume("ref") then
+			parser:expect("<")
+			local element = parse_type(parser, lookup_name)
+			parser:expect(">")
+			return vsl_types.ref_type(element)
 		elseif parser:consume("array") then
 			parser:expect("<")
 			local element = parse_type(parser, lookup_name)
@@ -1080,7 +1079,6 @@ do
 				return vsl_parse.error_at(size_token.position, "Expected positive integer for array size")
 			end
 			parser:expect(">")
-			--- @type TypeArray
 			return vsl_types.array_type(element, size)
 		elseif parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 			return lookup_name(parser:advance())
