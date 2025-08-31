@@ -1,197 +1,6 @@
-local IR2 = require "vsl_ir"
+local vsl_ir = require "vsl_ir"
 local vsl_types = require "vsl_types"
-
-do -- lexer type definitions
-	--- @class Token
-	--- @field type TokenType
-	--- @field text string
-	--- @field position TokenPosition
-
-	--- @alias TokenPosition { offset: number, line: number, column: number }
-end
-
---- @enum TokenType
-local TokenType = {
-	KEYWORD = "keyword",
-	IDENTIFIER = "identifier",
-	NUMBER = "number",
-	STRING = "string",
-	SYMBOL = "symbol",
-	COMMENT = "comment",
-}
-
-local keywords_lookup = {
-	["and"] = true,
-	["break"] = true,
-	["do"] = true,
-	["else"] = true,
-	["elseif"] = true,
-	["end"] = true,
-	["false"] = true,
-	["for"] = true,
-	["function"] = true,
-	["if"] = true,
-	["in"] = true,
-	["local"] = true,
-	["nil"] = true,
-	["not"] = true,
-	["or"] = true,
-	["repeat"] = true,
-	["return"] = true,
-	["then"] = true,
-	["true"] = true,
-	["until"] = true,
-	["while"] = true,
-	["struct"] = true,
-}
-
-local symbols_lookup = {
-	["+"] = true,
-	["-"] = true,
-	["*"] = true,
-	["/"] = true,
-	["%"] = true,
-	["^"] = true,
-	[".."] = true,
-	["#"] = true,
-	["<"] = true,
-	["<="] = true,
-	[">"] = true,
-	[">="] = true,
-	["=="] = true,
-	["~="] = true,
-	["="] = true,
-	["+="] = true,
-	["-="] = true,
-	["*="] = true,
-	["/="] = true,
-	["%="] = true,
-	["^="] = true,
-	["("] = true,
-	[")"] = true,
-	["{"] = true,
-	["}"] = true,
-	["["] = true,
-	["]"] = true,
-	[";"] = true,
-	[":"] = true,
-	[","] = true,
-	["."] = true,
-	["::"] = true,
-}
-
---- @param input string
---- @return Token[]
-local function lex(input)
-	local tokens, i, len = {}, 1, #input
-	local line, col = 1, 1
-
-	local table_insert = table.insert
-	local string_match = string.match
-	local string_find = string.find
-	local string_sub = string.sub
-	local string_format = string.format
-
-	local function error_here(msg)
-		error(string_format("%s at line %d, column %d", msg, line, col))
-	end
-
-	while i <= len do
-		local c = string_sub(input, i, i)
-		if c == '\n' then
-			line = line + 1
-			col = 1
-			i = i + 1
-		elseif string_match(c, "%s") then
-			i = i + 1
-			col = col + 1
-		elseif c == "-" and string_sub(input, i, i + 1) == "--" then
-			local _, e = string_find(input, "\n", i + 2)
-			line = line + 1
-			col = 1
-			i = (e or len) + 1
-		elseif c == '"' or c == "'" then
-			local finished = false
-			local start_i = i
-			i = i + 1
-			while i <= len do
-				local ch = string_sub(input, i, i)
-				if ch == '\n' then
-					error_here("Newline in string")
-				elseif ch == "\\" then
-					i = i + 1
-				elseif ch == c then
-					finished = true
-					break
-				end
-				i = i + 1
-			end
-
-			if finished then
-				local text = string_sub(input, start_i, i)
-				local position = { offset = start_i, line = line, column = col }
-				table_insert(tokens, { type = TokenType.STRING, text = text, position = position })
-				i = i + 1
-				col = col + (i - start_i)
-			else
-				error_here("Unterminated string")
-			end
-		elseif string_match(c, "[%a_]") then
-			local text = string_match(input, "[%w_]+", i)
-			local type = keywords_lookup[text] and TokenType.KEYWORD or TokenType.IDENTIFIER
-			local position = { offset = i, line = line, column = col }
-			table_insert(tokens, { type = type, text = text, position = position })
-			i = i + #text
-			col = col + #text
-		elseif string_match(c, "%d") then
-			local start_i = i
-			local prefix = string_sub(input, i, i + 1)
-			local pattern
-			if prefix == "0x" or prefix == "0X" then
-				pattern = "^[0-9a-fA-F]"
-				i = i + 2
-			elseif prefix == "0b" or prefix == "0B" then
-				pattern = "^[01]"
-				i = i + 2
-			else
-				pattern = "^[0-9%.]"
-			end
-
-			while string_match(input, pattern, i) do
-				i = i + 1
-			end
-
-			local num = string_sub(input, start_i, i - 1)
-			if string_find(input, "^[%a_]", i) then
-				error_here("Invalid number followed by letter or _")
-			else
-				local position = { offset = start_i, line = line, column = col }
-				table_insert(tokens, { type = TokenType.NUMBER, text = num, position = position })
-				col = col + i - start_i
-			end
-		else
-			local two = string_sub(input, i, i + 1)
-			local position = { offset = i, line = line, column = col }
-			local text
-			if symbols_lookup[two] then
-				text = two
-				i = i + 2
-				col = col + 2
-			elseif symbols_lookup[c] then
-				text = c
-				i = i + 1
-				col = col + 1
-			end
-			if text then
-				table_insert(tokens, { type = TokenType.SYMBOL, text = text, position = position })
-			else
-				error_here("Unknown character: " .. c)
-			end
-		end
-	end
-
-	return tokens
-end
+local vsl_parse = require "vsl_parse"
 
 local NamingCtx
 do
@@ -545,159 +354,6 @@ do -- IR definitions
 	IR.type_flattened_element_count = vsl_types.type_flattened_element_count
 end
 
-local ParseCtx
-do -- parser type definitions
-	--- @class ParseCtx
-	--- @field tokens Token[]
-	--- @field current_token_index number
-	--- @field last_token Token?
-	ParseCtx = {}
-
-	--- @return ParseCtx
-	function ParseCtx.new(tokens)
-		local object = {
-			tokens = tokens,
-			current_token_index = 1,
-			last_token = nil,
-		}
-		setmetatable(object, { __index = ParseCtx })
-		return object
-	end
-
-	--- @param token_text string
-	--- @return boolean
-	function ParseCtx:test(token_text)
-		if self.current_token_index > #self.tokens then
-			return false
-		end
-		return self.tokens[self.current_token_index].text == token_text
-	end
-
-	--- @param token_type TokenType
-	--- @return boolean
-	function ParseCtx:test_type(token_type)
-		if self.current_token_index > #self.tokens then
-			return false
-		end
-		return self.tokens[self.current_token_index].type == token_type
-	end
-
-	--- @param token_text string
-	--- @return boolean
-	function ParseCtx:consume(token_text)
-		if self:test(token_text) then
-			self.last_token = self.tokens[self.current_token_index]
-			self.current_token_index = self.current_token_index + 1
-			return true
-		else
-			return false
-		end
-	end
-
-	--- @param token_type TokenType
-	--- @return boolean
-	function ParseCtx:consume_type(token_type)
-		if self:test_type(token_type) then
-			self.last_token = self.tokens[self.current_token_index]
-			self.current_token_index = self.current_token_index + 1
-			return true
-		else
-			return false
-		end
-	end
-
-	--- @return Token
-	function ParseCtx:advance()
-		self.last_token = self.tokens[self.current_token_index]
-		self.current_token_index = self.current_token_index + 1
-		return self.last_token
-	end
-
-	--- @param token_text string
-	--- @return Token
-	function ParseCtx:expect(token_text)
-		if self.current_token_index > #self.tokens then
-			if self.last_token == nil then
-				error("Unexpected end of input, expected '" .. token_text .. "'")
-			else
-				error("Unexpected end of input, expected '" .. token_text .. "' after '" .. self.last_token.text .. "' on line " .. self.last_token.position.line)
-			end
-		end
-
-		local current_token = self.tokens[self.current_token_index]
-
-		if current_token.text == token_text then
-			self.current_token_index = self.current_token_index + 1
-			self.last_token = current_token
-			return current_token
-		else
-			error("Expected '" ..
-			token_text .. "', got '" .. current_token.text .. "' on line " .. current_token.position.line)
-		end
-	end
-
-	--- @param token_type TokenType
-	--- @return Token
-	function ParseCtx:expect_type(token_type)
-		if self.current_token_index > #self.tokens then
-			if self.last_token == nil then
-				error("Unexpected end of input, expected <" .. token_type .. ">")
-			else
-				error("Unexpected end of input, expected <" .. token_type .. "> after '" .. self.last_token.text .. "' on line " .. self.last_token.position.line)
-			end
-		end
-
-		local current_token = self.tokens[self.current_token_index]
-
-		if current_token.type == token_type then
-			self.current_token_index = self.current_token_index + 1
-			self.last_token = current_token
-			return current_token
-		else
-			error("Expected <" ..
-			token_type .. ">, got <" .. current_token.type .. "> on line " .. current_token.position.line)
-		end
-	end
-
-	--- @generic T
-	--- @param message string
-	--- @return T
-	function ParseCtx:error_next(message)
-		if self.current_token_index > #self.tokens then
-			error(message .. ", got <end of input> on line " .. (self.last_token and self.last_token.position.line or 0))
-		else
-			local next_token = self.tokens[self.current_token_index]
-			error(message .. ", got '" .. (next_token.text) .. "' on line " .. (next_token.position.line))
-		end
-	end
-
-	--- @generic T
-	--- @param position TokenPosition
-	--- @param message string
-	--- @return T
-	function ParseCtx.error_at(position, message)
-		error(message .. " on line " .. position.line)
-	end
-
-	--- @generic T
-	--- @generic R...
-	--- @param open string
-	--- @param parse_inner fun(ctx: ParseCtx, R...): T
-	--- @param close string
-	--- @return T[]
-	function ParseCtx:list_of(open, parse_inner, close, ...)
-		self:expect(open)
-		local list = {}
-		if not self:test(close) then
-			repeat
-				table.insert(list, parse_inner(self, ...))
-			until not (self:test(",") and self:expect(",")) or self:test(close)
-		end
-		self:expect(close)
-		return list
-	end
-end
-
 local GlobalCtx
 do
 	--- @class GlobalCtx
@@ -798,7 +454,7 @@ do
 	--- @param name_token Token
 	--- @return GlobalValue
 	function GlobalCtx:lookup(name_token)
-		return self.scope[name_token.text] or ParseCtx.error_at(name_token.position, "'" .. name_token.text .. "' is undefined")
+		return self.scope[name_token.text] or vsl_parse.error_at(name_token.position, "'" .. name_token.text .. "' is undefined")
 	end
 
 	--- @param name_token Token
@@ -807,11 +463,11 @@ do
 		--- @type GlobalValue
 		local def = self.scope[name_token.text]
 		if not def then
-			return ParseCtx.error_at(name_token.position, "Undefined type '" .. name_token.text .. "'")
+			return vsl_parse.error_at(name_token.position, "Undefined type '" .. name_token.text .. "'")
 		elseif def.global_kind == "struct" then
 			return def.struct_definition
 		else
-			return ParseCtx.error_at(name_token.position, "Expected type but got " .. def.global_kind .. " '" .. name_token.text .. "'")
+			return vsl_parse.error_at(name_token.position, "Expected type but got " .. def.global_kind .. " '" .. name_token.text .. "'")
 		end
 	end
 end
@@ -903,7 +559,7 @@ do
 		return function(name_token)
 			for i = #self.scope_stack, 1, -1 do
 				if self.scope_stack[i].variables[name_token.text] then
-					return ParseCtx.error_at(name_token.position, "'" .. name_token.text .. "' is not a type")
+					return vsl_parse.error_at(name_token.position, "'" .. name_token.text .. "' is not a type")
 				end
 			end
 
@@ -989,9 +645,9 @@ do
 			end
 		end
 		if self:is_type_parameter(variable_tk.text) then
-			return ParseCtx.error_at(variable_tk.position, "'" .. variable_tk.text .. "' is a type parameter and cannot be used as a variable"), IR.DYNAMIC_TYPE
+			return vsl_parse.error_at(variable_tk.position, "'" .. variable_tk.text .. "' is a type parameter and cannot be used as a variable"), IR.DYNAMIC_TYPE
 		else
-			return ParseCtx.error_at(variable_tk.position, "'" .. variable_tk.text .. "' is not a variable"), IR.DYNAMIC_TYPE
+			return vsl_parse.error_at(variable_tk.position, "'" .. variable_tk.text .. "' is not a variable"), IR.DYNAMIC_TYPE
 		end
 	end
 
@@ -1390,44 +1046,43 @@ local OR_OPERATOR_PRECEDENCE = 1
 
 --- @type function(parser: ParseCtx, lookup_name: function(Token): ValueType) -> ValueType
 local parse_type
-
 do
 	function parse_type(parser, lookup_name)
 		if parser:consume("nil") then
-			return IR.NIL_TYPE
+			return vsl_types.NIL_TYPE
 		elseif parser:consume("bool") or parser:consume("boolean") then
 			--- @type ValueType
-			return IR.BOOLEAN_TYPE
+			return vsl_types.BOOLEAN_TYPE
 		elseif parser:consume("integer") then
 			--- @type ValueType
-			return IR.INTEGER_TYPE
+			return vsl_types.INTEGER_TYPE
 		elseif parser:consume("number") then
 			--- @type ValueType
-			return IR.NUMBER_TYPE
+			return vsl_types.NUMBER_TYPE
 		elseif parser:consume("string") then
 			--- @type ValueType
-			return IR.STRING_TYPE
+			return vsl_types.STRING_TYPE
 		elseif parser:consume("dynamic") then
-			return IR.DYNAMIC_TYPE
+			return vsl_types.DYNAMIC_TYPE
 		elseif parser:consume("buffer") then
 			parser:expect("<")
 			local element = parse_type(parser, lookup_name)
 			parser:expect(">")
 			--- @type TypeBuffer
-			return IR.buffer_type(element)
+			return vsl_types.buffer_type(element)
 		elseif parser:consume("array") then
 			parser:expect("<")
 			local element = parse_type(parser, lookup_name)
 			parser:expect(",")
-			local size_token = parser:expect_type(TokenType.NUMBER)
+			local size_token = parser:expect_type(vsl_parse.TokenType.NUMBER)
 			local size = tonumber(size_token.text)
 			if size == nil or size < 0 or size % 1 ~= 0 then
-				return ParseCtx.error_at(size_token.position, "Expected positive integer for array size")
+				return vsl_parse.error_at(size_token.position, "Expected positive integer for array size")
 			end
 			parser:expect(">")
 			--- @type TypeArray
-			return IR.array_type(element, size)
-		elseif parser:test_type(TokenType.IDENTIFIER) then
+			return vsl_types.array_type(element, size)
+		elseif parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 			return lookup_name(parser:advance())
 		else
 			return parser:error_next("Expected type reference")
@@ -1587,9 +1242,9 @@ do
 		elseif type.type_kind == "array" then
 			local index = tonumber(field_token.text)
 			if not index then
-				return ParseCtx.error_at(field_token.position, "invalid array index : " .. field_token.text), 0
+				return vsl_parse.error_at(field_token.position, "invalid array index : " .. field_token.text), 0
 			elseif index < 0 or index >= type.array_size or index % 1 ~= 0 then
-				return ParseCtx.error_at(field_token.position, "array index out of bounds: " .. index .. " (array size " .. type.array_size .. ")"), 0
+				return vsl_parse.error_at(field_token.position, "array index out of bounds: " .. index .. " (array size " .. type.array_size .. ")"), 0
 			else
 				return type.array_element, index * IR.type_flattened_element_count(type.array_element)
 			end
@@ -1600,9 +1255,9 @@ do
 					return field.type, field.offset
 				end
 			end
-			return ParseCtx.error_at(field_token.position, "struct has no field named '" .. field_token.text .. "'"), 0
+			return vsl_parse.error_at(field_token.position, "struct has no field named '" .. field_token.text .. "'"), 0
 		else
-			return ParseCtx.error_at(field_token.position, "cannot access field " .. field_token.text .. " of type " .. IR.type_name(type)), 0
+			return vsl_parse.error_at(field_token.position, "cannot access field " .. field_token.text .. " of type " .. IR.type_name(type)), 0
 		end
 	end
 
@@ -1611,7 +1266,7 @@ do
 	--- @param error_pos TokenPosition
 	local function assert_type_assignable(src_type, dst_type, error_pos)
 		if not IR.is_type_assignable(src_type, dst_type) then
-			return ParseCtx.error_at(error_pos, "Cannot assign value of type " .. IR.type_name(src_type) .. " to type " .. IR.type_name(dst_type))
+			return vsl_parse.error_at(error_pos, "Cannot assign value of type " .. IR.type_name(src_type) .. " to type " .. IR.type_name(dst_type))
 		end
 	end
 
@@ -1622,7 +1277,7 @@ do
 		if src_type.type_kind == "dynamic" then
 			return
 		elseif not IR.is_type_assignable(src_type, dst_type) then
-			return ParseCtx.error_at(error_pos, "Cannot assign value of type " .. IR.type_name(src_type) .. " to type " .. IR.type_name(dst_type))
+			return vsl_parse.error_at(error_pos, "Cannot assign value of type " .. IR.type_name(src_type) .. " to type " .. IR.type_name(dst_type))
 		end
 	end
 
@@ -1640,7 +1295,7 @@ do
 	--- @param fn_ctx FnCtx
 	--- @return { name: Token, value: Expr }
 	local function parse_struct_field_init(parser, fn_ctx)
-		local name = parser:expect_type(TokenType.IDENTIFIER)
+		local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 		parser:expect("=")
 		local value = parse_expr(parser, fn_ctx)
 		return { name = name, value = value }
@@ -1697,9 +1352,9 @@ do
 	--- @return { [string]: ValueType }
 	local function type_check_args(expected_args, actual_args, ident)
 		if #actual_args < #expected_args then
-			return ParseCtx.error_at(ident.position, "Not enough values to call '" .. ident.text .. "' (expected " .. #expected_args .. ", got " .. #actual_args .. ")")
+			return vsl_parse.error_at(ident.position, "Not enough values to call '" .. ident.text .. "' (expected " .. #expected_args .. ", got " .. #actual_args .. ")")
 		elseif #actual_args > #expected_args then
-			return ParseCtx.error_at(ident.position, "Too many values to call '" .. ident.text .. "' (expected " .. #expected_args .. ", got " .. #actual_args .. ")")
+			return vsl_parse.error_at(ident.position, "Too many values to call '" .. ident.text .. "' (expected " .. #expected_args .. ", got " .. #actual_args .. ")")
 		end
 
 		local type_parameter_assignments = {}
@@ -1737,7 +1392,7 @@ do
 		for i, expected in ipairs(expected_args) do
 			local actual = actual_args[i]
 			if not try_assign_parameter(actual.expr_type, expected.type) then
-				ParseCtx.error_at(actual.expr_position, "Cannot assign value of type " .. IR.type_name(actual.expr_type) .. " to parameter '" .. expected.name .. "' of type " .. IR.type_name(expected.type))
+				vsl_parse.error_at(actual.expr_position, "Cannot assign value of type " .. IR.type_name(actual.expr_type) .. " to parameter '" .. expected.name .. "' of type " .. IR.type_name(expected.type))
 			end
 		end
 
@@ -1763,9 +1418,9 @@ do
 	local function resolve_fn_call(fn_ctx, fn_name, args, allow_struct_init)
 		if fn_ctx:is_defined(fn_name.text) then
 			-- TODO: possibly calling a local function (do type checking still, expect dynamic)
-			return ParseCtx.error_at(fn_name.position, "Local function calls are not yet supported")
+			return vsl_parse.error_at(fn_name.position, "Local function calls are not yet supported")
 		elseif fn_ctx:is_type_parameter(fn_name.text) then
-			return ParseCtx.error_at(fn_name.position, "Cannot call type parameter '" .. fn_name.text .. "' as a function")
+			return vsl_parse.error_at(fn_name.position, "Cannot call type parameter '" .. fn_name.text .. "' as a function")
 		else
 			local global_value = fn_ctx.globals:lookup(fn_name)
 
@@ -1796,9 +1451,9 @@ do
 				local struct = global_value.struct_definition
 
 				if not struct.can_construct then
-					return ParseCtx.error_at(fn_name.position, "Cannot initialise struct type '" .. fn_name.text .. "' (private constructor)")
+					return vsl_parse.error_at(fn_name.position, "Cannot initialise struct type '" .. fn_name.text .. "' (private constructor)")
 				elseif not struct.tuple_constructor then
-					return ParseCtx.error_at(fn_name.position, "Cannot initialise struct type '" .. fn_name.text .. "' as a tuple")
+					return vsl_parse.error_at(fn_name.position, "Cannot initialise struct type '" .. fn_name.text .. "' as a tuple")
 				end
 
 				local type_parameter_assignments = type_check_args(struct.tuple_constructor, args, fn_name)
@@ -1816,7 +1471,7 @@ do
 					table_elements = table_elements
 				}
 			else
-				return ParseCtx.error_at(fn_name.position, "No function named '" .. fn_name.text .. "'")
+				return vsl_parse.error_at(fn_name.position, "No function named '" .. fn_name.text .. "'")
 			end
 		end
 	end
@@ -1827,13 +1482,13 @@ do
 	--- @return Expr
 	local function resolve_struct_table_literal(fn_ctx, struct_name, fields)
 		if fn_ctx:is_type_parameter(struct_name.text) then
-			return ParseCtx.error_at(struct_name.position, "Cannot initialise type parameter '" .. struct_name.text .. "' as a struct")
+			return vsl_parse.error_at(struct_name.position, "Cannot initialise type parameter '" .. struct_name.text .. "' as a struct")
 		end
 
 		local struct_type = fn_ctx.globals:lookup_expect_struct(struct_name)
 
 		if not struct_type.can_construct then
-			return ParseCtx.error_at(struct_name.position, "Cannot initialise struct type '" .. struct_name.text .. "' (private constructor)")
+			return vsl_parse.error_at(struct_name.position, "Cannot initialise struct type '" .. struct_name.text .. "' (private constructor)")
 		end
 
 		local required_fields_lookup = {}
@@ -1846,11 +1501,11 @@ do
 		for _, field in ipairs(fields) do
 			local expected_type = required_fields_lookup[field.name.text]
 			if assigned_fields[field.name.text] then
-				return ParseCtx.error_at(field.name.position, "duplicate field assigned: '" .. field.name.text .. "'")
+				return vsl_parse.error_at(field.name.position, "duplicate field assigned: '" .. field.name.text .. "'")
 			elseif expected_type == nil then
-				return ParseCtx.error_at(field.name.position, "struct type has no field named '" .. field.name.text .. "'")
+				return vsl_parse.error_at(field.name.position, "struct type has no field named '" .. field.name.text .. "'")
 			elseif not IR.is_type_assignable(field.value.type, expected_type) then
-				return ParseCtx.error_at(field.value.expr_position, "Cannot assign value of type " .. IR.type_name(field.value.type) .. " to field '" .. field.name.text .. "' with type " .. IR.type_name(expected_type))
+				return vsl_parse.error_at(field.value.expr_position, "Cannot assign value of type " .. IR.type_name(field.value.type) .. " to field '" .. field.name.text .. "' with type " .. IR.type_name(expected_type))
 			end
 			assigned_fields[field.name.text] = true
 			required_fields_lookup[field.name.text] = nil
@@ -1859,7 +1514,7 @@ do
 
 		local missing_field_name = next(required_fields_lookup)
 		if missing_field_name ~= nil then
-			return ParseCtx.error_at(struct_name.position, "missing value for field '" .. missing_field_name .. "'")
+			return vsl_parse.error_at(struct_name.position, "missing value for field '" .. missing_field_name .. "'")
 		end
 
 		--- @type TableExpr
@@ -1901,7 +1556,7 @@ do
 		--- @param parser ParseCtx
 		--- @param fn_ctx FnCtx
 		return function(parser, fn_ctx)
-			if parser:test_type(TokenType.IDENTIFIER) then
+			if parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 				local ident = parser:advance()
 				if parser:consume("=") then
 					local value = parse_expr(parser, fn_ctx)
@@ -1933,9 +1588,9 @@ do
 			local token = parser:expect("nil")
 			return typed_literal_expr(IR.NIL_TYPE, "nil", token.position)
 		elseif parser:test("true") or parser:test("false") then
-			local token = parser:expect(TokenType.KEYWORD)
+			local token = parser:expect(vsl_parse.TokenType.KEYWORD)
 			return typed_literal_expr(IR.BOOLEAN_TYPE, token.text, token.position)
-		elseif parser:test_type(TokenType.NUMBER) then
+		elseif parser:test_type(vsl_parse.TokenType.NUMBER) then
 			local token = parser:advance()
 			--- @type ValueType
 			local expr_type = IR.INTEGER_TYPE
@@ -1947,14 +1602,14 @@ do
 				expr_value = tostring(n)
 			end
 			return typed_literal_expr(expr_type, expr_value, token.position)
-		elseif parser:test_type(TokenType.STRING) then
+		elseif parser:test_type(vsl_parse.TokenType.STRING) then
 			local token = parser:advance()
 			return typed_literal_expr(IR.STRING_TYPE, token.text, token.position)
 		elseif parser:consume("(") then
 			local expr = parse_expr(parser, fn_ctx)
 			parser:expect(")")
 			return expr
-		elseif parser:test_type(TokenType.IDENTIFIER) then
+		elseif parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 			local variable_name_tk = parser:advance()
 			return parse_expr_after_ident(parser, fn_ctx, variable_name_tk)
 		elseif parser:test("{") then
@@ -1979,8 +1634,8 @@ do
 		local field_token = parser:advance()
 		if not field_token then
 			return parser:error_next("Expected field name or numeric index after '.'")
-		elseif field_token.type ~= TokenType.IDENTIFIER and field_token.type ~= TokenType.NUMBER then
-			return ParseCtx.error_at(field_token.position, "Expected field name or numeric index after '.'")
+		elseif field_token.type ~= vsl_parse.TokenType.IDENTIFIER and field_token.type ~= vsl_parse.TokenType.NUMBER then
+			return vsl_parse.error_at(field_token.position, "Expected field name or numeric index after '.'")
 		end
 
 		local field_type, field_offset = lookup_field(expr.expr_type, field_token)
@@ -2006,7 +1661,7 @@ do
 					narrow_ref_offset_delta = field_offset,
 				}
 			end
-		elseif field_token.type == TokenType.IDENTIFIER then
+		elseif field_token.type == vsl_parse.TokenType.IDENTIFIER then
 			local field_index = typed_literal_expr(IR.STRING_TYPE, string.format("%q", field_token.text), field_token.position)
 			--- @type IndexExpr
 			return {
@@ -2067,9 +1722,9 @@ do
 				create_ref_offset = 0
 			}
 		elseif expr.expr_type.type_kind == "ref" and expr.expr_type.ref_element.type_kind == "array" then
-			return ParseCtx.error_at(index.expr_position, "cannot narrow ref to an array: not yet implemented")
+			return vsl_parse.error_at(index.expr_position, "cannot narrow ref to an array: not yet implemented")
 		else
-			return ParseCtx.error_at(index.expr_position, "cannot index into type '" .. IR.type_name(expr.expr_type) .. "'")
+			return vsl_parse.error_at(index.expr_position, "cannot index into type '" .. IR.type_name(expr.expr_type) .. "'")
 		end
 	end
 
@@ -2090,14 +1745,14 @@ do
 			}
 			if method_name.text == "unbuffer" then
 				if #args ~= 0 then
-					return ParseCtx.error_at(method_name.position, "Method 'unbuffer' does not take any arguments")
+					return vsl_parse.error_at(method_name.position, "Method 'unbuffer' does not take any arguments")
 				end
 				return unbuffer_expr
 			else
 				return resolve_method_call(parser, fn_ctx, unbuffer_expr, method_name, args)
 			end
 		elseif expr.expr_type.type_kind == "struct" then
-			local type_name = expr.expr_type.struct_name_hint or ParseCtx.error_at(method_name.position, "struct has unknown type name so cannot call methods on it")
+			local type_name = expr.expr_type.struct_name_hint or vsl_parse.error_at(method_name.position, "struct has unknown type name so cannot call methods on it")
 			local fn_name = { text = type_name_to_function_suffix(type_name) .. "_" .. method_name.text, position = method_name.position, type = method_name.type }
 			table.insert(args, 1, expr)
 			return resolve_fn_call(fn_ctx, fn_name, args, false)
@@ -2112,7 +1767,7 @@ do
 				dynamic_call_parameters = args,
 			}
 		else
-			return ParseCtx.error_at(method_name.position, "Cannot call method '" .. method_name.text .. "' on type '" .. IR.type_name(expr.expr_type) .. "'")
+			return vsl_parse.error_at(method_name.position, "Cannot call method '" .. method_name.text .. "' on type '" .. IR.type_name(expr.expr_type) .. "'")
 		end
 	end
 
@@ -2128,7 +1783,7 @@ do
 			elseif parser:consume("[") then
 				expr = parse_bracketed_index(parser, fn_ctx, expr)
 			elseif parser:consume(":") then
-				local method_name = parser:expect_type(TokenType.IDENTIFIER)
+				local method_name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 				local args = parser:list_of("(", parse_expr, ")", fn_ctx)
 				expr = resolve_method_call(parser, fn_ctx, expr, method_name, args)
 			elseif parser:test("::") then
@@ -2165,8 +1820,8 @@ do
 			}
 			return apply_prefix_operator(fn_ctx, op, unbuffer_expr)
 		elseif rvalue.expr_type.type_kind == "struct" then
-			local struct_name = rvalue.expr_type.struct_name_hint or ParseCtx.error_at(rvalue.position, "unknown struct type name so cannot apply operator '" .. op.operator .. "'")
-			local fn_name = { text = type_name_to_function_suffix(struct_name) .. "_" .. op.operator, position = op.position, type = TokenType.IDENTIFIER }
+			local struct_name = rvalue.expr_type.struct_name_hint or vsl_parse.error_at(rvalue.position, "unknown struct type name so cannot apply operator '" .. op.operator .. "'")
+			local fn_name = { text = type_name_to_function_suffix(struct_name) .. "_" .. op.operator, position = op.position, type = vsl_parse.TokenType.IDENTIFIER }
 			return resolve_fn_call(fn_ctx, fn_name, { rvalue }, false)
 		elseif op.operator == "unm" then
 			assert_type_assignable_or_dynamic(rvalue.expr_type, IR.NUMBER_TYPE, op.position)
@@ -2253,18 +1908,18 @@ do
 			local lvalue_struct_name, rvalue_struct_name
 
 			if lvalue.expr_type.type_kind == "struct" then
-				lvalue_struct_name = lvalue.expr_type.struct_name_hint or ParseCtx.error_at(rvalue.position, "unknown lvalue type name so cannot apply operator '" .. op.operator .. "'")
+				lvalue_struct_name = lvalue.expr_type.struct_name_hint or vsl_parse.error_at(rvalue.position, "unknown lvalue type name so cannot apply operator '" .. op.operator .. "'")
 			else
 				lvalue_struct_name = lvalue.expr_type.type_kind
 			end
 
 			if rvalue.expr_type.type_kind == "struct" then
-				rvalue_struct_name = rvalue.expr_type.struct_name_hint or ParseCtx.error_at(rvalue.position, "unknown rvalue type name so cannot apply operator '" .. op.operator .. "'")
+				rvalue_struct_name = rvalue.expr_type.struct_name_hint or vsl_parse.error_at(rvalue.position, "unknown rvalue type name so cannot apply operator '" .. op.operator .. "'")
 			else
 				rvalue_struct_name = rvalue.expr_type.type_kind
 			end
 
-			local fn_name = { text = type_name_to_function_suffix(lvalue_struct_name) .. "_" .. op.operator .. "_" .. type_name_to_function_suffix(rvalue_struct_name), position = op.position, type = TokenType.IDENTIFIER }
+			local fn_name = { text = type_name_to_function_suffix(lvalue_struct_name) .. "_" .. op.operator .. "_" .. type_name_to_function_suffix(rvalue_struct_name), position = op.position, type = vsl_parse.TokenType.IDENTIFIER }
 			return resolve_fn_call(fn_ctx, fn_name, { lvalue, rvalue }, false)
 		elseif op.operator == "add" or op.operator == "sub" or op.operator == "mul" or op.operator == "div" or op.operator == "mod" or op.operator == "exp" then
 			assert_type_assignable_or_dynamic(lvalue.expr_type, IR.NUMBER_TYPE, lvalue.expr_position)
@@ -2400,7 +2055,7 @@ do
 	--- @param error_pos TokenPosition
 	local function assert_type_assignable(src_type, dst_type, error_pos)
 		if not IR.is_type_assignable(src_type, dst_type) then
-			ParseCtx.error_at(error_pos, "Cannot assign " .. IR.type_name(src_type) .. " to " .. IR.type_name(dst_type))
+			vsl_parse.error_at(error_pos, "Cannot assign " .. IR.type_name(src_type) .. " to " .. IR.type_name(dst_type))
 		end
 	end
 
@@ -2735,7 +2390,7 @@ do
 	--- @param parser ParseCtx
 	--- @param fn_ctx FnCtx
 	local function parse_and_encode_local(parser, fn_ctx)
-		local name = parser:expect_type(TokenType.IDENTIFIER)
+		local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 
 		local explicit_type = nil
 		if parser:consume(":") then
@@ -3008,15 +2663,15 @@ do
 	--- @param fn_ctx FnCtx
 	local function parse_and_encode_for_loop(parser, fn_ctx)
 		local key_var_name = nil
-		local value_var_name = parser:expect_type(TokenType.IDENTIFIER)
+		local value_var_name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 		if parser:consume(",") then
 			key_var_name = value_var_name
-			value_var_name = parser:expect_type(TokenType.IDENTIFIER)
+			value_var_name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 		end
 
 		if parser:consume("=") then
 			if key_var_name then
-				ParseCtx.error_at(value_var_name.position, "Cannot have key and value variable in numeric for loop")
+				vsl_parse.error_at(value_var_name.position, "Cannot have key and value variable in numeric for loop")
 			end
 
 			local init = parse_expr(parser, fn_ctx)
@@ -3059,9 +2714,9 @@ do
 				if ref_element.type_kind == "dynamic" or ref_element.type_kind == "buffer" then
 					iterable_expr = { expr_kind = "unbuffer_ref", expr_position = iterable_expr.expr_position, expr_type = ref_element, unbuffer_ref_subject = iterable_expr }
 				elseif ref_element.type_kind == "array" then
-					ParseCtx.error_at(iterable_expr.expr_position, "Cannot iterate over a ref to an array value: not yet implemented")
+					vsl_parse.error_at(iterable_expr.expr_position, "Cannot iterate over a ref to an array value: not yet implemented")
 				else
-					ParseCtx.error_at(iterable_expr.expr_position, "Cannot iterate over a ref to a " .. IR.type_name(ref_element) .. " value")
+					vsl_parse.error_at(iterable_expr.expr_position, "Cannot iterate over a ref to a " .. IR.type_name(ref_element) .. " value")
 				end
 			end
 
@@ -3101,7 +2756,7 @@ do
 				local step_value = IR.constant_to_value(1, IR.INTEGER_TYPE)
 				parse_and_encode_for_loop_body(parser, fn_ctx, key_var_name, value_var_name, iter_var_temp, limit_value, step_value, iterable_value, iterable_expr.expr_type)
 			else
-				ParseCtx.error_at(iterable_expr.expr_position, "Cannot iterate over a " .. iterable_expr.expr_type.type_kind .. " value")
+				vsl_parse.error_at(iterable_expr.expr_position, "Cannot iterate over a " .. iterable_expr.expr_type.type_kind .. " value")
 			end
 		else
 			parser:error_next("Expected 'in' or '=' after for loop variable")
@@ -3187,7 +2842,7 @@ do
 						set_index_value = rvalue_ref,
 					})
 				else
-					ParseCtx.error_at(lvalue.expr_position, "Cannot assign to a " .. lvalue.expr_kind .. " expression")
+					vsl_parse.error_at(lvalue.expr_position, "Cannot assign to a " .. lvalue.expr_kind .. " expression")
 				end
 
 				return nil
@@ -3216,9 +2871,9 @@ do
 		local params = {}
 		if parser:consume("<") then
 			repeat
-				local param = parser:expect_type(TokenType.IDENTIFIER)
+				local param = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 				table.insert(params, param.text)
-			until not parser:consume(",") and not parser:test_type(TokenType.IDENTIFIER)
+			until not parser:consume(",") and not parser:test_type(vsl_parse.TokenType.IDENTIFIER)
 			parser:expect(">")
 		end
 		return params
@@ -3231,7 +2886,7 @@ do
 		--- @param parser ParseCtx
 		--- @return StructDefField
 		return function(parser)
-			local name = parser:expect_type(TokenType.IDENTIFIER)
+			local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 			parser:expect(":")
 			local type = parse_type(parser, lookup_type_name)
 			local this_offset = offset
@@ -3252,7 +2907,7 @@ do
 	--- @param lookup_name function(Token): ValueType
 	--- @return NameAndType
 	local function parse_name_and_type(parser, lookup_name)
-		local name = parser:expect_type(TokenType.IDENTIFIER)
+		local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 		parser:expect(":")
 		local type = parse_type(parser, lookup_name)
 		return { name = name.text, type = type }
@@ -3268,7 +2923,7 @@ do
 		end
 
 		if parser:consume("struct") then
-			local name_token = parser:expect_type(TokenType.IDENTIFIER)
+			local name_token = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 			local type_parameters = parse_type_parameters(parser)
 			local fields = parser:list_of("{", get_parse_struct_def_field(lookup_type_name), "}")
 			local tuple_constructor = {}
@@ -3291,7 +2946,7 @@ do
 			}
 		elseif parser:test("function") then
 			parser:expect("function")
-			local name_token = parser:expect_type(TokenType.IDENTIFIER)
+			local name_token = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 			local type_parameters = parse_type_parameters(parser)
 			local params = parser:list_of("(", parse_name_and_type, ")", lookup_type_name)
 
@@ -3319,7 +2974,7 @@ do
 	--- @param globals GlobalCtx
 	--- @return Definition[]
 	function parse(tokens, globals)
-		local parser = ParseCtx.new(tokens)
+		local parser = vsl_parse.ParseCtx.new(tokens)
 		local decls = {}
 		local inner_globals = globals:shallow_copy()
 
@@ -5073,7 +4728,7 @@ do
 	end
 end
 
-local tokens = lex [[
+local tokens = vsl_parse.lex [[
 struct vec2 {
 	x: number,
 	y: number
@@ -5193,5 +4848,3 @@ for _, def in ipairs(result) do
 		print(compile_to_lua(def))
 	end
 end
-
-return { lex = lex, parse = parse, TokenType = TokenType }
