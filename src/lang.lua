@@ -1,4 +1,5 @@
 local IR2 = require "vsl_ir"
+local vsl_types = require "vsl_types"
 
 do -- lexer type definitions
 	--- @class Token
@@ -441,72 +442,6 @@ do -- IR definitions
 	--- | TypeBuffer
 	--- | TypeRef
 
-	--- @class TypeNil
-	--- @field type_kind "nil"
-
-	--- @class TypeBoolean
-	--- @field type_kind "boolean"
-
-	--- @class TypeInteger
-	--- @field type_kind "integer"
-
-	--- @class TypeNumber
-	--- @field type_kind "number"
-
-	--- @class TypeString
-	--- @field type_kind "string"
-
-	--- @class TypeDynamic
-	--- @field type_kind "dynamic"
-
-	--- @class TypeParameter
-	--- @field type_kind "type_parameter"
-	--- @field type_parameter_name string
-
-	--- @class TypeStruct
-	--- @field type_kind "struct"
-	--- @field struct_name_hint string?
-	--- @field struct_fields TypeStructField[]
-
-	--- @class TypeArray
-	--- @field type_kind "array"
-	--- @field array_element ValueType
-	--- @field array_size number
-
-	--- @class TypeBuffer
-	--- @field type_kind "buffer"
-	--- @field buffer_element ValueType
-
-	--- @class TypeRef
-	--- @field type_kind "ref"
-	--- @field ref_element ValueType
-
-	--- @class TypeStructField
-	--- @field name string | integer
-	--- @field offset number
-	--- @field type ValueType
-
-	--- @type TypeNil
-	IR.NIL_TYPE = { type_kind = "nil" }
-
-	--- @type TypeBoolean
-	IR.BOOLEAN_TYPE = { type_kind = "boolean" }
-
-	--- @type TypeInteger
-	IR.INTEGER_TYPE = { type_kind = "integer" }
-
-	--- @type TypeNumber
-	IR.NUMBER_TYPE = { type_kind = "number" }
-
-	--- @type TypeString
-	IR.STRING_TYPE = { type_kind = "string" }
-
-	--- @type TypeDynamic
-	IR.DYNAMIC_TYPE = { type_kind = "dynamic" }
-
-	--- @type ConstantValueRef
-	IR.NIL = { value_kind = "constant", constant_value = "nil", constant_type = IR.NIL_TYPE }
-
 	--- @param register_id RegisterId
 	--- @return RegisterIdLookup
 	function IR.reg_to_lookup(register_id)
@@ -556,7 +491,7 @@ do -- IR definitions
 			elseif constant == "nil" then
 				type_kind = "nil"
 			end
-			known_type = { type_kind = type_kind }
+			known_type = vsl_types.from_primitive_type(type_kind)
 		end
 		return { value_kind = "constant", constant_value = tostring(constant), constant_type = known_type }
 	end
@@ -592,63 +527,22 @@ do -- IR definitions
 		}
 	end
 
-	--- @param type ValueType
-	--- @return integer
-	function IR.type_flattened_element_count(type)
-		if type.type_kind == "struct" then
-			local count = 0
-			for _, field in ipairs(type.struct_fields) do
-				count = count + IR.type_flattened_element_count(field.type)
-			end
-			return count
-		elseif type.type_kind == "array" then
-			return type.array_size * IR.type_flattened_element_count(type.array_element)
-		else
-			return 1
-		end
-	end
-
-	--- @param type ValueType
-	--- @return string
-	function IR.type_name(type)
-		if type.type_kind == "type_parameter" then
-			return type.type_parameter_name
-		elseif type.type_kind == "struct" then
-			return type.struct_name_hint or "<struct>"
-		elseif type.type_kind == "array" then
-			return "array<" .. IR.type_name(type.array_element) .. ", " .. type.array_size .. ">"
-		elseif type.type_kind == "buffer" then
-			return "buffer<" .. IR.type_name(type.buffer_element) .. ">"
-		elseif type.type_kind == "ref" then
-			return "ref<" .. IR.type_name(type.ref_element) .. ">"
-		else
-			return type.type_kind
-		end
-	end
-
-	--- @param src_type ValueType
-	--- @param dst_type ValueType
-	--- @return boolean
-	function IR.is_type_assignable(src_type, dst_type)
-		if src_type.type_kind == "integer" and dst_type.type_kind == "number" then
-			return true
-		elseif src_type.type_kind ~= dst_type.type_kind then
-			return false
-		end
-		if src_type.type_kind == "type_parameter" then
-			return src_type.type_parameter_name == dst_type.type_parameter_name
-		elseif src_type.type_kind == "struct" then
-			return true -- TODO
-		elseif src_type.type_kind == "array" then
-			return src_type.array_size == dst_type.array_size and IR.is_type_assignable(src_type.array_element, dst_type.array_element)
-		elseif src_type.type_kind == "buffer" then
-			return IR.is_type_assignable(src_type.buffer_element, dst_type.buffer_element)
-		elseif src_type.type_kind == "ref" then
-			return IR.is_type_assignable(src_type.ref_element, dst_type.ref_element)
-		else
-			return true
-		end
-	end
+	IR.NIL_TYPE = vsl_types.NIL_TYPE
+	IR.BOOLEAN_TYPE = vsl_types.BOOLEAN_TYPE
+	IR.INTEGER_TYPE = vsl_types.INTEGER_TYPE
+	IR.NUMBER_TYPE = vsl_types.NUMBER_TYPE
+	IR.STRING_TYPE = vsl_types.STRING_TYPE
+	IR.DYNAMIC_TYPE = vsl_types.DYNAMIC_TYPE
+	IR.NIL = vsl_types.NIL
+	IR.from_primitive_type = vsl_types.from_primitive_type
+	IR.type_parameter = vsl_types.type_parameter
+	IR.struct_type = vsl_types.struct_type
+	IR.array_type = vsl_types.array_type
+	IR.buffer_type = vsl_types.buffer_type
+	IR.ref_type = vsl_types.ref_type
+	IR.type_name = vsl_types.type_to_string
+	IR.is_type_assignable = vsl_types.is_type_assignable
+	IR.type_flattened_element_count = vsl_types.type_flattened_element_count
 end
 
 local ParseCtx
@@ -1015,7 +909,7 @@ do
 
 			if self.type_parameter_lookup[name_token.text] then
 				--- @type TypeParameter
-				return { type_kind = "type_parameter", type_parameter_name = name_token.text }
+				return IR.type_parameter(name_token.text)
 			else
 				return IR.struct_def_to_type(self.globals:lookup_expect_struct(name_token))
 			end
@@ -1503,16 +1397,16 @@ do
 			return IR.NIL_TYPE
 		elseif parser:consume("bool") or parser:consume("boolean") then
 			--- @type ValueType
-			return { type_kind = "boolean" }
+			return IR.BOOLEAN_TYPE
 		elseif parser:consume("integer") then
 			--- @type ValueType
-			return { type_kind = "integer" }
+			return IR.INTEGER_TYPE
 		elseif parser:consume("number") then
 			--- @type ValueType
-			return { type_kind = "number" }
+			return IR.NUMBER_TYPE
 		elseif parser:consume("string") then
 			--- @type ValueType
-			return { type_kind = "string" }
+			return IR.STRING_TYPE
 		elseif parser:consume("dynamic") then
 			return IR.DYNAMIC_TYPE
 		elseif parser:consume("buffer") then
@@ -1520,7 +1414,7 @@ do
 			local element = parse_type(parser, lookup_name)
 			parser:expect(">")
 			--- @type TypeBuffer
-			return { type_kind = "buffer", buffer_element = element }
+			return IR.buffer_type(element)
 		elseif parser:consume("array") then
 			parser:expect("<")
 			local element = parse_type(parser, lookup_name)
@@ -1532,7 +1426,7 @@ do
 			end
 			parser:expect(">")
 			--- @type TypeArray
-			return { type_kind = "array", array_element = element, array_size = size }
+			return IR.array_type(element, size)
 		elseif parser:test_type(TokenType.IDENTIFIER) then
 			return lookup_name(parser:advance())
 		else
@@ -1785,13 +1679,13 @@ do
 			for _, field in ipairs(type.struct_fields) do
 				table.insert(new_fields, { name = field.name, type = assign_type_parameters(assignments, field.type), offset = field.offset })
 			end
-			return { type_kind = "struct", struct_name_hint = type.struct_name_hint, struct_fields = new_fields }
+			return IR.struct_type(new_fields, type.struct_name_hint)
 		elseif type.type_kind == "array" then
-			return { type_kind = "array", array_element = assign_type_parameters(assignments, type.array_element) }
+			return IR.array_type(assign_type_parameters(assignments, type.array_element), type.array_size)
 		elseif type.type_kind == "buffer" then
-			return { type_kind = "buffer", buffer_element = assign_type_parameters(assignments, type.buffer_element) }
+			return IR.buffer_type(assign_type_parameters(assignments, type.buffer_element))
 		elseif type.type_kind == "ref" then
-			return { type_kind = "ref", ref_element = assign_type_parameters(assignments, type.ref_element) }
+			return IR.ref_type(assign_type_parameters(assignments, type.ref_element))
 		else
 			return type
 		end
@@ -1943,9 +1837,7 @@ do
 		end
 
 		local required_fields_lookup = {}
-		local struct_type_fields = {}
 		for _, field in ipairs(struct_type.struct_fields) do
-			table.insert(struct_type_fields, { name = field.name, type = field.type, offset = field.offset })
 			required_fields_lookup[field.name] = field.type
 		end
 
@@ -1974,7 +1866,7 @@ do
 		return {
 			expr_kind = "create_table",
 			expr_position = struct_name.position,
-			expr_type = { type_kind = "struct", struct_name_hint = struct_type.name, struct_fields = struct_type_fields },
+			expr_type = IR.struct_def_to_type(struct_type),
 			table_elements = create_table_fields
 		}
 	end
@@ -2099,7 +1991,7 @@ do
 				return {
 					expr_kind = "create_ref",
 					expr_position = field_token.position,
-					expr_type = { type_kind = "ref", ref_element = field_type },
+					expr_type = IR.ref_type(field_type),
 					create_ref_buffer = expr.create_ref_buffer,
 					create_ref_index = expr.create_ref_index,
 					create_ref_offset = expr.create_ref_offset + field_offset,
@@ -2109,7 +2001,7 @@ do
 				return {
 					expr_kind = "narrow_ref",
 					expr_position = field_token.position,
-					expr_type = { type_kind = "ref", ref_element = field_type },
+					expr_type = IR.ref_type(field_type),
 					narrow_ref_subject = expr,
 					narrow_ref_offset_delta = field_offset,
 				}
@@ -2592,7 +2484,7 @@ do
 
 		fn_ctx:assign_and_evaluate_register(register_id, {
 			assign_kind = "create_table",
-			register_type = { type_kind = "ref", ref_element = buffered_type },
+			register_type = IR.ref_type(buffered_type),
 			table_elements = {
 				{ key = IR.field_name_to_value("buffer"), value = buffer_value },
 				{ key = IR.field_name_to_value("offset"), value = IR.reg_to_value(index_register) },
@@ -2683,14 +2575,14 @@ do
 			local get_field_buffer = fn_ctx:declare_temporary()
 			fn_ctx:assign_and_evaluate_register(get_field_buffer, {
 				assign_kind = "get_index",
-				register_type = { type_kind = "buffer", buffer_element = expr.expr_type },
+				register_type = IR.buffer_type(expr.expr_type),
 				get_index_subject = ref_subject,
 				get_index = IR.field_name_to_value "buffer",
 			})
 			local get_field_offset = fn_ctx:declare_temporary()
 			fn_ctx:assign_and_evaluate_register(get_field_offset, {
 				assign_kind = "get_index",
-				register_type = { type_kind = "integer" },
+				register_type = IR.INTEGER_TYPE,
 				get_index_subject = ref_subject,
 				get_index = IR.field_name_to_value "offset",
 			})
@@ -2719,21 +2611,21 @@ do
 			local get_field_buffer = fn_ctx:declare_temporary()
 			fn_ctx:assign_and_evaluate_register(get_field_buffer, {
 				assign_kind = "get_index",
-				register_type = { type_kind = "buffer", buffer_element = expr.narrow_ref_subject.type.ref_element },
+				register_type = IR.buffer_type(expr.narrow_ref_subject.type.ref_element),
 				get_index_subject = ref_subject,
 				get_index = IR.field_name_to_value "buffer",
 			})
 			local get_field_offset = fn_ctx:declare_temporary()
 			fn_ctx:assign_and_evaluate_register(get_field_offset, {
 				assign_kind = "get_index",
-				register_type = { type_kind = "integer" },
+				register_type = IR.INTEGER_TYPE,
 				get_index_subject = ref_subject,
 				get_index = IR.field_name_to_value "offset",
 			})
 			local update_field_offset = fn_ctx:declare_temporary()
 			fn_ctx:assign_and_evaluate_register(update_field_offset, {
 				assign_kind = "infix_op",
-				register_type = { type_kind = "integer" },
+				register_type = IR.INTEGER_TYPE,
 				infix_op_lvalue = IR.reg_to_value(get_field_offset),
 				infix_op_operator = "add",
 				infix_op_rvalue = IR.constant_to_value(expr.narrow_ref_offset_delta, IR.INTEGER_TYPE),
@@ -2819,7 +2711,7 @@ do
 				local new_offset_register = fn_ctx:declare_temporary()
 				fn_ctx:assign_and_evaluate_register(new_offset_register, {
 					assign_kind = "infix_op",
-					register_type = { type_kind = "integer" },
+					register_type = IR.INTEGER_TYPE,
 					infix_op_lvalue = offset_ref,
 					infix_op_operator = "add",
 					infix_op_rvalue = IR.constant_to_value(static_offset, IR.INTEGER_TYPE),
@@ -3074,7 +2966,7 @@ do
 			end
 
 			if iterable_type.type_kind == "buffer" then
-				local value_type = { type_kind = "ref", ref_element = iterable_type.buffer_element }
+				local value_type = IR.ref_type(iterable_type.buffer_element)
 				local value_var = fn_ctx:declare_local(value_var_name.text, value_type)
 				encode_create_ref_to_register(fn_ctx, iterable, IR.reg_to_value(iter_reg_ssa_1), 0, value_var, iterable_type.buffer_element)
 			else
@@ -3263,14 +3155,14 @@ do
 					local buffer_reg = fn_ctx:declare_temporary()
 					fn_ctx:assign_and_evaluate_register(buffer_reg, {
 						assign_kind = "get_index",
-						register_type = { type_kind = "buffer", buffer_element = lvalue.expr_type.ref_element },
+						register_type = IR.buffer_type(lvalue.expr_type.ref_element),
 						get_index_subject = ref_reg,
 						get_index = IR.field_name_to_value "buffer",
 					})
 					local offset_reg = fn_ctx:declare_temporary()
 					fn_ctx:assign_and_evaluate_register(offset_reg, {
 						assign_kind = "get_index",
-						register_type = { type_kind = "integer" },
+						register_type = IR.INTEGER_TYPE,
 						get_index_subject = ref_reg,
 						get_index = IR.field_name_to_value "offset",
 					})
