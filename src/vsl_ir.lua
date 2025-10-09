@@ -10,7 +10,8 @@ do -- registers, values, and variables
 	--- A reference to a register or a constant value.
 	--- @alias IRValue IRConstant | IRRegisterRef
 
-	--- A constant value. `constant_value` is Lua-formatted.
+	--- A constant value. `constant_value` is Lua-formatted and must be copy-able (i.e. not a
+	--- table literal).
 	--- @class IRConstant
 	--- @field value_kind "constant"
 	--- @field constant_value string
@@ -131,6 +132,7 @@ do -- blocks and instructions
 	--- | IRStoreInstruction
 	--- | IRParamInstruction
 	--- | IRCopyInstruction
+	--- | IRTableInstruction
 	--- | IRGetInstruction
 	--- | IRSetInstruction
 	--- | IRCallInstruction
@@ -186,6 +188,13 @@ do -- blocks and instructions
 	--- @field instruction_kind "copy"
 	--- @field register_id IRRegisterId
 	--- @field copy_value IRValue
+
+	--- Assign an empty table to a register.
+	---
+	--- `R(<register_id>) := {}`
+	--- @class IRTableInstruction
+	--- @field instruction_kind "table"
+	--- @field register_id IRRegisterId
 
 	--- Get an index of a table and store it in a register.
 	---
@@ -357,7 +366,7 @@ do -- blocks and instructions
 	--- @field register_id IRRegisterId
 	--- @field not_rvalue IRValue
 
-	--- Get the length of a string and store the result in a register.
+	--- Get the length of a string or table and store the result in a register.
 	---
 	--- `R(<register_id>) := #RK(<len_subject>)`
 	--- @class IRLenInstruction

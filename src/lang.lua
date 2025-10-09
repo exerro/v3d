@@ -477,7 +477,7 @@ do
 	--- @class FnCtx
 	--- @field globals GlobalCtx
 	--- @field scope_stack ScopeFrame[]
-	--- @field type_parameter_lookup { [string]: true }
+	--- @field private type_parameter_lookup { [string]: true }
 	--- @field naming NamingCtx
 	--- @field private block_stack Block[]
 	--- @field private block_lookup { [BlockId]: Block }
@@ -553,23 +553,6 @@ do
 	--- @return boolean
 	function FnCtx:is_type_parameter(name)
 		return self.type_parameter_lookup[name] or false
-	end
-
-	function FnCtx:get_type_lookup()
-		return function(name_token)
-			for i = #self.scope_stack, 1, -1 do
-				if self.scope_stack[i].variables[name_token.text] then
-					return vsl_parse.error_at(name_token.position, "'" .. name_token.text .. "' is not a type")
-				end
-			end
-
-			if self.type_parameter_lookup[name_token.text] then
-				--- @type TypeParameter
-				return IR.type_parameter(name_token.text)
-			else
-				return IR.struct_def_to_type(self.globals:lookup_expect_struct(name_token))
-			end
-		end
 	end
 
 	--- @param name string
@@ -1088,9 +1071,55 @@ do
 	end
 end
 
---- @type function(parser: ParseCtx, fn_ctx: FnCtx) -> Expr
+--- @type fun(parser: ParseCtx, expr_ctx: ParseExprCtx) -> Expr
 local parse_expr
+--- @class ParseExprCtx
+--- @field private fn_ctx FnCtx
+--- @field globals GlobalCtx
+local ParseExprContext = {}
 do
+	--- @param fn_ctx FnCtx
+	function ParseExprContext.new(fn_ctx)
+		--- @type ParseExprCtx
+		local ctx = {
+			fn_ctx = fn_ctx,
+			globals = fn_ctx.globals,
+		}
+		return setmetatable(ctx, { __index = ParseExprContext })
+	end
+
+	--- @param name string
+	--- @return boolean
+	function ParseExprContext:is_local_defined(name)
+		return self.fn_ctx:is_defined(name)
+	end
+
+	--- @param name string
+	--- @return boolean
+	function ParseExprContext:is_type_parameter(name)
+		return self.fn_ctx:is_type_parameter(name)
+	end
+
+	--- @param variable_tk Token
+	--- @return VariableTag, ValueType
+	function ParseExprContext:lookup(variable_tk)
+		return self.fn_ctx:lookup_variable(variable_tk)
+	end
+
+	function ParseExprContext:get_type_lookup()
+		return function(name_token)
+			if self:is_local_defined(name_token.text) then
+				return vsl_parse.error_at(name_token.position, "'" .. name_token.text .. "' is not a type")
+			end
+
+			if self.type_parameter_lookup[name_token.text] then
+				return vsl_types.type_parameter(name_token.text)
+			else
+				return vsl_types.struct_def_to_type(self.globals:lookup_expect_struct(name_token))
+			end
+		end
+	end
+
 	--- @alias ExtendedInfixOpName InfixOpName | "gt" | "gte" | "and" | "or"
 
 	--- @class Expr
@@ -1290,12 +1319,12 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @return { name: Token, value: Expr }
-	local function parse_struct_field_init(parser, fn_ctx)
+	local function parse_struct_field_init(parser, expr_ctx)
 		local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
 		parser:expect("=")
-		local value = parse_expr(parser, fn_ctx)
+		local value = parse_expr(parser, expr_ctx)
 		return { name = name, value = value }
 	end
 
@@ -1408,19 +1437,19 @@ do
 		end
 	end
 
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param fn_name Token
 	--- @param args Expr[]
 	--- @param allow_struct_init boolean
 	--- @return Expr
-	local function resolve_fn_call(fn_ctx, fn_name, args, allow_struct_init)
-		if fn_ctx:is_defined(fn_name.text) then
+	local function resolve_fn_call(expr_ctx, fn_name, args, allow_struct_init)
+		if expr_ctx:is_local_defined(fn_name.text) then
 			-- TODO: possibly calling a local function (do type checking still, expect dynamic)
 			return vsl_parse.error_at(fn_name.position, "Local function calls are not yet supported")
-		elseif fn_ctx:is_type_parameter(fn_name.text) then
+		elseif expr_ctx:is_type_parameter(fn_name.text) then
 			return vsl_parse.error_at(fn_name.position, "Cannot call type parameter '" .. fn_name.text .. "' as a function")
 		else
-			local global_value = fn_ctx.globals:lookup(fn_name)
+			local global_value = expr_ctx.globals:lookup(fn_name)
 
 			if global_value.global_kind == "function" then
 				local fn = global_value.function_definition
@@ -1474,16 +1503,16 @@ do
 		end
 	end
 
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param struct_name Token
 	--- @param fields Expr[]
 	--- @return Expr
-	local function resolve_struct_table_literal(fn_ctx, struct_name, fields)
-		if fn_ctx:is_type_parameter(struct_name.text) then
+	local function resolve_struct_table_literal(expr_ctx, struct_name, fields)
+		if expr_ctx:is_type_parameter(struct_name.text) then
 			return vsl_parse.error_at(struct_name.position, "Cannot initialise type parameter '" .. struct_name.text .. "' as a struct")
 		end
 
-		local struct_type = fn_ctx.globals:lookup_expect_struct(struct_name)
+		local struct_type = expr_ctx.globals:lookup_expect_struct(struct_name)
 
 		if not struct_type.can_construct then
 			return vsl_parse.error_at(struct_name.position, "Cannot initialise struct type '" .. struct_name.text .. "' (private constructor)")
@@ -1525,18 +1554,18 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param ident Token
 	--- @return Expr
-	local function parse_expr_after_ident(parser, fn_ctx, ident)
+	local function parse_expr_after_ident(parser, expr_ctx, ident)
 		if parser:test("(") then
-			local args = parser:list_of("(", parse_expr, ")", fn_ctx)
-			return resolve_fn_call(fn_ctx, ident, args, true)
+			local args = parser:list_of("(", parse_expr, ")", expr_ctx)
+			return resolve_fn_call(expr_ctx, ident, args, true)
 		elseif parser:test("{") then
-			local fields = parser:list_of("{", parse_struct_field_init, "}", fn_ctx)
-			return resolve_struct_table_literal(fn_ctx, ident, fields)
+			local fields = parser:list_of("{", parse_struct_field_init, "}", expr_ctx)
+			return resolve_struct_table_literal(expr_ctx, ident, fields)
 		else
-			local variable_tag, variable_type = fn_ctx:lookup_variable(ident)
+			local variable_tag, variable_type = expr_ctx:lookup(ident)
 			--- @type VariableExpr
 			return {
 				expr_kind = "variable",
@@ -1548,29 +1577,29 @@ do
 		end
 	end
 
-	--- @return function(parser: ParseCtx, fn_ctx: FnCtx): { key: TypedExpr, value: TypedExpr }
+	--- @return fun(parser: ParseCtx, expr_ctx: ParseExprCtx): { key: Expr, value: Expr }
 	local function get_table_element_parser()
 		local next_array_index = 1
 		--- @param parser ParseCtx
-		--- @param fn_ctx FnCtx
-		return function(parser, fn_ctx)
+		--- @param expr_ctx ParseExprCtx
+		return function(parser, expr_ctx)
 			if parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 				local ident = parser:advance()
 				if parser:consume("=") then
-					local value = parse_expr(parser, fn_ctx)
+					local value = parse_expr(parser, expr_ctx)
 					return { key = field_name_to_expr(ident.text, ident.position), value = value }
 				else
 					local key = field_name_to_expr(next_array_index, ident.position)
-					local value = parse_expr_after_ident(parser, fn_ctx, ident)
+					local value = parse_expr_after_ident(parser, expr_ctx, ident)
 					next_array_index = next_array_index + 1
 					return { key = key, value = value }
 				end
 			elseif parser:test("[") then
 				parser:advance()
-				local key = parse_expr(parser, fn_ctx)
+				local key = parse_expr(parser, expr_ctx)
 				parser:expect("]")
 				parser:expect("=")
-				local value = parse_expr(parser, fn_ctx)
+				local value = parse_expr(parser, expr_ctx)
 				return { key = key, value = value }
 			else
 				return parser:error_next("Expected table element")
@@ -1579,9 +1608,9 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @return Expr
-	local function parse_expr_primary(parser, fn_ctx)
+	local function parse_expr_primary(parser, expr_ctx)
 		if parser:test("nil") then
 			local token = parser:expect("nil")
 			return typed_literal_expr(IR.NIL_TYPE, "nil", token.position)
@@ -1604,15 +1633,15 @@ do
 			local token = parser:advance()
 			return typed_literal_expr(IR.STRING_TYPE, token.text, token.position)
 		elseif parser:consume("(") then
-			local expr = parse_expr(parser, fn_ctx)
+			local expr = parse_expr(parser, expr_ctx)
 			parser:expect(")")
 			return expr
 		elseif parser:test_type(vsl_parse.TokenType.IDENTIFIER) then
 			local variable_name_tk = parser:advance()
-			return parse_expr_after_ident(parser, fn_ctx, variable_name_tk)
+			return parse_expr_after_ident(parser, expr_ctx, variable_name_tk)
 		elseif parser:test("{") then
 			local position = parser.tokens[parser.current_token_index].position
-			local elements = parser:list_of("{", get_table_element_parser(), "}", fn_ctx)
+			local elements = parser:list_of("{", get_table_element_parser(), "}", expr_ctx)
 			--- @type TableExpr
 			return {
 				expr_kind = "create_table",
@@ -1683,12 +1712,12 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param expr Expr
 	--- @return Expr
-	local function parse_bracketed_index(parser, fn_ctx, expr)
+	local function parse_bracketed_index(parser, expr_ctx, expr)
 		--- @type Expr
-		local index = parse_expr(parser, fn_ctx)
+		local index = parse_expr(parser, expr_ctx)
 		parser:expect("]")
 
 		if expr.expr_type.type_kind == "dynamic" then
@@ -1727,12 +1756,12 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param expr Expr
 	--- @param method_name Token
 	--- @param args Expr[]
 	--- @return Expr
-	local function resolve_method_call(parser, fn_ctx, expr, method_name, args)
+	local function resolve_method_call(parser, expr_ctx, expr, method_name, args)
 		if expr.expr_type.type_kind == "ref" then
 			--- @type UnbufferRefExpr
 			local unbuffer_expr = {
@@ -1747,13 +1776,13 @@ do
 				end
 				return unbuffer_expr
 			else
-				return resolve_method_call(parser, fn_ctx, unbuffer_expr, method_name, args)
+				return resolve_method_call(parser, expr_ctx, unbuffer_expr, method_name, args)
 			end
 		elseif expr.expr_type.type_kind == "struct" then
 			local type_name = expr.expr_type.struct_name_hint or vsl_parse.error_at(method_name.position, "struct has unknown type name so cannot call methods on it")
 			local fn_name = { text = type_name_to_function_suffix(type_name) .. "_" .. method_name.text, position = method_name.position, type = method_name.type }
 			table.insert(args, 1, expr)
-			return resolve_fn_call(fn_ctx, fn_name, args, false)
+			return resolve_fn_call(expr_ctx, fn_name, args, false)
 		elseif expr.expr_type.type_kind == "dynamic" then
 			--- @type DynamicMethodCallExpr
 			return {
@@ -1770,23 +1799,23 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @return Expr
-	local function parse_expr_and_suffixes(parser, fn_ctx)
-		local expr = parse_expr_primary(parser, fn_ctx)
+	local function parse_expr_and_suffixes(parser, expr_ctx)
+		local expr = parse_expr_primary(parser, expr_ctx)
 
 		while true do
 			if parser:consume(".") then
 				expr = parse_dot_index(parser, expr)
 			elseif parser:consume("[") then
-				expr = parse_bracketed_index(parser, fn_ctx, expr)
+				expr = parse_bracketed_index(parser, expr_ctx, expr)
 			elseif parser:consume(":") then
 				local method_name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
-				local args = parser:list_of("(", parse_expr, ")", fn_ctx)
-				expr = resolve_method_call(parser, fn_ctx, expr, method_name, args)
+				local args = parser:list_of("(", parse_expr, ")", expr_ctx)
+				expr = resolve_method_call(parser, expr_ctx, expr, method_name, args)
 			elseif parser:test("::") then
 				local tk = parser:advance()
-				local cast_type = parse_type(parser, fn_ctx:get_type_lookup())
+				local cast_type = parse_type(parser, expr_ctx:get_type_lookup())
 				assert_type_castable(expr.expr_type, cast_type, tk.position)
 				--- @type Expr
 				expr = {
@@ -1803,11 +1832,11 @@ do
 		return expr
 	end
 
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param op OperatorFragment
 	--- @param rvalue Expr
 	--- @return Expr
-	local function apply_prefix_operator(fn_ctx, op, rvalue)
+	local function apply_prefix_operator(expr_ctx, op, rvalue)
 		if rvalue.expr_type.type_kind == "ref" then
 			--- @type UnbufferRefExpr
 			local unbuffer_expr = {
@@ -1816,11 +1845,11 @@ do
 				expr_type = rvalue.expr_type.ref_element,
 				unbuffer_ref_subject = rvalue
 			}
-			return apply_prefix_operator(fn_ctx, op, unbuffer_expr)
+			return apply_prefix_operator(expr_ctx, op, unbuffer_expr)
 		elseif rvalue.expr_type.type_kind == "struct" then
 			local struct_name = rvalue.expr_type.struct_name_hint or vsl_parse.error_at(rvalue.position, "unknown struct type name so cannot apply operator '" .. op.operator .. "'")
 			local fn_name = { text = type_name_to_function_suffix(struct_name) .. "_" .. op.operator, position = op.position, type = vsl_parse.TokenType.IDENTIFIER }
-			return resolve_fn_call(fn_ctx, fn_name, { rvalue }, false)
+			return resolve_fn_call(expr_ctx, fn_name, { rvalue }, false)
 		elseif op.operator == "unm" then
 			assert_type_assignable_or_dynamic(rvalue.expr_type, IR.NUMBER_TYPE, op.position)
 			local result_type = rvalue.expr_type.type_kind == "integer" and IR.INTEGER_TYPE or IR.NUMBER_TYPE
@@ -1871,12 +1900,12 @@ do
 		end
 	end
 
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @param op OperatorFragment
 	--- @param lvalue Expr
 	--- @param rvalue Expr
 	--- @return Expr
-	local function apply_infix_operator(fn_ctx, op, lvalue, rvalue)
+	local function apply_infix_operator(expr_ctx, op, lvalue, rvalue)
 		if lvalue.expr_type.type_kind == "ref" then
 			--- @type UnbufferRefExpr
 			lvalue = {
@@ -1918,7 +1947,7 @@ do
 			end
 
 			local fn_name = { text = type_name_to_function_suffix(lvalue_struct_name) .. "_" .. op.operator .. "_" .. type_name_to_function_suffix(rvalue_struct_name), position = op.position, type = vsl_parse.TokenType.IDENTIFIER }
-			return resolve_fn_call(fn_ctx, fn_name, { lvalue, rvalue }, false)
+			return resolve_fn_call(expr_ctx, fn_name, { lvalue, rvalue }, false)
 		elseif op.operator == "add" or op.operator == "sub" or op.operator == "mul" or op.operator == "div" or op.operator == "mod" or op.operator == "exp" then
 			assert_type_assignable_or_dynamic(lvalue.expr_type, IR.NUMBER_TYPE, lvalue.expr_position)
 			assert_type_assignable_or_dynamic(rvalue.expr_type, IR.NUMBER_TYPE, rvalue.expr_position)
@@ -1982,9 +2011,9 @@ do
 	end
 
 	--- @param parser ParseCtx
-	--- @param fn_ctx FnCtx
+	--- @param expr_ctx ParseExprCtx
 	--- @return Expr
-	function parse_expr(parser, fn_ctx)
+	function parse_expr(parser, expr_ctx)
 		--- @type OperatorFragment[]
 		local operator_stack = {}
 		--- @type Expr[]
@@ -1997,12 +2026,12 @@ do
 			local rvalue = table.remove(expression_stack)
 
 			if op.arity == "unary" then
-				table.insert(expression_stack, apply_prefix_operator(fn_ctx, op, rvalue))
+				table.insert(expression_stack, apply_prefix_operator(expr_ctx, op, rvalue))
 			else
 				--- @type Expr
 				local lvalue = table.remove(expression_stack)
 
-				table.insert(expression_stack, apply_infix_operator(fn_ctx, op, lvalue, rvalue))
+				table.insert(expression_stack, apply_infix_operator(expr_ctx, op, lvalue, rvalue))
 			end
 		end
 
@@ -2019,7 +2048,7 @@ do
 				table.insert(operator_stack, op)
 			end
 
-			table.insert(expression_stack, parse_expr_and_suffixes(parser, fn_ctx))
+			table.insert(expression_stack, parse_expr_and_suffixes(parser, expr_ctx))
 
 			local tk = parser.tokens[parser.current_token_index]
 			local infix_op = tk and INFIX_OPERATORS[tk.text]
@@ -2389,15 +2418,16 @@ do
 	--- @param fn_ctx FnCtx
 	local function parse_and_encode_local(parser, fn_ctx)
 		local name = parser:expect_type(vsl_parse.TokenType.IDENTIFIER)
+		local expr_ctx = ParseExprContext.new(fn_ctx)
 
 		local explicit_type = nil
 		if parser:consume(":") then
-			explicit_type = parse_type(parser, fn_ctx:get_type_lookup())
+			explicit_type = parse_type(parser, expr_ctx:get_type_lookup())
 		end
 
 		if parser:test("=") then
 			parser:expect("=")
-			local expr = parse_expr(parser, fn_ctx)
+			local expr = parse_expr(parser, expr_ctx)
 
 			if explicit_type then
 				assert_type_assignable(expr.expr_type, explicit_type, expr.expr_position)
@@ -2422,7 +2452,7 @@ do
 	--- @param parser ParseCtx
 	--- @param fn_ctx FnCtx
 	local function parse_and_encode_if_statement(parser, fn_ctx)
-		local cond_expr = parse_expr(parser, fn_ctx)
+		local cond_expr = parse_expr(parser, ParseExprContext.new(fn_ctx))
 		local cond_value = encode_expr_to_value_ref(fn_ctx, cond_expr)
 
 		assert_type_assignable(cond_expr.expr_type, IR.BOOLEAN_TYPE, cond_expr.expr_position)
@@ -2437,7 +2467,7 @@ do
 		--- @type { cond: ValueRef, block_id: BlockId }
 		local elseifs = {}
 		while parser:consume("elseif") do
-			local elseif_cond_expr = parse_expr(parser, fn_ctx)
+			local elseif_cond_expr = parse_expr(parser, ParseExprContext.new(fn_ctx))
 			local elseif_cond_value = encode_expr_to_value_ref(fn_ctx, elseif_cond_expr)
 			assert_type_assignable(elseif_cond_expr.expr_type, IR.BOOLEAN_TYPE, elseif_cond_expr.expr_position)
 			parser:expect("then")
@@ -2487,7 +2517,7 @@ do
 	--- @param fn_ctx FnCtx
 	local function parse_and_encode_while_loop(parser, fn_ctx)
 		local outer_block_id = fn_ctx:push_loop_ssa_block()
-		local cond_expr = parse_expr(parser, fn_ctx)
+		local cond_expr = parse_expr(parser, ParseExprContext.new(fn_ctx))
 		local cond_value = encode_expr_to_value_ref(fn_ctx, cond_expr)
 
 		assert_type_assignable(cond_expr.expr_type, IR.BOOLEAN_TYPE, cond_expr.expr_position)
@@ -2519,7 +2549,7 @@ do
 		local outer_block_id = fn_ctx:push_loop_ssa_block()
 		parse_statements(parser, fn_ctx)
 		parser:expect("until")
-		local cond_expr = parse_expr(parser, fn_ctx)
+		local cond_expr = parse_expr(parser, ParseExprContext.new(fn_ctx))
 		local cond_value = encode_expr_to_value_ref(fn_ctx, cond_expr)
 
 		assert_type_assignable(cond_expr.expr_type, IR.BOOLEAN_TYPE, cond_expr.expr_position)
@@ -2672,12 +2702,12 @@ do
 				vsl_parse.error_at(value_var_name.position, "Cannot have key and value variable in numeric for loop")
 			end
 
-			local init = parse_expr(parser, fn_ctx)
+			local init = parse_expr(parser, ParseExprContext.new(fn_ctx))
 			parser:expect(",")
-			local limit = parse_expr(parser, fn_ctx)
+			local limit = parse_expr(parser, ParseExprContext.new(fn_ctx))
 			local step
 			if parser:consume(",") then
-				step = parse_expr(parser, fn_ctx)
+				step = parse_expr(parser, ParseExprContext.new(fn_ctx))
 			else
 				step = { expr_kind = "literal", expr_position = limit.expr_position, expr_type = IR.INTEGER_TYPE, literal_value = "1" }
 			end
@@ -2697,7 +2727,7 @@ do
 
 			parse_and_encode_for_loop_body(parser, fn_ctx, value_var_name, nil, iter_var_temp, limit_value, step_value, nil, IR.NIL_TYPE)
 		elseif parser:consume("in") then
-			local iterable_expr = parse_expr(parser, fn_ctx)
+			local iterable_expr = parse_expr(parser, ParseExprContext.new(fn_ctx))
 			local iterable_value = encode_expr_to_value_ref(fn_ctx, iterable_expr)
 
 			local iter_var_temp = fn_ctx:declare_anonymous_local("temp")
@@ -2795,10 +2825,10 @@ do
 
 			return nil
 		else
-			local lvalue = parse_expr(parser, fn_ctx)
+			local lvalue = parse_expr(parser, ParseExprContext.new(fn_ctx))
 
 			if parser:consume("=") then
-				local rvalue = parse_expr(parser, fn_ctx)
+				local rvalue = parse_expr(parser, ParseExprContext.new(fn_ctx))
 				parser:consume(";")
 
 				if lvalue.expr_type.type_kind == "ref" then
